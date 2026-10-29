@@ -176,23 +176,76 @@ openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null
 openssl x509 -in "$cert" -noout -__CHECK__ "__IDENTITY__" | grep -Fq 'does match'
 test "$(systemctl is-enabled certbot.timer)" = enabled
 test "$(systemctl is-active certbot.timer)" = active
-# Keep the panel private until the certificate has been configured.
+# 3X-UI CLI may exit 0 even if its settings are not persisted.
+# Read back only TLS file paths and listen-IP (never x-ui setting -show,
+# which can contain credential data).
 x-ui cert -webCert "$cert" -webCertKey "$key" >/dev/null
+cert_settings="$(x-ui setting -getCert 2>/dev/null || true)"
+printf '%s\n' "$cert_settings" | grep -Fxq "cert: $cert" || {
+    echo 'XUI_CERT_SETTINGS_MISSING: x-ui did not persist the configured certificate path; no public listener was opened.' >&2
+    exit 39
+}
+printf '%s\n' "$cert_settings" | grep -Fxq "key: $key" || {
+    echo 'XUI_KEY_SETTINGS_MISSING: x-ui did not persist the private key path; no public listener was opened.' >&2
+    exit 39
+}
 public_listener_enabled=yes
 x-ui setting -listenIP 0.0.0.0 >/dev/null
+listen_settings="$(x-ui setting -getListen 2>/dev/null || true)"
+printf '%s\n' "$listen_settings" | grep -Fxq 'listenIP: 0.0.0.0' || {
+    echo 'XUI_LISTENER_SETTINGS_MISSING: x-ui did not persist its public listen IP; reverting to localhost.' >&2
+    exit 39
+}
 systemctl restart x-ui
-# TLS must validate against the CA chain and the requested identity.
-if ! curl --noproxy '*' --silent --show-error --output /dev/null --max-time 10 \
-    --resolve '__IDENTITY__:__PORT__:127.0.0.1' \
-    'https://__IDENTITY__:__PORT__/' ; then
-    echo 'HTTPS verification failed; reverting to localhost-only listener' >&2
-    exit 36
-fi
-addresses="$(ss -Hltn 'sport = :__PORT__' | awk '{print $4}')"
-if ! printf '%s\n' "$addresses" | grep -Fxq '0.0.0.0:__PORT__'; then
-    echo 'HTTPS listener is not reachable on IPv4; reverting to localhost-only listener' >&2
+# x-ui can briefly close the listening socket while systemd restarts.
+# Check the actual listener *before* judging TLS, otherwise curl (7) hides
+# whether the service failed to bind, restarted slowly or used another port.
+listener_ready=no
+for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if systemctl is-active --quiet x-ui &&
+       ss -Hltn 'sport = :__PORT__' | awk '{print $4}' | grep -Fxq '0.0.0.0:__PORT__'; then
+        listener_ready=yes
+        break
+    fi
+    sleep 1
+done
+if [ "$listener_ready" != yes ]; then
+    if ! systemctl is-active --quiet x-ui; then
+        echo 'XUI_SERVICE_FAILED: x-ui exited after HTTPS configuration. Check systemctl status x-ui and journalctl -u x-ui (do not paste secrets).' >&2
+    else
+        echo 'XUI_LISTENER_MISSING: x-ui active but not listening on approved IPv4 TCP __PORT__. Check current x-ui panel port, webListen and runtime port overrides.' >&2
+    fi
     exit 37
 fi
+# Connect explicitly to loopback, while keeping the original IP/domain URL
+# for TLS certificate identity verification. Never use -k/--insecure.
+web_path="$(sed -n 's/^XUI_WEB_BASE_PATH=//p' /etc/x-ui/install-result.env)"
+printf '%s' "$web_path" | grep -Eq '^[A-Za-z0-9_-]{4,80}$' || {
+    echo 'XUI_WEB_PATH_INVALID: cannot verify panel without a valid web path' >&2; exit 38;
+}
+tls_ready=no
+last_curl_exit=0
+last_http_code=000
+for attempt in 1 2 3 4 5 6; do
+    last_http_code="$(curl --noproxy '*' --proto '=https' --tlsv1.2 \
+        --silent --output /dev/null --write-out '%{http_code}' --connect-timeout 3 --max-time 7 \
+        --connect-to '__IDENTITY__:__PORT__:127.0.0.1:__PORT__' \
+        "https://__IDENTITY__:__PORT__/$web_path" 2>/dev/null)" && last_curl_exit=0 || last_curl_exit=$?
+    case "$last_curl_exit:$last_http_code" in
+        0:200|0:301|0:302|0:303|0:307|0:308|0:401|0:403)
+            tls_ready=yes; break ;;
+    esac
+    sleep 1
+done
+if [ "$tls_ready" != yes ]; then
+    case "$last_curl_exit" in
+        60|51|58|59) echo 'XUI_TLS_IDENTITY_FAILED: HTTPS certificate chain or public IP/domain identity could not be verified. Panel returned to localhost.' >&2 ;;
+        7|28) echo 'XUI_LOCAL_TLS_CONNECT_FAILED: local HTTPS handshake could not connect before timeout despite an earlier listener check. Panel returned to localhost.' >&2 ;;
+        *) echo 'XUI_HTTPS_HEALTH_FAILED: HTTPS endpoint did not respond with a valid panel status, or TLS negotiation failed. Check x-ui settings and journalctl -u x-ui.' >&2 ;;
+    esac
+    exit 36
+fi
+echo 'XUI_HTTPS_VERIFIED: trusted TLS and local listener passed for the selected address and panel port'
 echo 'HTTPS certificate verified; enabling only the approved local UFW panel port'
 """ + allow_port_script(port, "tcp") + """
 public_listener_enabled=no
@@ -233,9 +286,13 @@ cert="/etc/letsencrypt/live/__IDENTITY__/fullchain.pem"
 test -s "$cert"
 openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null
 openssl x509 -in "$cert" -noout -__CHECK__ "__IDENTITY__" | grep -Fq 'does match'
-curl --noproxy '*' --silent --show-error --output /dev/null --max-time 8 \
-    --resolve '__IDENTITY__:__PORT__:127.0.0.1' \
-    'https://__IDENTITY__:__PORT__/'
+web_path="$(sed -n 's/^XUI_WEB_BASE_PATH=//p' /etc/x-ui/install-result.env)"
+printf '%s' "$web_path" | grep -Eq '^[A-Za-z0-9_-]{4,80}$'
+http_code="$(curl --noproxy '*' --proto '=https' --tlsv1.2 --silent \
+    --output /dev/null --write-out '%{http_code}' --max-time 8 \
+    --connect-to '__IDENTITY__:__PORT__:127.0.0.1:__PORT__' \
+    "https://__IDENTITY__:__PORT__/$web_path")"
+case "$http_code" in 200|301|302|303|307|308|401|403) ;; *) exit 38 ;; esac
 grep -E '^XUI_(USERNAME|PASSWORD|PANEL_PORT|WEB_BASE_PATH)=' /etc/x-ui/install-result.env
 """
     for key, value in {"__PORT__": str(port), "__IDENTITY__": identity,

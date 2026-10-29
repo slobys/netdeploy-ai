@@ -22,7 +22,7 @@ from .tasks import JobRunner
 from .ai import diagnose
 from .os_keyring import VaultUnavailable
 from .https_upgrade import identify, https_access_script, https_url
-from .firewall import PortRule, STATUS_SCRIPT, allow_port_script
+from .firewall import PortRule, STATUS_SCRIPT, allow_port_script, FirewallToggle, firewall_toggle_script
 from .xui_existing import status_script, parse_status, public_access_script, direct_url
 
 BASE = Path(__file__).resolve().parent
@@ -38,7 +38,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.6")
+app = FastAPI(title="NetDeploy AI", version="0.3.7")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -152,7 +152,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.6", "security": "local-only"}
+    return {"ok": True, "version": "0.3.7", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -444,6 +444,33 @@ def firewall_allow(id: int, body: PortRule):
     return {"ok": True, "port": body.port, "protocol": body.protocol,
             "mode": mode, "message": result.strip()[:800],
             "cloud_notice": "本机规则已处理，但云服务器安全组仍需另行允许对应入站端口"}
+
+
+@app.post("/api/hosts/{id}/firewall/toggle", dependencies=[Depends(authorized)])
+def firewall_toggle(id: int, body: FirewallToggle):
+    """Explicit opt-in; does not disable or edit the provider's cloud ACLs."""
+    host = find_host(id)
+    if not body.confirmed_risk:
+        raise HTTPException(status_code=409, detail="关闭整个 VPS 防火墙存在公网暴露风险，必须明确确认此操作")
+    if not executor.credential_ready(host):
+        raise HTTPException(status_code=409, detail="SSH 登录凭据不可用，拒绝修改防火墙")
+    try:
+        script = firewall_toggle_script(body.mode, int(host["port"]))
+        with store.lock:
+            if store.has_active_endpoint_jobs(host["hostname"], host["port"]):
+                raise ValueError("当前服务器有部署中的任务，不能切换整个 UFW 状态")
+            raw = executor.run(host, script, timeout=35)
+    except (SSHError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"防火墙切换失败，状态未确认：{exc}") from exc
+    expected = "inactive" if body.mode == "disable" else "active"
+    try:
+        verified = executor.run(host, STATUS_SCRIPT, timeout=20)
+    except (SSHError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"命令已执行，但无法重新读取 UFW 状态：{exc}") from exc
+    if not verified.startswith(f"FIREWALL={expected}"):
+        raise HTTPException(status_code=409, detail="UFW 状态与目标不一致，请检查 VPS 控制台，不要连续重复操作")
+    return {"ok": True, "mode": expected, "message": raw.strip()[:500],
+            "cloud_notice": "仅更改 VPS 的 UFW 状态，云厂商安全组不受此操作影响"}
 
 
 @app.get("/api/jobs", dependencies=[Depends(authorized)])

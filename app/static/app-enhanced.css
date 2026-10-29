@@ -365,6 +365,22 @@ details>summary:hover{color:#d2e6ff}
   .xui-existing-actions>.btn{width:100%}
 }
 
+
+/* v0.3.7 — prominent but bounded host management and optional advanced UFW. */
+.host-item{padding-bottom:55px}
+.host-card-delete{position:absolute;right:19px;bottom:14px;z-index:4;cursor:pointer;border:1px solid #78445b;border-radius:9px;padding:7px 12px;background:#382131;color:#f4bac9;font-size:11px;font-weight:650;transition:background .2s,border-color .2s,transform .2s}
+.host-card-delete:hover{background:#562d40;border-color:#b56a84;transform:translateY(-1px)}
+.host-card-delete:focus-visible{outline:2px solid #ffa2bb;outline-offset:3px}
+.xui-port-config{display:flex;flex-direction:column;gap:14px;min-width:0}
+.xui-port-config>p{font-size:12px;color:#b7cce8;line-height:1.7}
+.xui-port-config input[type=number]{font-size:18px;font-variant-numeric:tabular-nums}
+.firewall-toggle-panel{border:1px solid #6f4351;border-radius:14px;padding:16px 18px;margin-top:20px;background:#201e30}
+.firewall-toggle-panel h4{font-size:14px;color:#ffcfde;margin:0 0 7px}
+.firewall-toggle-panel p{font-size:12px;line-height:1.75;color:#c4b6c6;margin:0}
+.firewall-toggle-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.firewall-toggle-actions .btn{font-size:12px}
+@media(max-width:550px){.firewall-toggle-actions .btn{flex:1 1 100%}}
+
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
   .host-item:hover,.project:hover,.stat:hover,.job-item:hover,.btn:hover,.nav-item:hover{transform:none!important}

@@ -20,10 +20,12 @@ function makeElement() {
     textContent: '',
     value: '',
     disabled: false,
+    dataset: {},
     classList: {
       add: name => classes.add(name),
       remove: name => classes.delete(name),
       contains: name => classes.has(name),
+      toggle: (name,yes) => {if(yes)classes.add(name);else classes.delete(name);},
     },
     addEventListener: (kind, fn) => handlers.set(kind, fn),
     setAttribute() {},
@@ -45,6 +47,14 @@ const document = {
     if (selector === '#approve-form') {
       return modal.innerHTML.includes('id="approve-form"') ? approveForm : null;
     }
+    if (selector === '#job-state'){
+      const match=modal.innerHTML.match(/id="job-state"[^>]*data-current-status="([^"]+)"/);
+      if(!match)return null;
+      if(!made.has(selector))made.set(selector,makeElement());
+      made.get(selector).dataset.currentStatus=match[1];
+      return made.get(selector);
+    }
+    if(selector==='#task-log'&&!modal.innerHTML.includes('id="task-log"'))return null;
     if (selector === '#verified-key') return null;
     if (!made.has(selector)) made.set(selector, makeElement());
     return made.get(selector);
@@ -69,6 +79,7 @@ let mockFingerprint = null;
 let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
+let returnedJobs=null;
 let xuiReadRequests=0;
 const context = vm.createContext({
   console,
@@ -97,6 +108,13 @@ const context = vm.createContext({
         access_mode:'local'
       })};
     }
+    if(url==='/api/hosts')return {ok:true,status:200,json:async()=>[host]};
+    if(url==='/api/catalog')return {ok:true,status:200,json:async()=>({
+      '3x-ui':{name:'3X-UI',subtitle:'Xray 管理面板',deployment:'install',category:'面板'}
+    })};
+    if(url==='/api/capabilities')return {ok:true,status:200,json:async()=>({secure_password_storage:false})};
+    if(url==='/api/jobs'&&returnedJobs)
+      return {ok:true,status:200,json:async()=>returnedJobs};
     if (url==='/api/jobs') planCreations++;
     throw new Error('Unexpected network attempt: '+url);
   },
@@ -180,6 +198,21 @@ function fingerprintFor(label) {
   assert(modal.innerHTML.includes('data-action="existing-xui-https"'));
   assert.equal(xuiReadRequests,1);
   assert.equal(planCreations,0,'Existing installation must not create a new install task');
+
+  // A running job becoming completed via polling must immediately grow its
+  // "查看面板信息" action in the currently open modal, no reopening required.
+  const running={...freshJob,status:'running',logs:'Started',plan:{...freshJob.plan}};
+  fill(running);
+  evaluate("state.token='test';showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('data-current-status="running"'));
+  assert(!modal.innerHTML.includes('查看面板信息'));
+  returnedJobs=[{...running,status:'completed',logs:'Done'}];
+  await evaluate('loadAll(true)');
+  assert(modal.innerHTML.includes('查看面板信息'),
+    'Polling must render the panel info button in the open task view');
+  assert(modal.innerHTML.includes('data-current-status="completed"'));
+  returnedJobs=null;
+  evaluate("state.token='';");
 
   assert(css.includes('.fingerprint-result{display:flex;flex-direction:column'),
     'Fingerprint results must stack vertically');

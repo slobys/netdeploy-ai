@@ -63,7 +63,7 @@ elif test "$addresses" = "0.0.0.0:$port"; then
     if test -n '__IDENTITY__'; then
         code="$(curl --noproxy '*' --proto '=https' --tlsv1.2 --silent \
           --output /dev/null --write-out '%{http_code}' --max-time 7 \
-          --resolve '__IDENTITY__:'"$port"':127.0.0.1' \
+          --connect-to '__IDENTITY__:'"$port"':127.0.0.1:'"$port" \
           'https://__IDENTITY__:'"$port"'/'"$web_path" 2>/dev/null || true)"
         case "$code" in
           200|301|302|303|307|308|401|403)
@@ -128,7 +128,7 @@ web_path="$(sed -n 's/^XUI_WEB_BASE_PATH=//p' /etc/x-ui/install-result.env)"
 printf '%s' "$web_path" | grep -Eq '^[A-Za-z0-9_-]{4,80}$'
 code="$(curl --noproxy '*' --proto '=https' --tlsv1.2 --silent \
   --output /dev/null --write-out '%{http_code}' --max-time 8 \
-  --resolve '__IDENTITY__:__PORT__:127.0.0.1' \
+  --connect-to '__IDENTITY__:__PORT__:127.0.0.1:__PORT__' \
   'https://__IDENTITY__:__PORT__/'"$web_path" 2>/dev/null || true)"
 case "$code" in 200|301|302|303|307|308|401|403) ;; *) echo 'TLS verification failed' >&2; exit 44 ;; esac
 # Only this explicit authenticated endpoint may return initial login credentials.

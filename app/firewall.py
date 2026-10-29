@@ -16,6 +16,60 @@ class PortRule(BaseModel):
     confirmation: bool = False
 
 
+class FirewallToggle(BaseModel):
+    mode: Literal["disable", "enable"]
+    confirmed_risk: bool = False
+
+
+def firewall_toggle_script(mode: str, ssh_port: int) -> str:
+    """Explicit operator action for this VPS's UFW only.
+
+    Disabling intentionally removes the VPS's *host-level* traffic filter, but
+    retains UFW rules for re-enabling. Re-enabling first allows the pinned SSH
+    port, protecting access when the default incoming policy is deny.
+    """
+    if mode not in ("disable", "enable"):
+        raise ValueError("不支持的 UFW 操作")
+    if type(ssh_port) is not int or not 1 <= ssh_port <= 65535:
+        raise ValueError("SSH 端口必须是 1–65535 的整数")
+    common = """set -eu
+test "$(id -u)" = 0
+command -v ufw >/dev/null 2>&1 || {
+    echo 'UFW_UNAVAILABLE: UFW is not installed; nothing changed' >&2
+    exit 71
+}
+status="$(LC_ALL=C ufw status | sed -n '1p')"
+case "$status" in
+    'Status: active'|'Status: inactive') ;;
+    *) echo 'UFW_STATUS_UNKNOWN: refused an unknown firewall state' >&2; exit 72 ;;
+esac
+"""
+    if mode == "disable":
+        return common + """if [ "$status" = 'Status: inactive' ]; then
+    echo 'UFW_ALREADY_DISABLED: UFW is already inactive'
+    exit 0
+fi
+# Preserves rules; does not uninstall UFW or change cloud security groups.
+ufw --force disable >/dev/null
+LC_ALL=C ufw status | grep -Fxq 'Status: inactive' || {
+    echo 'UFW_DISABLE_UNVERIFIED: could not confirm disabled state' >&2; exit 73;
+}
+echo 'UFW_DISABLED: entire VPS host firewall is inactive; cloud ACLs are unchanged'
+"""
+    return common + f"""if [ "$status" = 'Status: active' ]; then
+    echo 'UFW_ALREADY_ENABLED: UFW is already active'
+    exit 0
+fi
+# Explicitly allow the verified SSH port BEFORE enabling a deny-by-default
+# firewall. Never remove existing rules or reset the UFW configuration.
+ufw allow {ssh_port}/tcp comment 'NetDeploy SSH safeguard' >/dev/null
+ufw --force enable >/dev/null
+LC_ALL=C ufw status | grep -Fxq 'Status: active' || {{
+    echo 'UFW_ENABLE_UNVERIFIED: could not confirm enabled state' >&2; exit 74;
+}}
+echo 'UFW_ENABLED: host firewall is active; SSH TCP {ssh_port} explicitly allowed'
+"""
+
 STATUS_SCRIPT = """set -eu
 test "$(id -u)" = 0
 if ! command -v ufw >/dev/null 2>&1; then

@@ -1,4 +1,4 @@
-/* NetDeploy AI v0.3.6 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.7 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null};
@@ -37,10 +37,18 @@ async function loadAll(silent=false){
     if(!silent)toast('控制台已刷新');
     if(state.activeJob && !el('#modal').classList.contains('hidden')) {
       const active=state.jobs.find(j=>j.id===state.activeJob);
-      if(active && ['running','queued','completed','partial','failed','interrupted','invalidated'].includes(active.status)){
-        const logbox=el('#task-log'); if(logbox){
-          logbox.textContent=active.logs || '还没有执行日志'; el('#job-state').textContent=stateText(active.status);
-          if(['3x-ui','3x-ui-https'].includes(active.project)&&active.status==='completed'&&!el('[data-action="xui-access"]'))showJob(active.id);
+      const statusNode=el('#job-state'),logbox=el('#task-log');
+      if(active&&statusNode&&logbox){
+        const before=statusNode.dataset.currentStatus||'';
+        if(before!==active.status&&['completed','partial','failed','interrupted','invalidated'].includes(active.status)){
+          // Replace the open task panel once on state transition; completed
+          // install/HTTPS actions become visible without reopening the modal.
+          showJob(active.id);
+          toast(active.status==='completed'?'任务已完成，可以直接查看面板信息':'任务状态已更新，请查看错误或后续操作',active.status==='failed');
+        }else{
+          logbox.textContent=active.logs||'还没有执行日志';
+          statusNode.textContent=stateText(active.status);
+          statusNode.dataset.currentStatus=active.status;
         }
       }
     }
@@ -72,6 +80,7 @@ function render(){
       <div class="host-card-address">${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port}</div>
       <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}</div>
       ${duplicate>1?`<span class="host-card-hint">${duplicate} 条记录共用此 SSH 地址</span>`:''}
+      <button class="host-card-delete" type="button" data-action="delete-host" data-id="${h.id}" aria-label="删除 ${escapeHtml(h.name)} 的本地服务器记录">删除服务器</button>
     </article>`;
  }).join(''):`<div class="empty"><span class="empty-icon">▤</span><span>还没有 VPS。添加后点击卡片，即可在同一个控制台管理连接、部署与端口。</span><button class="btn primary" data-action="add-host">＋ 添加第一台 VPS</button></div>`;
  el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${isExistingXuiPlan(j)?'<span class="chip success">已安装 · 无需审批</span>':chip(j.status)}<button class="btn ${j.status==='planned'?'primary':'subtle'}" data-action="${isExistingXuiPlan(j)?'installed-xui':isPlanExpired(j)&&j.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(isExistingXuiPlan(j)?j.host_id:j.id)}">${escapeHtml(jobNextAction(j))} →</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
@@ -196,7 +205,13 @@ function openHostConsole(id,tab='overview'){
        <div class="form-group"><label>要放行的端口</label><input name="port" type="number" min="1" max="65535" value="80" required/></div>
        <div class="form-group"><label>协议</label><select name="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div>
      </div><div class="modal-actions"><button type="submit" class="btn primary">放行本机防火墙端口</button></div></form>
-     <p class="helptext">不会关闭整台服务器的防火墙。即使本机放行成功，云厂商入站规则仍需另外检查。</p>`;
+     <p class="helptext">仅设置 VPS 内的 UFW。云厂商安全组不受本功能影响。</p>
+     <div class="firewall-toggle-panel">
+       <h4>本机防火墙开关（高级操作）</h4>
+       <p>关闭 UFW 会取消整台 VPS 的本机端口过滤，但不会关闭云厂商安全组。仅用于确认排障需要时手动操作。</p>
+       <div class="firewall-toggle-actions"><button class="btn danger" data-action="toggle-ufw" data-id="${id}" data-mode="disable" type="button">关闭 VPS 本机防火墙</button>
+         <button class="btn subtle" data-action="toggle-ufw" data-id="${id}" data-mode="enable" type="button">重新启用 UFW</button></div>
+     </div>`;
  }else if(tab==='security'){
    content=`<div class="server-tab-intro"><h3>SSH 身份与登录安全</h3><p>SSH 指纹用于确认连接的是原来的服务器；登录密码用于身份认证。VPS 重装后若指纹变化，应独立核对后更新，不能直接跳过。</p></div>
      <div class="server-action-grid">
@@ -237,17 +252,41 @@ async function refreshFirewallUI(id){
    if(!target.isConnected)return;
    const headline={active:'UFW 已启用',inactive:'UFW 未启用',unavailable:'未安装 UFW',unknown:'无法确认 UFW 状态'}[result.status]||'未知状态';
    target.innerHTML=`<strong>${headline}</strong><pre class="pre">${escapeHtml(result.details)}</pre><p class="helptext">${escapeHtml(result.cloud_notice)}</p>`;
+   const disable=el('[data-action="toggle-ufw"][data-mode="disable"]');
+   const enable=el('[data-action="toggle-ufw"][data-mode="enable"]');
+   if(disable)disable.disabled=result.status!=='active';
+   if(enable)enable.disabled=result.status!=='inactive';
  }catch(err){if(target.isConnected)target.innerHTML=`<div class="modal-tip warning">${escapeHtml(err.message)}</div>`;}
+}
+function confirmUfwToggle(id,mode){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ const disabling=mode==='disable';
+ dialog(modalHead(disabling?'关闭 VPS 本机防火墙':'重新启用 VPS 本机防火墙')+`
+   <div class="modal-tip warning"><b>${disabling?'此操作会关闭整台 VPS 的 UFW 本机防火墙。':'重新启用 UFW 前会先放行当前 SSH 端口。'}</b>
+   ${disabling?'所有端口将不再受到 UFW 过滤，可能暴露管理接口或其他服务。云安全组依旧独立生效。':'已有的 UFW 规则和默认拒绝策略将重新生效；某些端口可能再次被拦截。'}
+   请确认正在管理的是 ${escapeHtml(host.name)}（${escapeHtml(host.hostname)}）。</div>
+   <div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="${id}">取消</button>
+   <button class="btn ${disabling?'danger':'primary'}" data-action="apply-ufw-toggle" data-id="${id}" data-mode="${mode}">
+     ${disabling?'确认关闭 UFW':'确认重新启用 UFW'}</button></div>`);
+}
+async function applyUfwToggle(id,mode){
+ toast('正在通过可信 SSH 切换 UFW 状态…');
+ try{
+   const result=await api(`/hosts/${id}/firewall/toggle`,{method:'POST',
+     body:JSON.stringify({mode,confirmed_risk:true})});
+   openHostConsole(id,'network');
+   toast(result.mode==='inactive'?'UFW 已关闭，VPS 本机端口不再由 UFW 过滤':'UFW 已重新启用，SSH 端口已预先放行');
+ }catch(err){toast(err.message,true);}
 }
 async function checkHostInConsole(id){
  const target=el('.server-tab-content');if(target)target.insertAdjacentHTML('afterbegin','<div class="modal-tip server-check-running">正在通过已验证的 SSH 读取服务器环境…</div>');
  try{await api(`/hosts/${id}/preflight`,{method:'POST'});await loadAll(true);openHostConsole(id,'overview');toast('连接检测成功，系统信息已更新');}
  catch(err){el('.server-check-running')?.remove();toast(err.message,true);}
 }
-async function createHostPlan(id,project,panelPort=24443){
+async function createHostPlan(id,project,panelPort=null,absenceVerified=false){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
  // Always inspect the *live* VPS before an installation, not old task records.
- if(project==='3x-ui'){
+ if(project==='3x-ui'&&!absenceVerified){
    toast('正在只读检查现有 3X-UI 安装…');
    try{
      const status=await api('/hosts/'+id+'/3x-ui');
@@ -258,6 +297,31 @@ async function createHostPlan(id,project,panelPort=24443){
    (j.plan?.trust_epoch||0)===(host.trust_epoch||0)&&j.plan?.executable&&
    j.plan?.steps?.length>0&&['planned','queued','running'].includes(j.status)&&!isPlanExpired(j));
  if(existing){showJob(existing.id);toast(existing.status==='planned'?'已有审批方案，直接继续即可':'已有执行中的任务，无需重复创建');return;}
+ if(project==='3x-ui'&&panelPort===null){
+   const detectedHost=host.hostname;
+   const ip=/^\d{1,3}(?:\.\d{1,3}){3}$/.test(detectedHost);
+   dialog(modalHead('安装 3X-UI · 自定义面板端口')+`
+     <div class="xui-port-config"><span class="chip">${ip?'公网 IP · 自动申请 IP 证书':'域名 · 自动申请域名证书'}</span>
+       <p>服务器：${escapeHtml(detectedHost)}。证书类型将自动识别，不需要额外选择或再执行一次 HTTPS 安装。</p>
+       <form id="xui-custom-port-form"><div class="form-group">
+         <label>3X-UI 管理端口（可自行修改）</label>
+         <input name="port" type="number" min="1024" max="65535" value="24443" required/>
+         <p class="helptext">允许 1024–65535，不能与 SSH 端口 ${host.port} 相同。程序会预检端口占用。</p>
+       </div><div class="modal-actions"><button class="btn ghost" type="button" data-action="back-host" data-id="${id}">返回</button>
+         <button class="btn primary" type="submit">生成安装与 HTTPS 方案 →</button></div></form>
+     </div>`);
+   const form=el('#xui-custom-port-form');
+   form.addEventListener('submit',async e=>{
+     e.preventDefault();const port=Number(new FormData(form).get('port'));
+     if(!Number.isInteger(port)||port<1024||port>65535||port===host.port){
+       toast('端口必须为 1024–65535，且不能与 SSH 端口相同',true);return;
+     }
+     const button=form.querySelector('button[type="submit"]');button.disabled=true;button.classList.add('is-loading');
+     try{await createHostPlan(id,'3x-ui',port,true);}
+     finally{if(button.isConnected){button.disabled=false;button.classList.remove('is-loading');}}
+   });
+   return;
+ }
  toast('正在检测 VPS 并生成部署计划…');
  try{
    const payload={host_id:id,project};
@@ -390,12 +454,12 @@ function deleteHost(id){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
  dialog(modalHead('删除 VPS 记录')+`<div class="modal-tip warning"><b>只删除 NetDeploy AI 的本地记录，不卸载 VPS 软件。</b> SSH 指纹若被其他服务器条目共用，会继续保留。关联部署任务、日志和面板快捷入口将在明确确认后删除，无法从面板恢复。</div>
  <p class="helptext">${escapeHtml(host.name)} · ${escapeHtml(host.hostname)}:${host.port} · ${host.job_count||0} 条部署历史</p>
- <form id="delete-host-form"><div class="form-group"><label>输入确认语句：DELETE VPS ${id}</label><input name="confirmation" required autocomplete="off" placeholder="DELETE VPS ${id}"/></div>
+ <form id="delete-host-form"><p class="helptext">点击下方删除按钮即可确认，不需要手动输入英文确认语句。</p>
  ${host.job_count?`<label class="check"><input type="checkbox" name="delete_local_history" required/> 我确认同步删除该 VPS 的 ${host.job_count} 条本地任务历史及日志（不会删除远端软件）</label>`:''}
  <div class="modal-actions"><button class="btn ghost" type="button" data-action="close-modal">取消</button><button class="btn danger" type="submit">删除本地服务器记录</button></div></form>`);
  el('#delete-host-form').addEventListener('submit',async e=>{
    e.preventDefault();const form=e.currentTarget;const fd=new FormData(form);
-   const payload={confirmation:String(fd.get('confirmation')),delete_local_history:fd.get('delete_local_history')==='on'};
+   const payload={confirmation:`DELETE VPS ${id}`,delete_local_history:fd.get('delete_local_history')==='on'};
    const submit=form.querySelector('button[type="submit"]');if(submit){submit.disabled=true;submit.classList.add('is-loading');}
    toast('正在安全删除本地 VPS 记录…');
    try{const res=await api(`/hosts/${id}`,{method:'DELETE',body:JSON.stringify(payload)});
@@ -565,11 +629,11 @@ function showJob(id){
      <button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看现有 3X-UI 面板 →</button>
    </section>`;
  }else{
-   html+=`<h3>部署状态及日志</h3><div id="job-state" class="log-status">${escapeHtml(stateText(job.status))}</div>
+   html+=`<h3>部署状态及日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(stateText(job.status))}</div>
       <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
       <div class="modal-actions modal-action-wrap">
-       ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(job.id)}">查看面板</button>${(p.options?.access_mode==='https'&&job.status==='completed')||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
-       ${job.project==='3x-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(p.options?.source_job_id)}">打开 HTTPS 面板</button>`:''}
+       ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看面板信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
+       ${job.project==='3x-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看 HTTPS 面板信息</button>`:''}
        ${job.project==='3x-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成证书方案</button>`:''}
        <button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读排障</button>
        ${['queued','running'].includes(job.status)?'':`<button class="btn danger" data-action="delete-job" data-id="${escapeHtml(job.id)}">删除记录</button>`}
@@ -710,13 +774,15 @@ document.addEventListener('click',async e=>{
  const id=t.dataset.id,act=t.dataset.action;
  const asyncActions=new Set(['installed-xui','existing-xui-https','install-new-xui','fingerprint','trust','preflight','host-check','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel']);
  if(t.dataset.busy==='1')return;
- const busy=asyncActions.has(act);
+ const busy=asyncActions.has(act)||act==='apply-ufw-toggle';
  if(busy){t.dataset.busy='1';t.disabled=true;t.classList.add('is-loading');t.setAttribute('aria-busy','true');}
  try{
   if(act==='close-modal'){closeDialog();state.activeJob=null;state.hostPanel=null;state.pendingFingerprint=null;}
   else if(act==='host-console')openHostConsole(Number(id));
   else if(act==='back-host')openHostConsole(Number(id),state.hostPanel?.tab||'overview');
   else if(act==='host-tab')openHostConsole(Number(id),t.dataset.tab||'overview');
+  else if(act==='toggle-ufw')confirmUfwToggle(Number(id),t.dataset.mode);
+  else if(act==='apply-ufw-toggle')await applyUfwToggle(Number(id),t.dataset.mode);
   else if(act==='host-check')await checkHostInConsole(Number(id));
   else if(act==='installed-xui')await showExistingXui(Number(id));
   else if(act==='existing-xui-https')await continueExistingXuiHttps(Number(id));
@@ -766,7 +832,7 @@ if(window.matchMedia('(hover: hover) and (prefers-reduced-motion: no-preference)
    card.style.setProperty('--hover-y',y+'%');
  },{passive:true});
 }
-document.addEventListener('keydown',e=>{const card=e.target.closest?.('[data-action="host-console"]');if(card&&(e.key==='Enter'||e.key===' ')){e.preventDefault();openHostConsole(Number(card.dataset.id));}});
+document.addEventListener('keydown',e=>{const card=e.target.closest?.('[data-action="host-console"]');if(card&&e.target===card&&(e.key==='Enter'||e.key===' ')){e.preventDefault();openHostConsole(Number(card.dataset.id));}});
 el('#refresh').addEventListener('click',async e=>{const button=e.currentTarget;button.classList.add('is-loading');button.disabled=true;try{await loadAll();}finally{button.classList.remove('is-loading');button.disabled=false;}});
 el('#logout').addEventListener('click',()=>{sessionStorage.removeItem('nd_token');state.token='';el('#login').classList.remove('hidden');});
 setInterval(()=>{if(state.token)loadAll(true);},5000);
