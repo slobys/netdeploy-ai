@@ -35,7 +35,7 @@ def test_tls_type_and_certbot_args_are_derived_from_host(host,type_label,flag):
     assert "LE_UNCLASSIFIED" in stages[2]["script"]
     assert "reuse_certificate" in stages[2]["script"]
     assert 'x-ui setting -listenIP 0.0.0.0' not in stages[2]["script"]
-    assert 'x-ui setting -listenIP 0.0.0.0' in stages[3]["script"]
+    assert '"$panel_cli" setting -listenIP 0.0.0.0' in stages[3]["script"]
 
 
 @pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None,

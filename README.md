@@ -1,4 +1,4 @@
-# NetDeploy AI · v0.3.7 Alpha
+# NetDeploy AI · v0.3.8 Alpha
 
 > 一个以 VPS 为优先方向的 AI 辅助网络项目部署面板。2026-10-29 第一阶段原型（Windows SSH 主机指纹扫描修复）。 **不是生产稳定版，不要用重要 VPS 直接试错。**
 
@@ -221,6 +221,18 @@ tests/                    自动化测试
 
 参见 [架构](docs/ARCHITECTURE.md)、[安全边界](docs/SECURITY.md)、[阶段计划](docs/ROADMAP.md)。
 
+
+## v0.3.8：修复 3X-UI 证书设置实际命令入口，首次安装一次完成 HTTPS
+
+**已根据 3X-UI 官方 v3.11.0 源码确认此前真正的错误：** `/usr/bin/x-ui` 是交互式 Shell 菜单，不支持 `setting` / `cert` 子命令；NetDeploy v0.3.7 却把 `x-ui cert` 等命令发送给了菜单脚本。其不支持的命令可能输出帮助并返回 0，导致后续错误地报告 `XUI_CERT_SETTINGS_MISSING`。真正的 CLI 在 `/usr/local/x-ui/x-ui`，官方自身的 `x-ui.sh` 也是用它设置和读取证书。对应上游文件：[安装器](https://github.com/MHSanaei/3x-ui/blob/v3.11.0/install.sh)、[控制脚本](https://github.com/MHSanaei/3x-ui/blob/v3.11.0/x-ui.sh)、[Go 命令处理](https://github.com/MHSanaei/3x-ui/blob/v3.11.0/main.go)。
+
+- **全部切换到真正的程序**：HTTPS 配置、`-getCert`、`-getListen`、改监听地址，以及失败恢复都调用官方固定的 `/usr/local/x-ui/x-ui`；在前置检查就确认程序存在，防止先申请证书再发现 CLI 不可用。
+- **失败恢复更完整**：开始修改前只读取原证书路径用于回滚，错误时恢复本机 `127.0.0.1` 监听及原来证书设置，不向公网开放明文 HTTP。配置成功后再读回证书路径和监听地址，等待服务启动，再验证 HTTPS 的可信证书和实际面板响应。
+- **一键安装的真实逻辑**：**新的空白 VPS 安装只有一个九步部署任务、一次审批**。初次安装就自动继续证书与 HTTPS，不会要求再安装/审批第二个 3X-UI。IP/域名证书类型仍按 SSH 服务器地址自动识别。对已经安装成功、仅 HTTPS 失败的旧 VPS，继续使用**四步 HTTPS 续接任务**，不重装；由于旧任务已经停止且执行脚本改变，仍须明确一次新的高权限修复授权，不能跨版本自动重放旧的部署权限。
+- **界面更明确**：HTTPS-only 方案标题和确认按钮明确标记“继续配置已安装的 HTTPS，不重新安装”；避免误以为又要执行一次安装器。
+- **模拟上游 CLI 的实际行为**：专项离线 Bash 测试同时模拟“不支持命令但返回 0 的菜单脚本”和“支持设置/查询的真正二进制”，验证证书成功、监听成功、可信 HTTPS、UFW 精确放行，以及证书读回失败时的安全回滚。绝不实际连接你的 VPS 或 Let's Encrypt。
+
+**更新：** 关闭本地 NetDeploy 服务并双击桌面的 `netdeploy-ai-git\QuickStart-NetDeploy.bat`，再按 Ctrl+F5 确认 `ALPHA v0.3.8`。此前已经安装的 3X-UI **不要重装**；使用“查看现有面板 → 继续完成 HTTPS”即可。实际服务端 HTTPS 能否成功仍需在你的 Ubuntu VPS 验收；若云厂商安全组未允许管理端口，还需开放对应入站 TCP 端口。
 
 ## v0.3.7：HTTPS 连接失败诊断 + 自定义端口 + 任务结果实时显示
 

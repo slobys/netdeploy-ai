@@ -35,7 +35,9 @@ def https_steps(identity: str, port: int) -> list[dict]:
     validate_port(port)
     preflight = r"""set -eu
 test "$(id -u)" = 0
-command -v x-ui >/dev/null
+test -x /usr/local/x-ui/x-ui || {
+    echo 'XUI_CLI_MISSING: official 3X-UI program not found'; exit 40;
+}
 test -d /run/systemd/system
 systemctl is-active --quiet x-ui
 test -r /etc/x-ui/install-result.env
@@ -161,10 +163,25 @@ echo 'Trusted certificate issued, identity checked, automatic renewal configured
     activate = r"""set -eu
 # Any error after changing the listener must revert it, including a failed
 # service restart or an unexpected certificate-validation failure.
-public_listener_enabled=no
+# /usr/bin/x-ui is the interactive shell manager. It DOES NOT forward
+# "cert" or "setting" commands. 3X-UI v3.11.0 installs the actual Go CLI
+# at this pinned, verified upstream binary path.
+panel_cli="/usr/local/x-ui/x-ui"
+test -x "$panel_cli" || {
+    echo 'XUI_CLI_MISSING: official 3X-UI program unavailable; no HTTPS settings were changed.' >&2
+    exit 40
+}
+changes_started=no
+original_cert=""
+original_key=""
 restore_local_listener() {
-    if [ "$public_listener_enabled" = yes ]; then
-        x-ui setting -listenIP 127.0.0.1 >/dev/null 2>&1 || true
+    if [ "$changes_started" = yes ]; then
+        "$panel_cli" setting -listenIP 127.0.0.1 >/dev/null 2>&1 || true
+        if [ -n "$original_cert" ] && [ -n "$original_key" ]; then
+            "$panel_cli" cert -webCert "$original_cert" -webCertKey "$original_key" >/dev/null 2>&1 || true
+        else
+            "$panel_cli" cert -reset >/dev/null 2>&1 || true
+        fi
         systemctl restart x-ui >/dev/null 2>&1 || true
     fi
 }
@@ -176,11 +193,24 @@ openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null
 openssl x509 -in "$cert" -noout -__CHECK__ "__IDENTITY__" | grep -Fq 'does match'
 test "$(systemctl is-enabled certbot.timer)" = enabled
 test "$(systemctl is-active certbot.timer)" = active
-# 3X-UI CLI may exit 0 even if its settings are not persisted.
-# Read back only TLS file paths and listen-IP (never x-ui setting -show,
-# which can contain credential data).
-x-ui cert -webCert "$cert" -webCertKey "$key" >/dev/null
-cert_settings="$(x-ui setting -getCert 2>/dev/null || true)"
+# Capture the prior settings for rollback. Flag readback uses the direct Go
+# binary, not the /usr/bin/x-ui menu wrapper.
+previous_cert_settings="$("$panel_cli" setting -getCert true 2>/dev/null || true)"
+original_cert="$(printf '%s\n' "$previous_cert_settings" | sed -n 's/^cert: //p' | head -n 1)"
+original_key="$(printf '%s\n' "$previous_cert_settings" | sed -n 's/^key: //p' | head -n 1)"
+if [ -n "$original_cert" ] || [ -n "$original_key" ]; then
+    if [ -z "$original_cert" ] || [ -z "$original_key" ] ||
+       ! printf '%s\n' "$original_cert" | grep -Eq '^/[A-Za-z0-9._+/-]+$' ||
+       ! printf '%s\n' "$original_key" | grep -Eq '^/[A-Za-z0-9._+/-]+$'; then
+        echo 'XUI_PREVIOUS_CERT_UNSAFE: unable to restore prior certificate settings safely; no changes applied.' >&2
+        exit 41
+    fi
+fi
+# Never trust the CLI exit status alone: Go setters sometimes log failures
+# but return exit code 0. Only explicitly selected settings are read back.
+changes_started=yes
+"$panel_cli" cert -webCert "$cert" -webCertKey "$key" >/dev/null
+cert_settings="$("$panel_cli" setting -getCert true 2>/dev/null || true)"
 printf '%s\n' "$cert_settings" | grep -Fxq "cert: $cert" || {
     echo 'XUI_CERT_SETTINGS_MISSING: x-ui did not persist the configured certificate path; no public listener was opened.' >&2
     exit 39
@@ -189,9 +219,8 @@ printf '%s\n' "$cert_settings" | grep -Fxq "key: $key" || {
     echo 'XUI_KEY_SETTINGS_MISSING: x-ui did not persist the private key path; no public listener was opened.' >&2
     exit 39
 }
-public_listener_enabled=yes
-x-ui setting -listenIP 0.0.0.0 >/dev/null
-listen_settings="$(x-ui setting -getListen 2>/dev/null || true)"
+"$panel_cli" setting -listenIP 0.0.0.0 >/dev/null
+listen_settings="$("$panel_cli" setting -getListen true 2>/dev/null || true)"
 printf '%s\n' "$listen_settings" | grep -Fxq 'listenIP: 0.0.0.0' || {
     echo 'XUI_LISTENER_SETTINGS_MISSING: x-ui did not persist its public listen IP; reverting to localhost.' >&2
     exit 39
@@ -248,7 +277,7 @@ fi
 echo 'XUI_HTTPS_VERIFIED: trusted TLS and local listener passed for the selected address and panel port'
 echo 'HTTPS certificate verified; enabling only the approved local UFW panel port'
 """ + allow_port_script(port, "tcp") + """
-public_listener_enabled=no
+changes_started=no
 trap - EXIT
 echo 'Public HTTPS is active; cloud security group must separately permit the selected TCP port'
 """

@@ -52,13 +52,13 @@ def test_https_workflow_is_approved_only_after_local_panel_and_cert(host,expecte
     assert "openssl x509" in scripts
     assert "systemctl restart x-ui" in scripts
     assert "0.0.0.0" in scripts
-    assert "x-ui setting -listenIP 127.0.0.1" in scripts
+    assert '"$panel_cli" setting -listenIP 127.0.0.1' in scripts
     assert "https://" in scripts
     assert "--preferred-profile shortlived" in scripts if expected_mode == "ip" else "-d \"panel.example.com\"" in scripts
     assert "__IDENTITY__" not in scripts and "__ISSUE_CMD__" not in scripts
     assert "trap restore_local_listener EXIT" in scripts
     assert "systemctl is-active certbot.timer" in scripts
-    assert scripts.index("test -s \"/etc/letsencrypt/live") < scripts.index("x-ui setting -listenIP 0.0.0.0")
+    assert scripts.index("test -s \"/etc/letsencrypt/live") < scripts.index('"$panel_cli" setting -listenIP 0.0.0.0')
 
     current = dict(BASE, XUI_PRESENT="yes")
     upgrade = build_plan("3x-ui-https", current, {

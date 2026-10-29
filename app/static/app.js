@@ -1,4 +1,4 @@
-/* NetDeploy AI v0.3.7 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.8 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null};
@@ -615,13 +615,13 @@ function showJob(id){
    </section>`;
  }else if(job.status==='planned'&&p.executable&&!stale){
    const isXui=job.project==='3x-ui'||job.project==='3x-ui-https';
-   html+=`<div class="plan-overview"><h3>${isXui?'准备部署 3X-UI + HTTPS':'准备部署 '+escapeHtml(p.name)}</h3>
+   html+=`<div class="plan-overview"><h3>${job.project==='3x-ui-https'?'继续配置已安装的 3X-UI HTTPS（不重装）':isXui?'一键安装 3X-UI 并配置 HTTPS':'准备部署 '+escapeHtml(p.name)}</h3>
      <p>目标：${escapeHtml(host?.hostname||p.hostname)} · ${p.steps.length} 个受控执行阶段 · 风险：${escapeHtml(p.risk)}</p>
      <div class="modal-tip warning">审批一次后将执行已固定的安装步骤；包括 APT 依赖处理、证书签发（如果需要）和所需的本机 UFW 端口规则。云厂商安全组仍需另行放行；建议先备份 VPS。</div></div>
      <form id="approve-form"><div class="modal-actions plan-primary-actions">
        <button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>
        <button type="button" class="btn ghost" data-action="close-modal">暂不部署</button>
-       <button class="btn primary" type="submit">确认并一键部署</button>
+       <button class="btn primary" type="submit">${job.project==='3x-ui-https'?'确认继续 HTTPS（不重装）':'确认并一键部署'}</button>
      </div></form>`;
  }else if(isExistingXuiPlan(job)&&!stale){
    html+=`<section class="server-next-action is-ready"><span class="server-next-kicker">已安装 · 无需审批</span>
