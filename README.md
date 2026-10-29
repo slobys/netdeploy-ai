@@ -1,4 +1,4 @@
-# NetDeploy AI · v0.3.0 Alpha
+# NetDeploy AI · v0.3.1 Alpha
 
 > 一个以 VPS 为优先方向的 AI 辅助网络项目部署面板。2026-10-29 第一阶段原型（Windows SSH 主机指纹扫描修复）。 **不是生产稳定版，不要用重要 VPS 直接试错。**
 
@@ -33,6 +33,20 @@ uvicorn app.main:app --host 127.0.0.1 --port 8787 --workers 1
 
 ## Windows 11：从 GitHub 克隆、双击启动与更新（推荐）
 
+**Windows 一条命令安装 / 更新 / 启动（v0.3.1，推荐）：** 先安装 Git for Windows 和 Python 3.12+。在普通 PowerShell 窗口复制以下**一整行**，即可自动在桌面创建或复用 `netdeploy-ai-git`，安全拉取 `main`，准备依赖、启动本机服务并打开默认浏览器：
+
+```powershell
+$repo=Join-Path ([Environment]::GetFolderPath('Desktop')) 'netdeploy-ai-git'; if(-not(Test-Path $repo)){git clone https://github.com/slobys/netdeploy-ai.git $repo; if($LASTEXITCODE -ne 0){throw 'Git clone failed'}}; $start=Join-Path $repo 'scripts\QuickStart-Windows.ps1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $start
+```
+
+- **第一次运行**：自动在 Windows 桌面创建 Git 工作目录，安装依赖，生成内部随机管理员令牌并保存在 Git 忽略的 `.env` 中。本机浏览器访问 `http://127.0.0.1:8787` **自动登录**，不必手工输入面板令牌。VPS 的 SSH 密码仍要通过系统凭据库保存或输入一次。
+- **以后运行**：同一条命令会复用 `netdeploy-ai-git`，检查 Git 来源、当前分支和本地变更，备份 `data/` 后仅允许快进更新，再启动并打开浏览器。如果 8787 端口已经被本机 NetDeploy 服务占用，会打开正在运行的面板并提示先停止旧服务再更新。
+- **已有旧版本**：不会清空桌面 `netdeploy-ai-git` 下原来的 `data/`、`.env`、`secrets/`、SSH 指纹和 Windows 凭据库。旧 ZIP 解压目录 `netdeploy-ai` 不会被覆盖或移动。
+- **不适用于 NAS / 公网**：自动登录仅在 Windows 快捷启动的 `127.0.0.1:8787` 本机单用户模式启用；Docker、Linux 与远程部署仍需要管理员令牌，禁止通过反向代理暴露本机免登录端口。它不能防护当前电脑上恶意程序，请使用 Windows 账户锁屏与系统安全保护。
+
+已克隆后也可以在桌面 `netdeploy-ai-git` 文件夹里双击 `QuickStart-NetDeploy.bat`，达到相同效果。
+
+
 **首次安装：** 先安装 [Git for Windows](https://git-scm.com/downloads/win) 与 Python 3.12+，然后在 PowerShell 执行：
 
 ```powershell
@@ -41,7 +55,7 @@ cd netdeploy-ai
 .\Start-NetDeploy.bat
 ```
 
-首次启动会在本地创建 `.venv`、安装依赖、生成独立的管理员令牌并保存在 **不纳入 Git 的** `.env`，令牌只在首次生成时显示，请妥善保管。浏览器打开 `http://127.0.0.1:8787`。后续双击 `Start-NetDeploy.bat` 即可启动。
+首次启动会在本地创建 `.venv`、安装依赖、生成独立的内部管理员令牌并保存在 **不纳入 Git 的** `.env`；Windows 本机启动默认自动登录，无需显示或复制令牌。服务就绪后自动打开浏览器；以后也可以双击 `QuickStart-NetDeploy.bat` 完成安全更新与启动。
 
 **更新：** 先在运行服务的窗口按 `Ctrl+C` 停止服务，再双击 `Update-NetDeploy.bat`；该脚本只允许对 `main` 分支做 fast-forward 更新，更新前自动备份 `data/` 到本地 `backups/`，保留 `.env`、`data/`、`secrets/`。更新成功后双击 `Start-NetDeploy.bat`。脚本不会自动更新 GitHub 仓库，也不会把 VPS 密码上传 GitHub。
 
@@ -206,6 +220,14 @@ tests/                    自动化测试
 - Docker、APT、网络和 DNS 在你实际的 VPS 中可能受到防火墙、权限或系统版本限制，必须测试。
 
 参见 [架构](docs/ARCHITECTURE.md)、[安全边界](docs/SECURITY.md)、[阶段计划](docs/ROADMAP.md)。
+
+
+## v0.3.1：任务清理、SSH 错误诊断、桌面一键启动
+
+- 任务列表和详情页都提供删除入口；只有 **planned / failed / completed / partial / interrupted** 等非运行任务可以删除。必须确认“仅删除本地历史”；不会 SSH 卸载软件，也不会影响 VPS、`known_hosts` 或 Windows 凭据库。
+- 已有 HTTPS 升级任务引用的 3X-UI 安装任务不能直接删除，必须先清理子任务，避免丢失原安装入口。删除前注意：对应的任务日志、审批记录和本地访问入口会一起消失，**建议先自行备份日志**。
+- SSH 错误区分：指纹不匹配、尚未信任的密钥、认证失败、TCP 端口拒绝、连接超时、DNS 错误、算法不匹配和其他握手失败。**已保存 SSH 密码只代表凭据可用，不代表服务器已接受认证**。
+- Windows `QuickStart-NetDeploy.bat` 或上面的 PowerShell 一行命令会安全检查 GitHub 来源、备份数据、自动更新并启动本地面板；自动生成内部管理员令牌，仅本机同源允许自动登录。NAS/Linux/公网无此免登录行为。
 
 
 ## v0.3.0：自动连接、HTTPS 直连与一键复制

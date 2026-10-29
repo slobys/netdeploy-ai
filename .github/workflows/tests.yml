@@ -30,7 +30,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($relativePath in @('scripts/Start-Windows.ps1', 'scripts/Update-Windows.ps1')) {
+          foreach ($relativePath in @('scripts/Start-Windows.ps1', 'scripts/Update-Windows.ps1', 'scripts/QuickStart-Windows.ps1')) {
             $path = Join-Path $env:GITHUB_WORKSPACE ($relativePath -replace '/', '\')
             $content = [System.IO.File]::ReadAllBytes($path)
             if ($content.Length -lt 3 -or $content[0] -ne 239 -or $content[1] -ne 187 -or $content[2] -ne 191) {

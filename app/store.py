@@ -139,6 +139,33 @@ class Store:
             c.commit()
         return self.job(jid)
 
+    def delete_job(self, job_id: str) -> bool:
+        """Delete a terminal/planned *local* record, never alter remote VPS.
+
+        Preserve completed 3X-UI source jobs while an HTTPS upgrade references
+        them, so credentials and HTTPS navigation do not become orphaned.
+        Protect queued/running jobs under the store lock and SQL transaction.
+        """
+        with self.lock, self._db() as db:
+            row = db.execute("SELECT id,host_id,project,status FROM jobs WHERE id=?",
+                             (job_id,)).fetchone()
+            if row is None:
+                return False
+            if row["status"] in {"queued", "running"}:
+                raise ValueError("任务正在排队或执行，不能删除；请先结束任务并核对远端状态")
+            if row["project"] == "3x-ui":
+                dependencies = db.execute(
+                    "SELECT plan_json FROM jobs WHERE host_id=? AND project='3x-ui-https'",
+                    (row["host_id"],),
+                ).fetchall()
+                if any(json.loads(dep["plan_json"]).get("options", {}).get("source_job_id") == job_id
+                       for dep in dependencies):
+                    raise ValueError("存在依赖此任务的 HTTPS 升级记录，请先删除相关升级任务")
+            cursor = db.execute(
+                "DELETE FROM jobs WHERE id=? AND status NOT IN ('queued','running')", (job_id,))
+            return cursor.rowcount == 1
+
+
     def approve(self, id: str) -> bool:
         with self.lock, self._db() as c:
             cursor = c.execute("UPDATE jobs SET status='queued', approved_at=?, updated_at=? WHERE id=? AND status='planned'",

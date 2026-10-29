@@ -48,20 +48,42 @@ try {
         $lines = @($lines | Where-Object { $_ -notmatch '^NETDEPLOY_ADMIN_TOKEN=' })
         $lines += "NETDEPLOY_ADMIN_TOKEN=$savedToken"
         [System.IO.File]::WriteAllLines($envFile, $lines, [System.Text.UTF8Encoding]::new($false))
-        Write-Host ''
-        Write-Host '[NetDeploy AI] 首次启动管理员令牌（请安全保存，勿发送他人）：' -ForegroundColor Yellow
-        Write-Host $savedToken -ForegroundColor Yellow
-        Write-Host '[NetDeploy AI] 令牌已保存在本地 .env 中（Git 不跟踪此文件）。' -ForegroundColor Yellow
-        Write-Host ''
+        Write-Host '[NetDeploy AI] 已自动生成本机管理员令牌并保存到不受 Git 管理的 .env。'
+        Write-Host '[NetDeploy AI] 本机启动时会自动登录，无需复制或输入令牌。' -ForegroundColor Green
     }
     $env:NETDEPLOY_ADMIN_TOKEN = $savedToken
+    # Only the trusted 127.0.0.1 listener may grant a browser local session.
+    # This opt-in is never enabled by Docker/Linux startup scripts.
+    $env:NETDEPLOY_LOCAL_AUTO_LOGIN = '1'
     $env:NETDEPLOY_DATA = Join-Path $root 'data'
     New-Item -Path $env:NETDEPLOY_DATA -ItemType Directory -Force | Out-Null
 
     Write-Host '[NetDeploy AI] 本地地址：http://127.0.0.1:8787' -ForegroundColor Green
-    Write-Host '[NetDeploy AI] 按 Ctrl+C 可以停止服务。'
-    & $venvPython -m uvicorn app.main:app --host 127.0.0.1 --port 8787 --workers 1
-    if ($LASTEXITCODE -ne 0) { throw "服务启动失败，退出代码：$LASTEXITCODE" }
+    Write-Host '[NetDeploy AI] 服务就绪后自动打开默认浏览器；按 Ctrl+C 停止。'
+    # Poll readiness from a separate PowerShell job while uvicorn runs in the
+    # foreground, so the console still receives Ctrl+C and live server logs.
+    $browserJob = Start-Job -ArgumentList 'http://127.0.0.1:8787' -ScriptBlock {
+        param([string]$url)
+        for ($i = 0; $i -lt 60; $i++) {
+            try {
+                $result = Invoke-WebRequest -UseBasicParsing -Uri "$url/api/health" -TimeoutSec 2
+                if ($result.StatusCode -eq 200) {
+                    Start-Process $url
+                    break
+                }
+            } catch {}
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    try {
+        & $venvPython -m uvicorn app.main:app --host 127.0.0.1 --port 8787 --workers 1
+        if ($LASTEXITCODE -ne 0) { throw "服务启动失败，退出代码：$LASTEXITCODE" }
+    } finally {
+        if ($null -ne $browserJob) {
+            Stop-Job -Job $browserJob -ErrorAction SilentlyContinue
+            Remove-Job -Job $browserJob -Force -ErrorAction SilentlyContinue
+        }
+    }
 } catch {
     Write-Host "[NetDeploy AI] 错误：$($_.Exception.Message)" -ForegroundColor Red
     exit 1

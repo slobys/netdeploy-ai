@@ -7,7 +7,7 @@ import secrets
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -36,7 +36,8 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.0")
+app = FastAPI(title="NetDeploy AI", version="0.3.1")
+LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
 async def security_headers(request, call_next):
@@ -87,6 +88,10 @@ class Approval(BaseModel):
     confirmation: str
 
 
+class DeleteJobConfirmation(BaseModel):
+    confirmation: str
+
+
 def find_host(id: int):
     host = store.host(id)
     if host is None:
@@ -123,7 +128,29 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.0", "security": "local-only"}
+    return {"ok": True, "version": "0.3.1", "security": "local-only"}
+
+
+@app.get("/api/local-session")
+def local_session(request: Request, x_netdeploy_local: str | None = Header(default=None)):
+    """Opt-in auto-login for a *loopback-only* single-user Windows process.
+
+    Do not expose this listener through any reverse proxy or public port.
+    The caller must be local and same-origin; never put the admin token in a
+    redirect, URL, HTML, cookie or server log.
+    """
+    if not LOCAL_AUTO_LOGIN or x_netdeploy_local != "1":
+        raise HTTPException(status_code=403, detail="本机免登录模式未启用")
+    client = request.client.host if request.client else ""
+    host = request.headers.get("host", "").lower()
+    allowed_hosts = {"127.0.0.1:8787", "localhost:8787"}
+    origin = request.headers.get("origin", "")
+    fetch_site = request.headers.get("sec-fetch-site", "")
+    if (client not in {"127.0.0.1", "::1"} or host not in allowed_hosts
+            or (origin and origin != "http://" + host)
+            or (fetch_site and fetch_site != "same-origin")):
+        raise HTTPException(status_code=403, detail="仅限本机同源浏览器自动登录")
+    return {"token": ADMIN_TOKEN, "mode": "loopback-only"}
 
 
 @app.get("/api/auth", dependencies=[Depends(authorized)])
@@ -287,6 +314,20 @@ def new_job(body: NewJob):
 @app.get("/api/jobs/{id}", dependencies=[Depends(authorized)])
 def get_job(id: str):
     return find_job(id)
+
+
+@app.delete("/api/jobs/{id}", dependencies=[Depends(authorized)])
+def delete_job(id: str, body: DeleteJobConfirmation):
+    """Remove history only; does not uninstall or touch remote services."""
+    find_job(id)
+    if body.confirmation != f"DELETE {id}":
+        raise HTTPException(status_code=409, detail="请确认只删除本地记录，不影响 VPS 软件")
+    try:
+        if not store.delete_job(id):
+            raise HTTPException(status_code=404, detail="任务不存在")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True, "deleted_id": id, "remote_unmodified": True}
 
 
 @app.post("/api/jobs/{id}/approve", dependencies=[Depends(authorized)])

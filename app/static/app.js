@@ -1,4 +1,4 @@
-/* NetDeploy AI v0.3.0 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.1 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, pendingFingerprint:null, loading:false};
@@ -51,7 +51,7 @@ function render(){
  <button class="btn subtle" data-action="plan" data-project="${escapeHtml(key)}">${p.deployment==='install'?'部署项目':'查看方案'} →</button></div></div>`).join('');
  el('#host-list').innerHTML=hosts.length?hosts.map(h=>`
  <div class="host-item"><div class="host-icon">▤</div><div class="host-main"><b>${escapeHtml(h.name)}</b><small>${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port}${h.facts?' · '+escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):''} · ${h.auth_mode==='password'?(h.password_remembered?'密码登录 · 已安全保存':'密码登录'):'密钥登录'}</small></div><span class="chip ${!h.credential_ready?'error':h.facts?'success':'warn'}">${!h.credential_ready?'需设置凭据':h.facts?'已预检':'待验证'}</span><div class="host-actions"><button class="btn subtle" data-action="credentials" data-id="${h.id}">登录方式</button><button class="btn subtle" data-action="fingerprint" data-id="${h.id}">SSH 指纹</button><button class="btn subtle" data-action="preflight" data-id="${h.id}">环境检测</button></div></div>`).join(''):`<div class="empty"><span class="empty-icon">▤</span><span>尚无 VPS 服务器。添加后进行指纹验证与环境检测。</span><button class="btn subtle" data-action="add-host">＋ 添加服务器</button></div>`;
- el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${chip(j.status)}<button class="btn subtle" data-action="job" data-id="${escapeHtml(j.id)}">查看详情</button></div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
+ el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${chip(j.status)}<button class="btn subtle" data-action="job" data-id="${escapeHtml(j.id)}">查看详情</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
  renderSection();
 }
 function renderSection(){
@@ -142,10 +142,33 @@ function showJob(id){
  html+=`<a class="external" target="_blank" rel="noopener noreferrer" href="${escapeHtml(p.docs)}">查看官方安装文档 ↗</a>`;
  if(job.status==='planned'&&p.executable)html+=`<form id="approve-form"><div class="modal-tip warning"><b>高权限操作确认</b>：SSH 执行器会运行上方固定脚本，可能修改远端软件包或创建容器。自动回滚暂不可用。请先核对风险和命令。部署计划仅在创建后 10 分钟内可以审批；若过期或服务器关键环境改变，请重新生成计划。</div>
  <div class="form-group"><label>请完整输入以下确认语句</label><div class="pre">${escapeHtml(approval)}</div><input name="confirmation" required autocomplete="off" placeholder="输入上方确认语句"/></div>
- <div class="modal-actions"><button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检查并生成新方案</button><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">审批并开始部署</button></div></form>`;
- else html+=`<h3>执行日志</h3><div id="job-state" class="log-status">${escapeHtml(stateText(job.status))}</div><pre class="pre" id="task-log">${escapeHtml(job.logs||'等待日志...')}</pre><div class="modal-actions"><button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读诊断</button>${job.project==='3x-ui'&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(job.id)}">查看面板登录信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||state.jobs.some(other=>other.project==='3x-ui-https'&&other.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(other.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">启用 HTTPS 直连</button>`}`:''}${job.project==='3x-ui-https'&&job.status==='completed'?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(p.options?.source_job_id)}">打开原面板登录信息</button>`:''}<button class="btn primary" data-action="close-modal">关闭</button></div><div id="ai-response"></div>`;
+ <div class="modal-actions"><button type="button" class="btn subtle" data-action="delete-job" data-id="${escapeHtml(job.id)}">删除任务</button><button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检查并生成新方案</button><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">审批并开始部署</button></div></form>`;
+ else html+=`<h3>执行日志</h3><div id="job-state" class="log-status">${escapeHtml(stateText(job.status))}</div><pre class="pre" id="task-log">${escapeHtml(job.logs||'等待日志...')}</pre><div class="modal-actions"><button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读诊断</button>${job.project==='3x-ui'&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(job.id)}">查看面板登录信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||state.jobs.some(other=>other.project==='3x-ui-https'&&other.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(other.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">启用 HTTPS 直连</button>`}`:''}${job.project==='3x-ui-https'&&job.status==='completed'?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(p.options?.source_job_id)}">打开原面板登录信息</button>`:''}${["queued","running"].includes(job.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(job.id)}">删除任务</button>`}<button class="btn primary" data-action="close-modal">关闭</button></div><div id="ai-response"></div>`;
  dialog(html);
  const form=el('#approve-form');if(form)form.addEventListener('submit',async e=>{e.preventDefault();const confirmation=new FormData(form).get('confirmation');try{await api(`/jobs/${job.id}/approve`,{method:'POST',body:JSON.stringify({confirmation})});await loadAll(true);showJob(id);toast('任务已获批准并启动执行');}catch(err){toast(err.message,true);}});
+}
+function confirmDeleteJob(id){
+ const job=state.jobs.find(j=>j.id===id);
+ if(!job){toast('任务记录不存在，请刷新列表',true);return;}
+ if(['queued','running'].includes(job.status)){toast('排队或执行中的任务不能删除',true);return;}
+ state.activeJob=null;
+ dialog(modalHead('删除本地任务记录')+
+   `<div class="modal-tip warning"><b>删除仅作用于 NetDeploy AI 的任务历史。</b>
+   不会卸载 VPS 上已安装的软件、不会关闭远端服务，也不会清除 VPS、SSH 指纹或系统凭据库里的密码。
+   删除成功后这条任务的部署日志和本地访问入口将不可恢复。若 HTTPS 升级引用了这条任务，必须先删除升级任务。</div>
+   <p class="helptext">任务：${escapeHtml(job.project)} · ${escapeHtml(job.id)}（${escapeHtml(stateText(job.status))}）</p>
+   <div class="modal-actions"><button class="btn ghost" data-action="close-modal">取消</button>
+   <button class="btn danger" data-action="confirm-delete-job" data-id="${escapeHtml(id)}">仅删除本地记录</button></div>`);
+}
+async function deleteJobRecord(id){
+ const button=el('[data-action="confirm-delete-job"]');
+ if(button)button.disabled=true;
+ try{
+   await api(`/jobs/${id}`,{method:'DELETE',body:JSON.stringify({confirmation:`DELETE ${id}`})});
+   state.activeJob=null;closeDialog();await loadAll(true);
+   toast('任务历史已删除，VPS 上的软件与配置未改变');
+ }catch(err){toast(err.message,true);}
+ finally{if(button?.isConnected)button.disabled=false;}
 }
 async function regeneratePlan(id){
  const oldJob=state.jobs.find(j=>j.id===id);
@@ -207,12 +230,34 @@ async function xuiAccess(id){
  }catch(err){dialog(modalHead('无法安全读取登录信息')+`<div class="modal-tip warning">${escapeHtml(err.message)}</div><div class="modal-actions"><button class="btn primary" data-action="close-modal">关闭</button></div>`);}
 }
 function go(section){state.section=section;renderSection();window.scrollTo({top:0,behavior:'smooth'});}
-async function start(){if(state.token){try{await api('/auth');el('#login').classList.add('hidden');await loadAll(true);return;}catch{state.token='';sessionStorage.removeItem('nd_token');}}el('#login').classList.remove('hidden');}
+async function tryLocalLogin(){
+ try {
+   const response=await fetch('/api/local-session',{cache:'no-store',headers:{'X-NetDeploy-Local':'1'}});
+   if(!response.ok)return false;
+   const result=await response.json();
+   if(typeof result.token!=='string'||result.token.length<24)return false;
+   state.token=result.token;
+   sessionStorage.setItem('nd_token',result.token);
+   return true;
+ }catch{return false;}
+}
+async function start(){
+ if(state.token){
+   try{await api('/auth');el('#login').classList.add('hidden');await loadAll(true);return;}
+   catch{state.token='';sessionStorage.removeItem('nd_token');}
+ }
+ if(await tryLocalLogin()){
+   el('#login').classList.add('hidden');await loadAll(true);return;
+ }
+ el('#login').classList.remove('hidden');
+}
 el('#login-form').addEventListener('submit',async e=>{e.preventDefault();state.token=el('#admin-token').value;try{await api('/auth');sessionStorage.setItem('nd_token',state.token);el('#login').classList.add('hidden');el('#admin-token').value='';await loadAll(true);}catch(err){toast(err.message,true);}});
 document.addEventListener('click',async e=>{const t=e.target.closest('[data-action],[data-nav]');if(!t)return;
  if(t.dataset.nav){go(t.dataset.nav);return;}
  const id=t.dataset.id,act=t.dataset.action;
  if(act==='close-modal'){closeDialog();state.activeJob=null;}
+ else if(act==='delete-job')confirmDeleteJob(id);
+ else if(act==='confirm-delete-job')await deleteJobRecord(id);
  else if(act==='add-host')addHost();
  else if(act==='fingerprint')fingerprint(Number(id));
  else if(act==='credentials')credentials(Number(id));

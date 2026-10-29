@@ -116,7 +116,20 @@ class SSHExecutor:
         # Remote installers may inadvertently include secrets: never show unlimited output.
         output = (res.stdout or "")[-12000:]
         if res.returncode:
-            raise SSHError(f"退出代码 {res.returncode}：{output[-1400:]}")
+            lower = output.lower()
+            if "remote host identification has changed" in lower:
+                raise SSHError("SSH_HOST_KEY_CHANGED：主机密钥与已保存指纹不匹配。请通过 VPS 云控制台独立确认；不会自动信任或覆盖")
+            if "host key verification failed" in lower:
+                raise SSHError("SSH_HOST_KEY_UNTRUSTED：主机密钥无法通过已固定指纹校验。请通过独立渠道核实")
+            if "permission denied (publickey" in lower:
+                raise SSHError("SSH_AUTH_FAILED：专用 SSH 私钥认证被拒绝，请检查公钥是否安装在服务器")
+            if "connection refused" in lower:
+                raise SSHError("SSH_CONNECTION_REFUSED：SSH 端口拒绝连接，请检查 sshd 监听与云防火墙")
+            if "connection timed out" in lower or "operation timed out" in lower:
+                raise SSHError("SSH_CONNECT_TIMEOUT：SSH 连接超时，请检查网络与云安全组")
+            if "kex_exchange_identification" in lower or "unable to negotiate" in lower:
+                raise SSHError("SSH_HANDSHAKE_FAILED：SSH 握手或算法协商失败，请检查 SSH 服务日志")
+            raise SSHError(f"远端执行退出代码 {res.returncode}：{output[-1400:]}")
         return output
 
     def _run_password(self, host: dict, script: str, timeout: int) -> str:
@@ -171,11 +184,24 @@ class SSHExecutor:
                 raise SSHError(f"退出代码 {code}：{result[-1400:]}")
             return result
         except paramiko.AuthenticationException as exc:
-            raise SSHError("SSH 认证失败：请检查用户名和密码，或检查 VPS 是否允许 PasswordAuthentication") from exc
-        except (paramiko.BadHostKeyException, paramiko.SSHException) as exc:
-            raise SSHError("SSH 握手或主机指纹验证失败：请确认服务器身份及 SSH 服务状态") from exc
+            raise SSHError("SSH_AUTH_FAILED：SSH 密码认证失败，请检查用户名、密码和 sshd 的 PasswordAuthentication 设置") from exc
+        except paramiko.BadHostKeyException as exc:
+            raise SSHError("SSH_HOST_KEY_CHANGED：服务器返回的主机密钥与已保存指纹不一致。已阻止连接，请在云控制台独立核对，禁止自动覆盖") from exc
+        except paramiko.SSHException as exc:
+            message = str(exc).lower()
+            if "not found in known_hosts" in message or "not found in known hosts" in message:
+                raise SSHError("SSH_HOST_KEY_UNTRUSTED：未找到该服务器的已信任主机密钥，请独立核对 SSH 指纹后信任") from exc
+            if "incompatible ssh peer" in message or "no matching" in message:
+                raise SSHError("SSH_ALGORITHM_MISMATCH：SSH 密钥交换或加密算法不兼容，请查看 VPS sshd 配置") from exc
+            raise SSHError("SSH_HANDSHAKE_FAILED：TCP 可能可达，但 SSH 协议握手失败。请检查 sshd 日志、连接限制及算法兼容性") from exc
+        except socket.gaierror as exc:
+            raise SSHError("SSH_DNS_FAILED：无法解析 VPS 地址，请检查 IP 或域名") from exc
+        except ConnectionRefusedError as exc:
+            raise SSHError("SSH_CONNECTION_REFUSED：目标 SSH 端口拒绝连接，请检查 sshd 与安全组") from exc
+        except (socket.timeout, TimeoutError) as exc:
+            raise SSHError("SSH_CONNECT_TIMEOUT：连接或认证超时，请检查服务器负载、网络与安全组") from exc
         except (OSError, EOFError) as exc:
-            raise SSHError("SSH 网络连接失败：请检查 VPS 地址、端口、云防火墙及 SSH 服务") from exc
+            raise SSHError("SSH_NETWORK_ERROR：SSH 网络连接中断，请检查服务器地址、端口、防火墙及 sshd") from exc
         finally:
             client.close()
 
