@@ -1,7 +1,8 @@
-/* NetDeploy AI v0.3.9 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.10 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
+const CLIENT_VERSION = '0.3.10';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null};
+const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false};
 
 async function api(path, opts={}) {
   const resp = await fetch('/api'+path,{...opts,headers:{'X-Admin-Token':state.token,...(opts.body?{'Content-Type':'application/json'}:{}),...(opts.headers||{})},cache:'no-store'});
@@ -29,7 +30,21 @@ async function loadAll(silent=false){
   if(state.loading||!state.token)return;
   state.loading=true;
   try {
-    const [hosts,jobs,catalog,capabilities] = await Promise.all([api('/hosts'),api('/jobs'),api('/catalog'),api('/capabilities')]);
+    const [hosts,jobs,catalog,capabilities,health] = await Promise.all([
+      api('/hosts'),api('/jobs'),api('/catalog'),api('/capabilities'),api('/health')
+    ]);
+    const serverVersion=String(health?.version||'');
+    const versionTag=el('.tag.alpha');
+    if(serverVersion&&serverVersion!==CLIENT_VERSION){
+      if(versionTag){versionTag.textContent='版本不一致 · 后端 '+serverVersion;versionTag.title='页面版本 '+CLIENT_VERSION+'，服务端 '+serverVersion;}
+      if(!state.versionMismatchShown){
+        toast('页面与运行中的服务版本不一致。请停止旧 PowerShell 服务，重新运行桌面更新脚本并按 Ctrl+F5。',true);
+        state.versionMismatchShown=true;
+      }
+    }else{
+      if(versionTag)versionTag.textContent='ALPHA v'+CLIENT_VERSION;
+      state.versionMismatchShown=false;
+    }
     const snapshot=JSON.stringify([hosts,jobs,catalog,capabilities]);
     const changed=snapshot!==state.lastSnapshot;
     state.hosts=hosts;state.jobs=jobs;state.catalog=catalog;state.capabilities=capabilities;state.lastSnapshot=snapshot;
@@ -83,7 +98,7 @@ function render(){
       <button class="host-card-delete" type="button" data-action="delete-host" data-id="${h.id}" aria-label="删除 ${escapeHtml(h.name)} 的本地服务器记录">删除服务器</button>
     </article>`;
  }).join(''):`<div class="empty"><span class="empty-icon">▤</span><span>还没有 VPS。添加后点击卡片，即可在同一个控制台管理连接、部署与端口。</span><button class="btn primary" data-action="add-host">＋ 添加第一台 VPS</button></div>`;
- el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${isExistingXuiPlan(j)?'<span class="chip success">已安装 · 无需审批</span>':chip(j.status)}<button class="btn ${j.status==='planned'?'primary':'subtle'}" data-action="${isExistingXuiPlan(j)?'installed-xui':planNeedsUpdate(j)&&j.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(isExistingXuiPlan(j)?j.host_id:j.id)}">${escapeHtml(jobNextAction(j))} →</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
+ el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${isExistingXuiPlan(j)?'<span class="chip success">已安装 · 无需审批</span>':chip(j.status)}<button class="btn ${j.status==='planned'?'primary':'subtle'}" data-action="${isExistingXuiPlan(j)?'installed-xui':historicalHttpsFailure(j)?'regenerate-plan':planNeedsUpdate(j)&&j.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(isExistingXuiPlan(j)?j.host_id:j.id)}">${escapeHtml(jobNextAction(j))} →</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
  renderSection();
 }
 function renderSection(){
@@ -115,8 +130,12 @@ function jobLabel(job){
  if(job.status==='planned'&&!job.plan?.executable)return '当前不能自动部署';
  return stateText(job.status);
 }
+function historicalHttpsFailure(job){
+ return job.project==='3x-ui-https'&&job.status==='failed'&&job.historical_script===true;
+}
 function jobNextAction(job){
  if(isExistingXuiPlan(job))return '查看已安装面板';
+ if(historicalHttpsFailure(job))return '生成最新版 HTTPS 修复方案';
  if(job.status==='planned'&&!job.plan?.executable)return '查看原因';
  if(job.status==='planned'&&job.needs_refresh===true)return '更新为最新安全部署方案';
  if(isPlanExpired(job))return '更新方案，继续审批';
@@ -129,11 +148,12 @@ function hostTaskLink(job){
  const stale=(job.plan?.trust_epoch||0)!==(host?.trust_epoch||0);
  const action=stale?'查看旧任务':jobNextAction(job);
  const openExisting=!stale&&isExistingXuiPlan(job);
+ const updateFailedHttps=!stale&&historicalHttpsFailure(job);
  const name=state.catalog[job.project]?.name||job.project;
- return `<button type="button" class="server-history-item ${job.status==='planned'&&job.plan?.executable&&!stale?'is-pending':''}" data-action="${openExisting?'installed-xui':planNeedsUpdate(job)&&!stale&&job.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(openExisting?job.host_id:job.id)}"
+ return `<button type="button" class="server-history-item ${job.status==='planned'&&job.plan?.executable&&!stale?'is-pending':''}" data-action="${openExisting?'installed-xui':updateFailedHttps?'regenerate-plan':planNeedsUpdate(job)&&!stale&&job.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(openExisting?job.host_id:job.id)}"
     aria-label="${escapeHtml(name)}，${escapeHtml(stale?'已失效':jobLabel(job))}，${escapeHtml(action)}">
    <span class="server-task-icon" aria-hidden="true">${symbol[job.project]||'▣'}</span>
-   <span class="server-task-title"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(stale?'服务器重装前的历史':isExistingXuiPlan(job)?'面板已存在，不需要执行安装审批':isPlanExpired(job)&&job.plan?.executable?'审批计划已过期':jobLabel(job))} · ${escapeHtml(job.created_at.slice(0,16).replace('T',' '))}</small></span>
+   <span class="server-task-title"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(stale?'服务器重装前的历史':isExistingXuiPlan(job)?'面板已存在，不需要执行安装审批':historicalHttpsFailure(job)?'旧版脚本的失败记录，不代表新版仍存在相同问题':isPlanExpired(job)&&job.plan?.executable?'审批计划已过期':jobLabel(job))} · ${escapeHtml(job.created_at.slice(0,16).replace('T',' '))}</small></span>
    <span class="server-task-next">${escapeHtml(action)} <span aria-hidden="true">→</span></span></button>`;
 }
 function openHostConsole(id,tab='overview'){
@@ -637,6 +657,16 @@ function showJob(id){
      <h3>3X-UI 已存在，不需要重新安装</h3><p>此历史方案没有安装步骤，因此无法执行。直接通过已验证 SSH 读取现有面板信息；仅在修改配置时才需要确认。</p>
      <button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看现有 3X-UI 面板 →</button>
    </section>`;
+ }else if(historicalHttpsFailure(job)&&!stale){
+   html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧版执行记录 · 当前模板已修复</span>
+     <h3>这条 HTTPS 失败记录来自旧版本脚本</h3>
+     <p>历史任务的固定命令与当前 NetDeploy AI 代码不一致，不能据此认定新版仍然失败。3X-UI 和现有证书保持不变，点击只会重新生成当前版本的 HTTPS 配置方案，不会直接重装或执行。</p>
+     <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">生成最新版 HTTPS 修复方案 →</button>
+   </section>`;
+   html+=`<h3>原任务执行日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(stateText(job.status))}</div>
+     <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
+     <div class="modal-actions"><button class="btn subtle" data-action="installed-xui" data-id="${job.host_id}">查看已安装 3X-UI</button>
+       <button class="btn subtle" data-action="close-modal">关闭</button></div>`;
  }else{
    html+=`<h3>部署状态及日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(stateText(job.status))}</div>
       <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>

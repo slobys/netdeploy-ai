@@ -58,3 +58,20 @@ def test_api_marks_stale_https_approval_before_user_clicks(tmp_path, monkeypatch
     # review the new fixed script; old commands remain auditable.
     assert db.job(old["id"])["plan"]["steps"][-1]["script"] == old_plan["steps"][-1]["script"]
     assert db.job(old["id"])["status"] == "planned"
+
+    # Once the old plan has failed, its historical logs must stay intact.
+    # But the UI should indicate it was executed with an outdated recipe,
+    # not mislead the user into thinking the current fix failed.
+    db.set_status(old["id"], "failed", error=(
+        "XUI_LISTENER_MISSING: x-ui active but not listening on approved IPv4 TCP 8443"
+    ))
+    failed = client.get(f'/api/jobs/{old["id"]}', headers=HEAD)
+    assert failed.status_code == 200
+    assert failed.json()["status"] == "failed"
+    assert failed.json()["needs_refresh"] is False
+    assert failed.json()["historical_script"] is True
+    assert "approved IPv4 TCP" in failed.json()["error"]
+    assert db.job(old["id"])["status"] == "failed"
+
+    unaffected = client.get(f'/api/jobs/{current["id"]}', headers=HEAD)
+    assert unaffected.json()["historical_script"] is False

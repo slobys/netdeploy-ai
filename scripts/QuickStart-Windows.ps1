@@ -23,14 +23,21 @@ try {
     if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
         $listener = Get-NetTCPConnection -State Listen -LocalPort 8787 -ErrorAction SilentlyContinue
         if ($listener) {
+            $runningVersion = $null
             try {
                 $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8787/api/health' -TimeoutSec 3
                 if ($health.ok -and $health.version) {
-                    Write-Host '[NetDeploy AI] 已检测到正在运行的面板。请先停止旧服务才能更新。' -ForegroundColor Yellow
-                    Start-Process 'http://127.0.0.1:8787'
-                    exit 0
+                    $runningVersion = [string]$health.version
                 }
-            } catch {}
+            } catch {
+                # An unknown process may own port 8787. Do not trust its body
+                # or reveal any local session tokens.
+            }
+            if ($runningVersion) {
+                Write-Host ("[NetDeploy AI] 检测到仍在运行的面板版本：v" + $runningVersion) -ForegroundColor Yellow
+                Write-Host '[NetDeploy AI] 此次不会更新或重新启动，也不会将旧版面板当作更新成功。' -ForegroundColor Yellow
+                throw '请在运行旧 NetDeploy 服务的 PowerShell 窗口按 Ctrl+C，确认端口 8787 已释放，再双击 QuickStart-NetDeploy.bat 完成更新。不会自动强制关闭或替换正在运行的服务。'
+            }
             throw '本机 8787 端口被其他程序占用。请先关闭占用程序，避免误打开其他应用。'
         }
     }

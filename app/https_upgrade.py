@@ -247,6 +247,11 @@ if [ "$listener_ready" != yes ]; then
     else
         echo 'XUI_LISTENER_MISSING: x-ui active but no public wildcard listener on TCP __PORT__ (0.0.0.0, * or [::]). Check actual panel port and runtime overrides.' >&2
     fi
+    # Log only the local-address column for this approved TCP port.
+    # Never dump systemd environment, web settings, credentials or all sockets.
+    observed="$(ss -Hltn 'sport = :__PORT__' | awk 'NR<=5 {print $4}' | tr '\n' ',' | cut -c 1-160)"
+    if [ -z "$observed" ]; then observed='none'; fi
+    printf 'XUI_LISTENER_OBSERVED: %s\n' "$observed" >&2
     exit 37
 fi
 # Connect explicitly to loopback, while keeping the original IP/domain URL

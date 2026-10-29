@@ -178,6 +178,9 @@ def test_real_cli_used_and_failed_cert_restores_original_settings(
         code, diagnostic = expected[failure]
         assert proc.returncode == code, (proc.stdout, proc.stderr)
         assert diagnostic in proc.stderr, proc.stderr
+        if failure in {"local", "wrong_port"}:
+            assert "XUI_LISTENER_OBSERVED:" in proc.stderr
+            assert socket_addr in proc.stderr
         assert (marker / "listen").read_text() == "127.0.0.1"
         if failure == "prior":
             # Preserve pre-existing cert configuration when a retry fails.

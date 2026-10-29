@@ -38,7 +38,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.9")
+app = FastAPI(title="NetDeploy AI", version="0.3.10")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -152,7 +152,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.9", "security": "local-only"}
+    return {"ok": True, "version": "0.3.10", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -473,14 +473,13 @@ def firewall_toggle(id: int, body: FirewallToggle):
             "cloud_notice": "仅更改 VPS 的 UFW 状态，云厂商安全组不受此操作影响"}
 
 
-def plan_needs_refresh(job: dict) -> bool:
-    """Detect a planned job built with another source-controlled recipe.
+def job_recipe_changed(job: dict) -> bool:
+    """Compare the stored, immutable script to the current reviewed recipe.
 
-    No remote commands and no mutation. Old approved scripts must never be
-    silently promoted to changed scripts after a Git update.
+    Historical failures can originate from older scripts, not the currently
+    running server. This read-only comparison must not alter the remote VPS,
+    rewrite stored job history or automatically approve an updated plan.
     """
-    if job["status"] != "planned":
-        return False
     host = store.host(job["host_id"])
     if not host or not host.get("facts"):
         return True
@@ -494,8 +493,19 @@ def plan_needs_refresh(job: dict) -> bool:
     return current["steps"] != saved.get("steps") or current["executable"] != saved.get("executable")
 
 
+def plan_needs_refresh(job: dict) -> bool:
+    return job["status"] == "planned" and job_recipe_changed(job)
+
+
 def public_job(job: dict) -> dict:
-    return {**job, "needs_refresh": plan_needs_refresh(job)}
+    return {
+        **job,
+        "needs_refresh": plan_needs_refresh(job),
+        "historical_script": (
+            job["status"] in {"failed", "partial", "interrupted"} and
+            job_recipe_changed(job)
+        ),
+    }
 
 
 @app.get("/api/jobs", dependencies=[Depends(authorized)])

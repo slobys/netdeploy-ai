@@ -80,6 +80,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
+let runtimeVersion='0.3.10';
 let xuiReadRequests=0;
 const context = vm.createContext({
   console,
@@ -108,6 +109,7 @@ const context = vm.createContext({
         access_mode:'local'
       })};
     }
+    if(url==='/api/health')return {ok:true,status:200,json:async()=>({ok:true,version:runtimeVersion})};
     if(url==='/api/hosts')return {ok:true,status:200,json:async()=>[host]};
     if(url==='/api/catalog')return {ok:true,status:200,json:async()=>({
       '3x-ui':{name:'3X-UI',subtitle:'Xray 管理面板',deployment:'install',category:'面板'}
@@ -156,6 +158,20 @@ function fingerprintFor(label) {
   await evaluate("createHostPlan(1,'3x-ui')");
   assert.equal(planCreations,0,'Pending plans must be reused');
 
+  // A cached browser page and a still-running old server must be reported.
+  // They are not proof that the new HTTPS recipe has failed.
+  evaluate("state.token='test'");
+  runtimeVersion='0.3.8';
+  returnedJobs=[freshJob];
+  await evaluate('loadAll(true)');
+  assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
+  assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
+  runtimeVersion='0.3.10';
+  await evaluate('loadAll(true)');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.10');
+  returnedJobs=null;
+  evaluate("state.token=''");
+
   // After a Git update, an approval generated for the old shell recipe is
   // flagged before the user can accidentally approve stale code.
   fill({...freshJob,needs_refresh:true});
@@ -167,6 +183,19 @@ function fingerprintFor(label) {
   assert(!modal.innerHTML.includes('id="approve-form"'),
     'Old script plans must not have a direct approval button');
   assert(modal.innerHTML.includes('更新为最新 HTTPS 修复方案'));
+
+  // A failed HTTPS job created by a previous NetDeploy release should
+  // suggest generating a fresh 4-step HTTPS-only plan, not imply that the
+  // current code has already failed. No approval is granted by this button.
+  fill({...freshJob,project:'3x-ui-https',status:'failed',historical_script:true,
+    plan:{...freshJob.plan,project:'3x-ui-https'}});
+  evaluate('openHostConsole(1)');
+  assert(modal.innerHTML.includes('生成最新版 HTTPS 修复方案'));
+  assert(modal.innerHTML.includes('data-action="regenerate-plan"'));
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('这条 HTTPS 失败记录来自旧版本脚本'));
+  assert(!modal.innerHTML.includes('id="approve-form"'));
+  assert(modal.innerHTML.includes('原任务执行日志'));
 
   fill({...freshJob,created_at:new Date(Date.now()-12*60*1000).toISOString()});
   evaluate('openHostConsole(1)');
