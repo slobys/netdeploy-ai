@@ -61,11 +61,17 @@ echo 'Prechecks passed; no existing x-ui service or TCP port conflict'
             "安装 TLS 下载与校验依赖（不安装 Docker）",
             r"""set -eu
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -q
-apt-get install -y -q curl ca-certificates
-echo 'Download dependencies ready'
+if command -v curl >/dev/null 2>&1 && test -s /etc/ssl/certs/ca-certificates.crt; then
+    echo 'TLS download prerequisites already installed; skipping APT'
+else
+    # New Ubuntu VPS instances commonly run unattended-upgrades after boot.
+    # Wait for the package manager lock; never kill the process or delete lock files.
+    apt-get -o DPkg::Lock::Timeout=240 update -q
+    apt-get -o DPkg::Lock::Timeout=240 install -y -q curl ca-certificates
+    echo 'Download dependencies ready after waiting for APT lock if necessary'
+fi
 """,
-            300,
+            540,
         ),
         (
             f"下载并校验官方 {VERSION} 安装器，强制管理端仅本机访问",

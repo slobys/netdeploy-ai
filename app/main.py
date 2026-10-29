@@ -22,6 +22,7 @@ from .tasks import JobRunner
 from .ai import diagnose
 from .os_keyring import VaultUnavailable
 from .https_upgrade import identify, https_access_script, https_url
+from .firewall import PortRule, STATUS_SCRIPT, allow_port_script
 
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("NETDEPLOY_DATA", str(BASE.parent / "data")))
@@ -36,7 +37,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.3")
+app = FastAPI(title="NetDeploy AI", version="0.3.4")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -105,7 +106,8 @@ class NewJob(BaseModel):
 
 
 class Approval(BaseModel):
-    confirmation: str
+    confirmation: str = ''  # Legacy explicit typed phrase remains accepted
+    confirmed_risk: bool = False  # Single-click approval after reviewing fixed plan
 
 
 class DeleteJobConfirmation(BaseModel):
@@ -149,7 +151,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.3", "security": "local-only"}
+    return {"ok": True, "version": "0.3.4", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -345,6 +347,48 @@ def preflight(id: int):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.get("/api/hosts/{id}/firewall", dependencies=[Depends(authorized)])
+def firewall_status(id: int):
+    host = find_host(id)
+    if not executor.credential_ready(host):
+        raise HTTPException(status_code=409, detail="SSH 登录凭据不可用；请先连接可信 VPS")
+    try:
+        raw = executor.run(host, STATUS_SCRIPT, timeout=25)
+    except (SSHError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"无法检查 UFW 状态：{exc}") from exc
+    if raw.startswith("FIREWALL=active"):
+        mode = "active"
+    elif raw.startswith("FIREWALL=inactive"):
+        mode = "inactive"
+    elif raw.startswith("FIREWALL=unavailable"):
+        mode = "unavailable"
+    else:
+        mode = "unknown"
+    return {"status": mode, "details": raw[:4000],
+            "cloud_notice": "此处仅管理 VPS 内的 UFW；云厂商安全组需要单独放行端口"}
+
+
+@app.post("/api/hosts/{id}/firewall/allow", dependencies=[Depends(authorized)])
+def firewall_allow(id: int, body: PortRule):
+    host = find_host(id)
+    if not body.confirmation:
+        raise HTTPException(status_code=409, detail="请明确确认放行指定协议/端口")
+    if not executor.credential_ready(host):
+        raise HTTPException(status_code=409, detail="SSH 登录凭据不可用；请先连接可信 VPS")
+    try:
+        script = allow_port_script(body.port, body.protocol)
+        with store.lock:
+            if store.has_active_endpoint_jobs(host["hostname"], host["port"]):
+                raise ValueError("VPS 正在执行部署任务，请先检查任务完成状态再修改端口")
+            result = executor.run(host, script, timeout=40)
+    except (SSHError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"放行端口失败：{exc}") from exc
+    mode = "active" if "UFW_ALLOWED" in result else "inactive_or_unavailable"
+    return {"ok": True, "port": body.port, "protocol": body.protocol,
+            "mode": mode, "message": result.strip()[:800],
+            "cloud_notice": "本机规则已处理，但云服务器安全组仍需另行允许对应入站端口"}
+
+
 @app.get("/api/jobs", dependencies=[Depends(authorized)])
 def list_jobs():
     return store.jobs()
@@ -477,8 +521,13 @@ def approve_job(id: str, body: Approval):
     if current != host["facts"]:
         store.save_facts(host["id"], current)
         host["facts"] = current
+    if not body.confirmed_risk and body.confirmation != runner.approval_text(job, host):
+        raise HTTPException(status_code=409, detail="请确认已阅读固定部署方案与高权限风险")
     try:
-        runner.enqueue(job, host, body.confirmation)
+        # The server derives the legacy phrase after a deliberate one-click
+        # confirmation; the user must never type or copy it repeatedly.
+        verified_phrase = runner.approval_text(job, host)
+        runner.enqueue(job, host, verified_phrase)
         return {"ok": True, "job_id": id, "status": "queued"}
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

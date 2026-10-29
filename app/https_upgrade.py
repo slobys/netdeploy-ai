@@ -10,6 +10,7 @@ import ipaddress
 import re
 
 from .three_x_ui import validate_port
+from .firewall import acme_ufw_script, allow_port_script
 
 SAFE_DNS = re.compile(r"^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -62,12 +63,18 @@ else
         echo 'Domain A record does not match VPS public IPv4; configure DNS before retry'; exit 29;
     }
 fi
-echo 'Public identity and local-only panel preflight passed; TCP 80 must also be reachable from Internet'
-"""
+echo 'Public identity and local-only panel preflight passed; preparing local UFW for TCP 80'
+""" + acme_ufw_script() + "\n"
     install = r"""set -eu
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -q
-apt-get install -y -q certbot openssl ca-certificates curl
+if command -v certbot >/dev/null 2>&1 && command -v openssl >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+    echo 'Certbot, OpenSSL and curl already available; skipping APT'
+else
+    # Do not delete /var/lib/dpkg/lock-frontend or terminate unattended-upgrades.
+    # Let APT wait for the valid lock holder before installing.
+    apt-get -o DPkg::Lock::Timeout=240 update -q
+    apt-get -o DPkg::Lock::Timeout=240 install -y -q certbot openssl ca-certificates curl
+fi
 command -v certbot >/dev/null
 if [ "__MODE__" = "ip" ]; then
     certbot --help all | grep -Fq -- '--ip-address' || {
@@ -186,13 +193,15 @@ if ! printf '%s\n' "$addresses" | grep -Fxq '0.0.0.0:__PORT__'; then
     echo 'HTTPS listener is not reachable on IPv4; reverting to localhost-only listener' >&2
     exit 37
 fi
+echo 'HTTPS certificate verified; enabling only the approved local UFW panel port'
+""" + allow_port_script(port, "tcp") + """
 public_listener_enabled=no
 trap - EXIT
-echo 'HTTPS active with a trusted certificate; public TCP __PORT__ must be allowed by the cloud firewall'
+echo 'Public HTTPS is active; cloud security group must separately permit the selected TCP port'
 """
     label = "检查公网 IP 和 ACME 80 端口" if mode == "ip" else "检查域名解析和 ACME 80 端口"
     stages = [(label, preflight, 35),
-              ("安装 Certbot 并检查 IP 短期证书支持及续期定时器", install, 300),
+              ("检查 Certbot / 自动等待 Ubuntu APT 锁", install, 540),
               ("申请证书、验证标识并配置自动续期", issue, 300),
               ("验证后开启 HTTPS 直连（失败回退本机监听）", activate, 60)]
     # Expand nested placeholders inside the installer command, too.

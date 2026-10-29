@@ -1,7 +1,7 @@
-/* NetDeploy AI v0.3.3 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.4 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, pendingFingerprint:null, loading:false, lastSnapshot:null};
+const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null};
 
 async function api(path, opts={}) {
   const resp = await fetch('/api'+path,{...opts,headers:{'X-Admin-Token':state.token,...(opts.body?{'Content-Type':'application/json'}:{}),...(opts.headers||{})},cache:'no-store'});
@@ -24,7 +24,7 @@ function toast(message,bad=false){
 }
 function dialog(content){el('#modal-content').innerHTML=content;el('#modal').classList.remove('hidden');}
 function closeDialog(){el('#modal').classList.add('hidden');el('#modal-content').innerHTML='';}
-function modalHead(title){return `<div class="modal-header"><h2>${escapeHtml(title)}</h2><button class="close" type="button" data-action="close-modal" aria-label="关闭">×</button></div>`;}
+function modalHead(title,isRoot=false){const back=state.hostPanel&&!isRoot?`<button class="server-back" data-action="back-host" data-id="${state.hostPanel.id}">← 返回这台服务器</button>`:"";return `<div class="modal-header"><div><h2>${escapeHtml(title)}</h2>${back}</div><button class="close" type="button" data-action="close-modal" aria-label="关闭">×</button></div>`;}
 async function loadAll(silent=false){
   if(state.loading||!state.token)return;
   state.loading=true;
@@ -63,23 +63,16 @@ function render(){
  <span class="status ${p.deployment==='install'?'':'muted'}">${p.deployment==='install'?'自动安装 Beta':'方案引导'}</span>
  <button class="btn subtle" data-action="plan" data-project="${escapeHtml(key)}">${p.deployment==='install'?'部署项目':'查看方案'} →</button></div></div>`).join('');
  el('#host-list').innerHTML=hosts.length?hosts.map(h=>{
-   const sameEndpoint=hosts.filter(other=>other.hostname.toLowerCase()===h.hostname.toLowerCase()&&other.port===h.port).length;
-   const status=!h.credential_ready?'需输入登录凭据':h.facts?'曾通过环境检测':'等待环境检测';
+   const duplicate=hosts.filter(x=>x.hostname.toLowerCase()===h.hostname.toLowerCase()&&x.port===h.port).length;
+   const status=!h.credential_ready?'需要登录凭据':h.facts?'最近检测成功':'待连接检测';
    const statusClass=!h.credential_ready?'error':h.facts?'success':'warn';
-   return `<div class="host-item interactive-card" data-host="${h.id}">
-     <div class="host-icon" aria-hidden="true">▤</div>
-     <div class="host-main"><div class="host-title"><b>${escapeHtml(h.name)}</b><span class="chip ${statusClass}">${status}</span>${sameEndpoint>1?`<span class="chip warn">同一地址 ${sameEndpoint} 条记录</span>`:''}</div>
-       <small>${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port} · ${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH)+' · ':''}${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</small>
-       ${h.job_count?`<span class="host-submeta">${h.job_count} 条本地部署记录</span>`:''}
-     </div>
-     <div class="host-actions" role="group" aria-label="${escapeHtml(h.name)} 的服务器操作">
-       <button class="btn subtle" data-action="edit-host" data-id="${h.id}">编辑</button>
-       <button class="btn subtle" data-action="credentials" data-id="${h.id}">登录方式</button>
-       <button class="btn subtle" data-action="fingerprint" data-id="${h.id}">指纹 / 重装</button>
-       <button class="btn primary-soft" data-action="preflight" data-id="${h.id}">检测连接</button>
-       <button class="btn danger" data-action="delete-host" data-id="${h.id}">删除</button>
-     </div></div>`;
- }).join(''):`<div class="empty"><span class="empty-icon">▤</span><span>尚未添加 VPS。添加后就能在这里直接完成 SSH 验证和环境检测。</span><button class="btn primary" data-action="add-host">＋ 添加第一台 VPS</button></div>`;
+   return `<article class="host-item interactive-card" role="button" tabindex="0" data-action="host-console" data-id="${h.id}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台">
+      <div class="host-card-top"><div class="host-icon">▤</div><div class="host-title"><b>${escapeHtml(h.name)}</b><span class="chip ${statusClass}">${status}</span></div><span class="host-card-open">管理服务器 →</span></div>
+      <div class="host-card-address">${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port}</div>
+      <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span></div>
+      ${duplicate>1?`<span class="host-card-hint">${duplicate} 条记录共用此 SSH 地址</span>`:''}
+    </article>`;
+ }).join(''):`<div class="empty"><span class="empty-icon">▤</span><span>还没有 VPS。添加后点击卡片，即可在同一个控制台管理连接、部署与端口。</span><button class="btn primary" data-action="add-host">＋ 添加第一台 VPS</button></div>`;
  el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${chip(j.status)}<button class="btn subtle" data-action="job" data-id="${escapeHtml(j.id)}">查看详情</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
  renderSection();
 }
@@ -92,6 +85,106 @@ function renderSection(){
  el('#hosts-section').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
  el('#jobs-section').classList.toggle('hidden',!['dashboard','jobs'].includes(state.section));
  el('#main-cta').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
+}
+function hostTaskLink(job){
+ return `<button class="server-history-item" data-action="job" data-id="${escapeHtml(job.id)}"><span>${escapeHtml(state.catalog[job.project]?.name||job.project)}</span>${chip(job.status)}<small>${escapeHtml(job.created_at.slice(0,16).replace('T',' '))}</small></button>`;
+}
+function openHostConsole(id,tab='overview'){
+ const host=state.hosts.find(h=>h.id===id);if(!host){toast('VPS 已不存在，请刷新',true);return;}
+ state.hostPanel={id,tab};state.activeJob=null;
+ const tabs=[['overview','概览'],['deploy','项目部署'],['network','端口 / 防火墙'],['security','连接安全'],['settings','编辑 / 删除']];
+ const connected=Boolean(host.facts);
+ const related=state.jobs.filter(j=>j.host_id===id).slice(0,5);
+ const card=(label,value)=>`<div class="server-kpi"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>`;
+ let content='';
+ if(tab==='overview'){
+   content=`<div class="server-panel-grid">
+      ${card('服务器地址',host.hostname+':'+host.port)}
+      ${card('SSH 登录',host.auth_mode==='password'?(host.password_remembered?'密码已保存在系统':'密码登录'):'私钥登录')}
+      ${card('系统与架构',connected?(host.facts.OS_ID+' / '+host.facts.ARCH):'等待检测')}
+      ${card('部署任务',String(host.job_count||0))}
+    </div>
+    <div class="server-action-grid">
+     <button class="btn primary" data-action="host-check" data-id="${id}">↻ 检测 SSH 与系统</button>
+     <button class="btn primary-soft" data-action="host-tab" data-id="${id}" data-tab="deploy">▣ 选择项目部署</button>
+     <button class="btn subtle" data-action="host-tab" data-id="${id}" data-tab="network">◈ 放行指定端口</button>
+     <button class="btn subtle" data-action="host-tab" data-id="${id}" data-tab="security">◇ 指纹与密码</button>
+    </div>
+    <div class="server-panel-section"><h3>最近的部署任务</h3>${related.length?related.map(hostTaskLink).join(''):'<p class="helptext">暂无部署历史。选择项目后，环境检查和配置会自动执行。</p>'}</div>`;
+ }else if(tab==='deploy'){
+   const visible=Object.entries(state.catalog).filter(([_,project])=>!project.internal);
+   content=`<p class="helptext">只选择要安装的项目。NetDeploy 自动检测系统，识别已有安装，准备 HTTPS 和本机端口。执行前仅需一次确认。</p>
+   <div class="server-project-grid">${visible.map(([key,project])=>`<button class="server-project-choice" data-action="server-install" data-id="${id}" data-project="${escapeHtml(key)}">
+    <span class="project-choice-icon">${symbol[key]}</span><strong>${escapeHtml(project.name)}</strong><small>${escapeHtml(project.subtitle)}</small>
+    <span class="project-choice-link">${project.deployment==='install'?'部署 / 继续配置':'查看方案'} →</span></button>`).join('')}</div>`;
+ }else if(tab==='network'){
+   content=`<div class="modal-tip"><b>仅管理 VPS 自身的 UFW 防火墙。</b> 你可以直接放行 TCP 或 UDP 端口，系统不会关闭整个防火墙。云厂商安全组必须单独允许入站流量，否则公网仍无法访问。</div>
+    <div id="server-firewall-status" class="server-status-panel"><span class="inline-spinner"></span> 正在通过 SSH 读取 UFW 状态…</div>
+    <form id="server-allow-form"><div class="form-2">
+      <div class="form-group"><label>需要放行的端口</label><input name="port" type="number" min="1" max="65535" value="80" required/></div>
+      <div class="form-group"><label>协议</label><select name="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div>
+    </div><div class="modal-actions"><button type="submit" class="btn primary">放行该端口</button></div></form>
+    <p class="helptext">3X-UI 自动部署时，会尝试为证书验证放行本机 TCP 80，并在证书验证成功后放行管理端口。云厂商安全组不受本机 UFW 控制。</p>`;
+ }else if(tab==='security'){
+   content=`<p class="helptext">同一 IP/端口的服务器记录共用 SSH 主机指纹。VPS 重装后不需要清空 known_hosts，只需独立核对新的指纹。</p>
+   <div class="server-action-grid">
+      <button class="btn primary" data-action="fingerprint" data-id="${id}">核对指纹 / 服务器重装</button>
+      <button class="btn subtle" data-action="credentials" data-id="${id}">修改 SSH 登录密码或密钥</button>
+      <button class="btn subtle" data-action="host-check" data-id="${id}">测试 SSH 连接</button>
+   </div><div class="modal-tip warning">如果服务器返回的主机指纹发生变化，必须通过 VPS 云厂商的独立控制台核对，不能为了省步骤而自动覆盖。</div>`;
+ }else{
+   content=`<div class="server-action-grid">
+      <button class="btn subtle" data-action="edit-host" data-id="${id}">编辑 VPS 名称与连接信息</button>
+      <button class="btn danger" data-action="delete-host" data-id="${id}">删除本地 VPS 记录</button>
+   </div><div class="modal-tip">删除 VPS 不会卸载远端程序。存在部署历史时，需明确确认是否一并删除历史与日志。</div>`;
+ }
+ const header=`<div class="server-console"><div class="server-console-head"><div><span class="server-eyebrow">VPS WORKSPACE</span>
+   <h3>${escapeHtml(host.name)}</h3><p>${escapeHtml(host.username)}@${escapeHtml(host.hostname)}:${host.port}</p></div>
+   <span class="chip ${host.credential_ready?(connected?'success':'warn'):'error'}">${host.credential_ready?(connected?'环境曾检测通过':'待检测'):'凭据不可用'}</span></div>
+   <nav class="server-tabs" aria-label="服务器操作">${tabs.map(([name,label])=>`<button type="button" class="server-tab ${tab===name?'active':''}" data-action="host-tab" data-id="${id}" data-tab="${name}">${label}</button>`).join('')}</nav>
+   <div class="server-tab-content">${content}</div></div>`;
+ dialog(modalHead('VPS 服务器控制台',true)+header);
+ if(tab==='network'){
+   refreshFirewallUI(id);
+   el('#server-allow-form')?.addEventListener('submit',async e=>{
+     e.preventDefault();const form=e.currentTarget;const fd=new FormData(form);
+     const btn=form.querySelector('button[type="submit"]');btn.disabled=true;btn.classList.add('is-loading');
+     const port=Number(fd.get('port'));const protocol=String(fd.get('protocol'));
+     toast(`正在设置 UFW ${port}/${protocol}…`);
+     try{const res=await api(`/hosts/${id}/firewall/allow`,{method:'POST',body:JSON.stringify({port,protocol,confirmation:true})});
+       toast(res.mode==='active'?`UFW 已放行 ${port}/${protocol}，云安全组仍需单独放行`:'UFW 未启用或不可用，无需新增本机规则；仍需确认云安全组');
+       await refreshFirewallUI(id);
+     }catch(err){toast(err.message,true);}finally{if(btn.isConnected){btn.disabled=false;btn.classList.remove('is-loading');}}
+   });
+ }
+}
+async function refreshFirewallUI(id){
+ const target=el('#server-firewall-status');if(!target)return;
+ try{const result=await api(`/hosts/${id}/firewall`);
+   if(!target.isConnected)return;
+   const headline={active:'UFW 已启用',inactive:'UFW 未启用',unavailable:'未安装 UFW',unknown:'无法确认 UFW 状态'}[result.status]||'未知状态';
+   target.innerHTML=`<strong>${headline}</strong><pre class="pre">${escapeHtml(result.details)}</pre><p class="helptext">${escapeHtml(result.cloud_notice)}</p>`;
+ }catch(err){if(target.isConnected)target.innerHTML=`<div class="modal-tip warning">${escapeHtml(err.message)}</div>`;}
+}
+async function checkHostInConsole(id){
+ const target=el('.server-tab-content');if(target)target.insertAdjacentHTML('afterbegin','<div class="modal-tip server-check-running">正在通过已验证的 SSH 读取服务器环境…</div>');
+ try{await api(`/hosts/${id}/preflight`,{method:'POST'});await loadAll(true);openHostConsole(id,'overview');toast('连接检测成功，系统信息已更新');}
+ catch(err){el('.server-check-running')?.remove();toast(err.message,true);}
+}
+async function createHostPlan(id,project){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ const source=project==='3x-ui'?state.jobs.find(j=>j.project==='3x-ui'&&j.host_id===id&&['completed','partial'].includes(j.status)&& (j.plan.trust_epoch||0)===(host.trust_epoch||0)):null;
+ if(source){
+   const upgraded=source.status==='completed'&&source.plan.options?.access_mode==='https'||
+     state.jobs.some(j=>j.project==='3x-ui-https'&&j.host_id===id&&j.status==='completed'&&j.plan.options?.source_job_id===source.id);
+   if(upgraded){showJob(source.id);toast('检测到已完成的 3X-UI，打开现有部署记录');return;}
+   await xuiUpgrade(source.id);return;
+ }
+ toast('正在自动检测环境并生成安全方案…');
+ try{const payload={host_id:id,project};if(project==='3x-ui'){payload.panel_port=24443;payload.access_mode='https';}
+   const job=await api('/jobs',{method:'POST',body:JSON.stringify(payload)});state.activeJob=null;
+   await loadAll(true);if(!state.jobs.some(j=>j.id===job.id))state.jobs.unshift(job);showJob(job.id);
+ }catch(err){toast(err.message,true);}
 }
 function authSelect(current='password',remembered=false) {
  const native=state.capabilities.secure_password_storage;
@@ -261,25 +354,49 @@ function chooseHost(project){
 }try{toast('正在读取 VPS 最新环境信息');const job=await api('/jobs',{method:'POST',body:JSON.stringify(request)});state.activeJob=null;await loadAll(true);if(!state.jobs.some(j=>j.id===job.id))state.jobs.unshift(job);showJob(job.id);}catch(err){toast(err.message,true);}});
 }
 function showJob(id){
- const job=state.jobs.find(j=>j.id===id);if(!job){toast('未找到任务，请刷新',true);return;}
- state.activeJob=id;const p=job.plan;const host=state.hosts.find(h=>h.id===job.host_id);
+ const job=state.jobs.find(j=>j.id===id);if(!job){toast('任务不存在，请刷新',true);return;}
+ state.activeJob=id;
+ const p=job.plan,host=state.hosts.find(h=>h.id===job.host_id);
  const stale=(p.trust_epoch||0)!==(host?.trust_epoch||0);
- const approval=`DEPLOY ${job.project} TO ${host?.hostname||p.hostname}`;
- let html=modalHead(`${escapeHtml(p.name)} · 部署任务`)+`<div class="toolbar">${chip(job.status)}<span class="chip">风险等级：${escapeHtml(p.risk)}</span><span class="chip">${p.executable?'自动部署':'引导模式'}</span></div>
- <p class="helptext" class="mt14">目标服务器：${escapeHtml(host?.name||p.hostname)} · 任务编号 ${escapeHtml(job.id)}</p>
- ${job.project==='3x-ui'?`<div class="modal-tip">3X-UI v3.11.0 · TCP ${escapeHtml(p.options?.panel_port||'未知')} · ${p.options?.access_mode==='https'?'自动申请'+(p.options?.certificate_type==='ip'?'公网 IP 短期证书':'域名证书')+'；签发失败不开放明文管理面板':'仅本机 HTTP / SSH 隧道模式，可后续单独开通 HTTPS'}</div>`:''}
- ${stale?`<div class="modal-tip warning">此任务属于 VPS 重装或 SSH 指纹变更前的历史系统。旧登录入口和审批计划已失效，不能用于当前服务器；请重新进行环境检测并创建新部署计划。</div>`:''}
- <h3>部署前置要求</h3><div class="checks">${p.requires.map(req=>`<div class="check">✓ ${escapeHtml(req)}</div>`).join('')}</div>
- <h3>风险提示</h3><ul class="notice-list">${p.warnings.map(w=>`<li>${escapeHtml(w)}</li>`).join('')}</ul>`;
- if(p.issues.length)html+=`<h3>兼容性 / 支持限制</h3><div class="checks">${p.issues.map(i=>`<div class="check fail">${escapeHtml(i)}</div>`).join('')}</div>`;
- if(p.steps.length)html+=`<h3>受控执行步骤（${p.steps.length} 项）</h3>${p.steps.map((s,i)=>`<div class="step"><span class="num">${i+1}</span><div><b>${escapeHtml(s.label)}</b><small>最长 ${s.timeout} 秒</small><details><summary class="mini" class="smalllink">查看实际 SSH 脚本</summary><pre class="pre">${escapeHtml(s.script)}</pre></details></div></div>`).join('')}`;
- html+=`<a class="external" target="_blank" rel="noopener noreferrer" href="${escapeHtml(p.docs)}">查看官方安装文档 ↗</a>`;
- if(job.status==='planned'&&p.executable)html+=`<form id="approve-form"><div class="modal-tip warning"><b>高权限操作确认</b>：SSH 执行器会运行上方固定脚本，可能修改远端软件包或创建容器。自动回滚暂不可用。请先核对风险和命令。部署计划仅在创建后 10 分钟内可以审批；若过期或服务器关键环境改变，请重新生成计划。</div>
- <div class="form-group"><label>请完整输入以下确认语句</label><div class="pre">${escapeHtml(approval)}</div><input name="confirmation" required autocomplete="off" placeholder="输入上方确认语句"/></div>
- <div class="modal-actions"><button type="button" class="btn subtle" data-action="delete-job" data-id="${escapeHtml(job.id)}">删除任务</button><button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检查并生成新方案</button><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary" type="submit">审批并开始部署</button></div></form>`;
- else html+=`<h3>执行日志</h3><div id="job-state" class="log-status">${escapeHtml(stateText(job.status))}</div><pre class="pre" id="task-log">${escapeHtml(job.logs||'等待日志...')}</pre><div class="modal-actions"><button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读诊断</button>${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(job.id)}">查看面板登录信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||state.jobs.some(other=>other.project==='3x-ui-https'&&other.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(other.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">启用 HTTPS 直连</button>`}`:''}${job.project==='3x-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(p.options?.source_job_id)}">打开原面板登录信息</button>`:''}${["queued","running"].includes(job.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(job.id)}">删除任务</button>`}${job.project==='3x-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成证书方案</button>`:''}<button class="btn primary" data-action="close-modal">关闭</button></div><div id="ai-response"></div>`;
+ let html=modalHead(`${p.name} · 部署任务`)+`<div class="toolbar">${chip(job.status)}<span class="chip">${escapeHtml(host?.name||p.hostname)}</span><span class="chip">${escapeHtml(p.options?.panel_port||'')}${p.options?.panel_port?' / TCP':''}</span></div>`;
+ if(stale)html+='<div class="modal-tip warning">此任务属于服务器重装前的系统。旧登录信息和审批计划已失效，必须重新检测并创建新的部署方案。</div>';
+ if(p.issues.length)html+=`<div class="modal-tip warning">${p.issues.map(escapeHtml).join('；')}</div>`;
+ if(job.status==='planned'&&p.executable&&!stale){
+   const isXui=job.project==='3x-ui'||job.project==='3x-ui-https';
+   html+=`<div class="plan-overview"><h3>${isXui?'准备部署 3X-UI + HTTPS':'准备部署 '+escapeHtml(p.name)}</h3>
+     <p>目标：${escapeHtml(host?.hostname||p.hostname)} · ${p.steps.length} 个受控执行阶段 · 风险：${escapeHtml(p.risk)}</p>
+     <div class="modal-tip warning">审批一次后将执行已固定的安装步骤；包括 APT 依赖处理、证书签发（如果需要）和所需的本机 UFW 端口规则。云厂商安全组仍需另行放行；建议先备份 VPS。</div></div>
+     <form id="approve-form"><div class="modal-actions plan-primary-actions">
+       <button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>
+       <button type="button" class="btn ghost" data-action="close-modal">暂不部署</button>
+       <button class="btn primary" type="submit">确认并一键部署</button>
+     </div></form>`;
+ }else{
+   html+=`<h3>部署状态及日志</h3><div id="job-state" class="log-status">${escapeHtml(stateText(job.status))}</div>
+      <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
+      <div class="modal-actions modal-action-wrap">
+       ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(job.id)}">查看面板</button>${(p.options?.access_mode==='https'&&job.status==='completed')||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
+       ${job.project==='3x-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(p.options?.source_job_id)}">打开 HTTPS 面板</button>`:''}
+       ${job.project==='3x-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成证书方案</button>`:''}
+       <button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读排障</button>
+       ${['queued','running'].includes(job.status)?'':`<button class="btn danger" data-action="delete-job" data-id="${escapeHtml(job.id)}">删除记录</button>`}
+       <button class="btn subtle" data-action="close-modal">关闭</button>
+     </div><div id="ai-response"></div>`;
+ }
+ html+=`<details class="plan-technical"><summary>展开技术详情、风险说明和实际执行命令（${p.steps.length} 步）</summary>
+   <h3>环境要求</h3><ul class="notice-list">${p.requires.map(v=>`<li>${escapeHtml(v)}</li>`).join('')}</ul>
+   <h3>风险提示</h3><ul class="notice-list">${p.warnings.map(v=>`<li>${escapeHtml(v)}</li>`).join('')}</ul>
+   ${p.steps.map((step,i)=>`<div class="step"><span class="num">${i+1}</span><div><b>${escapeHtml(step.label)}</b><small>超时上限 ${step.timeout} 秒</small>
+      <details><summary class="mini">查看固定脚本</summary><pre class="pre">${escapeHtml(step.script)}</pre></details></div></div>`).join('')}
+   <a class="external" href="${escapeHtml(p.docs)}" target="_blank" rel="noopener noreferrer">官方安装文档</a></details>`;
  dialog(html);
- const form=el('#approve-form');if(form)form.addEventListener('submit',async e=>{e.preventDefault();const confirmation=new FormData(form).get('confirmation');const btn=form.querySelector('button[type="submit"]');if(btn){btn.disabled=true;btn.classList.add('is-loading');}try{toast('正在复核环境并提交审批…');await api(`/jobs/${job.id}/approve`,{method:'POST',body:JSON.stringify({confirmation})});await loadAll(true);showJob(id);toast('任务已获批准并开始执行，任务日志会自动更新');}catch(err){toast(err.message,true);}finally{if(btn?.isConnected){btn.disabled=false;btn.classList.remove('is-loading');}}});
+ const form=el('#approve-form');if(form)form.addEventListener('submit',async e=>{
+   e.preventDefault();const btn=form.querySelector('button[type="submit"]');btn.disabled=true;btn.classList.add('is-loading');
+   toast('正在复核服务器并执行已批准的方案…');
+   try{await api(`/jobs/${job.id}/approve`,{method:'POST',body:JSON.stringify({confirmed_risk:true})});
+       await loadAll(true);showJob(id);toast('任务已开始，将自动完成后续安装和验证');}
+   catch(err){toast(err.message,true);}finally{if(btn.isConnected){btn.disabled=false;btn.classList.remove('is-loading');}}
+ });
 }
 function confirmDeleteJob(id){
  const job=state.jobs.find(j=>j.id===id);
@@ -390,12 +507,17 @@ document.addEventListener('click',async e=>{
  const t=e.target.closest('[data-action],[data-nav]');if(!t)return;
  if(t.dataset.nav){go(t.dataset.nav);return;}
  const id=t.dataset.id,act=t.dataset.action;
- const asyncActions=new Set(['fingerprint','trust','preflight','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel']);
+ const asyncActions=new Set(['fingerprint','trust','preflight','host-check','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel']);
  if(t.dataset.busy==='1')return;
  const busy=asyncActions.has(act);
  if(busy){t.dataset.busy='1';t.disabled=true;t.classList.add('is-loading');t.setAttribute('aria-busy','true');}
  try{
-  if(act==='close-modal'){closeDialog();state.activeJob=null;state.pendingFingerprint=null;}
+  if(act==='close-modal'){closeDialog();state.activeJob=null;state.hostPanel=null;state.pendingFingerprint=null;}
+  else if(act==='host-console')openHostConsole(Number(id));
+  else if(act==='back-host')openHostConsole(Number(id),state.hostPanel?.tab||'overview');
+  else if(act==='host-tab')openHostConsole(Number(id),t.dataset.tab||'overview');
+  else if(act==='host-check')await checkHostInConsole(Number(id));
+  else if(act==='server-install')await createHostPlan(Number(id),t.dataset.project);
   else if(act==='add-host')addHost();
   else if(act==='edit-host')editHost(Number(id));
   else if(act==='delete-host')deleteHost(Number(id));
@@ -423,7 +545,7 @@ document.addEventListener('click',async e=>{
        toast(result.already_trusted?'主机指纹与已信任记录一致':'已信任新的服务器指纹，可以继续检测环境');}
     catch(err){toast(err.message,true);}
   }
- }finally{
+ }catch(err){toast(err.message||'操作失败，请重试',true);}finally{
     if(busy&&t.isConnected){t.disabled=false;delete t.dataset.busy;t.classList.remove('is-loading');t.removeAttribute('aria-busy');}
  }
 });
@@ -440,6 +562,7 @@ if(window.matchMedia('(hover: hover) and (prefers-reduced-motion: no-preference)
    card.style.setProperty('--hover-y',y+'%');
  },{passive:true});
 }
+document.addEventListener('keydown',e=>{const card=e.target.closest?.('[data-action="host-console"]');if(card&&(e.key==='Enter'||e.key===' ')){e.preventDefault();openHostConsole(Number(card.dataset.id));}});
 el('#refresh').addEventListener('click',async e=>{const button=e.currentTarget;button.classList.add('is-loading');button.disabled=true;try{await loadAll();}finally{button.classList.remove('is-loading');button.disabled=false;}});
 el('#logout').addEventListener('click',()=>{sessionStorage.removeItem('nd_token');state.token='';el('#login').classList.remove('hidden');});
 setInterval(()=>{if(state.token)loadAll(true);},5000);

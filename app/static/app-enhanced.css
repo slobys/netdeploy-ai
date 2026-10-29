@@ -162,6 +162,101 @@ details>summary:hover{color:#d2e6ff}
   .modal-actions .btn{flex:1 1 auto}
 }
 @media(hover:none){.host-item:hover,.project:hover,.stat:hover,.job-item:hover{transform:none}}
+
+/* v0.3.4 — two-column VPS tiles and one unified server workspace. */
+.hero{height:114px}
+.hero-content{padding:17px 25px}
+.hero .eyebrow{margin-bottom:7px}
+.hero h1{font-size:22px}
+.hero p{font-size:10px;margin-top:5px}
+.host-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}
+.host-item{
+  display:flex;flex-direction:column;align-items:stretch;gap:13px;
+  min-height:171px;max-width:none;width:100%;
+  padding:21px 23px;text-align:left;cursor:pointer;
+  border-radius:17px;background:linear-gradient(140deg,#121f35,#101b30);
+}
+.host-item:focus-visible{outline:2px solid #80b7ff;outline-offset:3px}
+.host-card-top{display:flex;align-items:center;gap:10px;width:100%}
+.host-card-top .host-icon{width:44px;height:44px}
+.host-card-top .host-title{flex:1;min-width:0}
+.host-card-top .host-title b{font-size:15px;line-height:1.35}
+.host-card-open{font-size:11px;color:#8bb9ff;white-space:nowrap;font-weight:700}
+.host-item:hover .host-card-open{color:#d6e8ff;transform:translateX(3px)}
+.host-card-address{font-size:14px;font-weight:630;color:#d6e5fb;overflow-wrap:anywhere}
+.host-card-meta{display:flex;flex-wrap:wrap;gap:9px 13px;font-size:11px;color:#8da5c2}
+.host-card-meta span:not(:last-child):after{content:" ·";color:#49627f}
+.host-card-hint{font-size:11px;color:#e8c88e}
+.modal:has(.server-console){width:min(910px,100%);max-height:90vh}
+.server-console{margin-top:6px}
+.server-console-head{display:flex;align-items:center;justify-content:space-between;gap:16px;border:1px solid #294768;border-radius:14px;background:#111f34;padding:20px;margin-bottom:14px}
+.server-console-head h3{font-size:21px;margin:5px 0 7px}
+.server-console-head p{font-size:12px;color:#a2b9d3;overflow-wrap:anywhere}
+.server-eyebrow{color:#88b8fc;font-size:10px;font-weight:800;letter-spacing:1.5px}
+.server-tabs{display:flex;gap:8px;flex-wrap:wrap;padding:8px;background:#0c172a;border:1px solid #233953;border-radius:13px}
+.server-tab{border:none;border-radius:9px;background:transparent;color:#9bb1cf;padding:11px 16px;font-size:12px;font-weight:650;cursor:pointer;transition:background .2s,color .2s,transform .2s}
+.server-tab.active{background:linear-gradient(125deg,#2d5189,#254577);color:#fff;box-shadow:0 4px 14px #0003}
+.server-tab:hover:not(.active){color:#d9eaff;background:#1b2d48;transform:translateY(-1px)}
+.server-tab:focus-visible{outline:2px solid #88baff;outline-offset:2px}
+.server-tab-content{min-height:205px;padding:18px 2px 6px}
+.server-panel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:19px}
+.server-kpi{border:1px solid #2b4564;background:#111f34;border-radius:13px;padding:14px}
+.server-kpi span{display:block;font-size:11px;color:#96b0ce;margin-bottom:7px}
+.server-kpi strong{display:block;font-size:13px;color:#e2efff;overflow-wrap:anywhere}
+.server-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:10px 0 14px}
+.server-action-grid .btn{min-height:42px;text-align:center;justify-content:center}
+.server-panel-section{border-top:1px solid #253a55;margin-top:20px;padding-top:4px}
+.server-panel-section h3{margin-bottom:10px}
+.server-history-item{display:flex;align-items:center;gap:14px;width:100%;text-align:left;border:1px solid #273c59;border-radius:9px;background:#111e31;color:#d6e5f8;padding:11px 13px;margin-top:6px;cursor:pointer}
+.server-history-item>span:first-child{flex:1}
+.server-history-item small{color:#8fa5c0;font-size:10px}
+.server-history-item:hover{border-color:#5178ae;background:#192b45}
+.server-project-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}
+.server-project-choice{border:1px solid #304a69;border-radius:14px;padding:19px;display:flex;flex-direction:column;align-items:flex-start;gap:8px;background:#13223a;color:#edf4ff;text-align:left;cursor:pointer;transition:transform .24s,border-color .24s,box-shadow .24s}
+.server-project-choice:hover{transform:translateY(-3px);border-color:#6c9bea;box-shadow:0 12px 24px #02091850}
+.server-project-choice strong{font-size:14px}
+.server-project-choice small{font-size:11px;color:#9cb1ce}
+.project-choice-icon{font-size:23px}
+.project-choice-link{margin-top:6px;color:#92c2ff;font-size:11px;font-weight:700}
+.server-status-panel{border:1px solid #294364;border-radius:12px;background:#111f34;padding:14px;margin:14px 0 20px;font-size:12px;color:#b9d0eb}
+.server-status-panel strong{display:block;margin-bottom:8px;color:#e5efff}
+.server-status-panel .pre{max-height:200px;overflow-y:auto}
+.server-back{border:0;background:transparent;color:#92bfff;font-size:11px;cursor:pointer;padding:7px 0 0}
+.server-back:hover{color:#dceeff}
+.modal-header>div{min-width:0}
+.plan-overview{border:1px solid #2c4567;border-radius:14px;padding:18px;background:linear-gradient(130deg,#142740,#111d32);margin:18px 0}
+.plan-overview h3{font-size:18px;margin:0 0 9px}
+.plan-overview p{font-size:11px;color:#a9bed8}
+.plan-overview .modal-tip{margin-bottom:0}
+.plan-primary-actions{align-items:stretch}
+.plan-primary-actions .btn.primary{font-size:14px;min-height:43px}
+.plan-technical{border-top:1px solid #273c56;margin-top:23px;padding-top:12px}
+.plan-technical>summary{font-size:12px;color:#a0c8fa;cursor:pointer;padding:10px 0}
+.plan-technical .step{margin-top:5px}
+@media(max-width:1170px){
+  .host-list{grid-template-columns:1fr 1fr}
+  .host-item{padding:17px;min-height:170px}
+  .host-card-top{gap:7px}
+  .host-card-open{font-size:10px}
+}
+@media(max-width:850px){
+  .host-list{grid-template-columns:1fr}
+  .host-item{min-height:148px}
+  .hero{height:119px}
+  .server-tabs{gap:4px}
+  .server-tab{padding:10px 9px;font-size:11px}
+}
+@media(max-width:530px){
+  .server-panel-grid,.server-action-grid,.server-project-grid{grid-template-columns:1fr}
+  .host-card-top .host-title b{font-size:13px}
+  .host-card-open{font-size:10px}
+  .server-console-head{padding:13px;align-items:flex-start}
+  .server-console-head h3{font-size:17px}
+  .server-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .server-tab{min-width:0}
+  .server-tab:last-child{grid-column:span 2}
+  .server-tab-content{padding-top:12px}
+}
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
   .host-item:hover,.project:hover,.stat:hover,.job-item:hover,.btn:hover,.nav-item:hover{transform:none!important}
