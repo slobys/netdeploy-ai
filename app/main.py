@@ -23,6 +23,7 @@ from .ai import diagnose
 from .os_keyring import VaultUnavailable
 from .https_upgrade import identify, https_access_script, https_url
 from .firewall import PortRule, STATUS_SCRIPT, allow_port_script
+from .xui_existing import status_script, parse_status, public_access_script, direct_url
 
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("NETDEPLOY_DATA", str(BASE.parent / "data")))
@@ -37,7 +38,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.5")
+app = FastAPI(title="NetDeploy AI", version="0.3.6")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -151,7 +152,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.5", "security": "local-only"}
+    return {"ok": True, "version": "0.3.6", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -347,6 +348,62 @@ def preflight(id: int):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def read_existing_xui(host: dict) -> dict:
+    """Read-only inspection under pinned SSH trust; no saved passwords returned."""
+    if not executor.credential_ready(host):
+        raise HTTPException(status_code=409, detail="SSH 登录凭据不可用，请先检查本机凭据库")
+    try:
+        raw = executor.run(host, status_script(host["hostname"]), timeout=26)
+        return parse_status(raw)
+    except (SSHError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"无法读取现有 3X-UI 状态：{exc}") from exc
+
+
+@app.get("/api/hosts/{id}/3x-ui", dependencies=[Depends(authorized)])
+def xui_status(id: int):
+    """Existing installation status never requires a deployment approval."""
+    host = find_host(id)
+    return read_existing_xui(host)
+
+
+@app.get("/api/hosts/{id}/3x-ui/access", dependencies=[Depends(authorized)])
+def xui_existing_access(id: int):
+    """Only an explicit authenticated click can retrieve initial credentials."""
+    host = find_host(id)
+    status = read_existing_xui(host)
+    if not status["installed"]:
+        raise HTTPException(status_code=409, detail="此 VPS 尚未安装 3X-UI")
+    if status["service"] != "active":
+        raise HTTPException(status_code=409, detail="3X-UI 服务未启动，请先在 VPS 上检查 systemctl status x-ui")
+    if not status["managed"]:
+        raise HTTPException(
+            status_code=409,
+            detail="已检测到 3X-UI，但没有可安全读取的原始安装凭据。请在 VPS 控制台执行 x-ui settings 查看或更新登录设置；不会重装或猜测密码",
+        )
+    port = status["port"]
+    try:
+        if status["access_mode"] == "https":
+            script = public_access_script(host["hostname"], port)
+        elif status["access_mode"] == "local":
+            script = ACCESS_SCRIPT
+        else:
+            raise ValueError("管理面板的当前监听或 HTTPS 证书尚未验证，不能生成不安全的直连地址")
+        result = parse_access_result(executor.run(host, script, timeout=26), port)
+    except (SSHError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=f"无法安全读取安装时的面板信息：{exc}") from exc
+    if status["access_mode"] == "https":
+        result["direct_url"] = direct_url(host["hostname"], port, result["web_path"])
+        result["access_mode"] = "https"
+    else:
+        result["ssh_tunnel"] = (
+            f"ssh -N -p {host['port']} -L {port}:127.0.0.1:{port} "
+            f"{host['username']}@{host['hostname']}"
+        )
+        result["access_mode"] = "local"
+    result["initial_credentials_only"] = True
+    return result
+
+
 @app.get("/api/hosts/{id}/firewall", dependencies=[Depends(authorized)])
 def firewall_status(id: int):
     host = find_host(id)
@@ -422,26 +479,37 @@ def new_job(body: NewJob):
     if body.project == "3x-ui":
         if body.source_job_id:
             raise HTTPException(status_code=422, detail="新安装不接受已有任务编号")
+        if host["facts"].get("XUI_PRESENT") == "yes":
+            raise HTTPException(status_code=409, detail="3X-UI 已安装，此处不再创建安装审批计划；请直接查看服务器上的现有面板信息")
         options = {"panel_port": body.panel_port if body.panel_port is not None else DEFAULT_PORT}
         if body.access_mode == "https":
             options.update({"access_mode": "https", "tls_identity": host["hostname"]})
         if options["panel_port"] == host["port"]:
             raise HTTPException(status_code=422, detail="面板端口不能与 VPS SSH 端口相同")
     elif body.project == "3x-ui-https":
-        if not body.source_job_id or body.access_mode or body.panel_port is not None:
-            raise HTTPException(status_code=422, detail="HTTPS 升级必须引用已完成的 3X-UI 安装任务")
-        source = find_job(body.source_job_id)
-        if source["plan"].get("trust_epoch", 0) != host.get("trust_epoch", 0):
-            raise HTTPException(status_code=409, detail="原 3X-UI 部署任务属于重装前的系统，请先在新 VPS 上重新部署")
-        if source["project"] != "3x-ui" or source["host_id"] != host["id"] or source["status"] not in {"completed", "partial"}:
-            raise HTTPException(status_code=409, detail="无法核实对应的原 3X-UI 安装任务")
-        if (source["status"] == "completed" and
-                source["plan"].get("options", {}).get("access_mode") == "https"):
-            raise HTTPException(status_code=409, detail="该 3X-UI 安装任务已经使用 HTTPS 部署")
-        if store.completed_https_upgrade(host["id"], source["id"]):
-            raise HTTPException(status_code=409, detail="该任务已完成 HTTPS 升级，请打开原 3X-UI 任务")
-        options = {"panel_port": source["plan"]["options"]["panel_port"],
-                   "tls_identity": host["hostname"], "source_job_id": source["id"]}
+        if body.access_mode or body.panel_port is not None:
+            raise HTTPException(status_code=422, detail="现有面板的 HTTPS 升级端口由服务器实际配置决定，不能手工覆盖")
+        if body.source_job_id:
+            source = find_job(body.source_job_id)
+            if source["plan"].get("trust_epoch", 0) != host.get("trust_epoch", 0):
+                raise HTTPException(status_code=409, detail="原 3X-UI 任务属于重装前的系统，不能用来升级当前 VPS")
+            if source["project"] != "3x-ui" or source["host_id"] != host["id"] or source["status"] not in {"completed", "partial"}:
+                raise HTTPException(status_code=409, detail="原始安装任务不匹配，请从服务器控制台检查当前面板")
+            if source["status"] == "completed" and source["plan"].get("options", {}).get("access_mode") == "https":
+                raise HTTPException(status_code=409, detail="此原始任务已经完成 HTTPS，请直接查看现有面板")
+            if store.completed_https_upgrade(host["id"], source["id"]):
+                raise HTTPException(status_code=409, detail="已有完成的 HTTPS 升级任务，请查看面板")
+            options = {"panel_port": source["plan"]["options"]["panel_port"],
+                       "tls_identity": host["hostname"], "source_job_id": source["id"]}
+        else:
+            # A task history cleanup must not force a reinstall. Only an
+            # independently verified, managed, localhost-bound live service
+            # can be the origin of a standalone HTTPS recovery plan.
+            existing = read_existing_xui(host)
+            if (not existing["installed"] or not existing["managed"] or
+                    existing["service"] != "active" or existing["access_mode"] != "local"):
+                raise HTTPException(status_code=409, detail="只有已运行、安装记录可验证且仍本机监听的 3X-UI 才能直接继续 HTTPS；不会覆盖未知配置")
+            options = {"panel_port": existing["port"], "tls_identity": host["hostname"]}
     elif body.panel_port is not None or body.access_mode or body.source_job_id:
         raise HTTPException(status_code=422, detail="此项目不支持 HTTPS 部署参数")
     try:

@@ -223,18 +223,21 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
                 raise ValueError("仅 HTTPS 模式可填写证书标识")
             options = {"panel_port": port}
     elif project == "3x-ui-https":
-        if set(options) not in ({"panel_port", "tls_identity", "source_job_id"},
-                                {"panel_port", "tls_identity", "source_job_id", "certificate_type"}):
-            raise ValueError("3X-UI HTTPS 升级缺少已批准的原安装任务信息")
+        # Recovery after task history was cleared is allowed only when the API
+        # independently verifies the *live* managed localhost installation.
+        allowed = {"panel_port", "tls_identity", "source_job_id", "certificate_type"}
+        if set(options) - allowed or not {"panel_port", "tls_identity"} <= set(options):
+            raise ValueError("3X-UI HTTPS 升级选项不完整或包含未授权字段")
         mode, identity = identify(options["tls_identity"])
         if "certificate_type" in options and options["certificate_type"] != mode:
             raise ValueError("保存的证书类型与 IP/域名不一致，请重新生成部署方案")
-        source = options["source_job_id"]
-        if not isinstance(source, str) or not re.fullmatch(r"[a-f0-9]{16}", source):
+        source = options.get("source_job_id")
+        if source is not None and (not isinstance(source, str) or not re.fullmatch(r"[a-f0-9]{16}", source)):
             raise ValueError("3X-UI 原安装任务编号不合法")
         options = {"panel_port": validate_port(options["panel_port"]),
-                   "tls_identity": identity, "certificate_type": mode,
-                   "source_job_id": source}
+                   "tls_identity": identity, "certificate_type": mode}
+        if source is not None:
+            options["source_job_id"] = source
     elif options:
         raise ValueError("此项目暂不支持自定义部署选项")
     meta = CATALOG[project]

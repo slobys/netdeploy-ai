@@ -62,12 +62,14 @@ const freshJob = {
   created_at:new Date().toISOString(),
   plan: {
     trust_epoch:0, project:'3x-ui',name:'3X-UI',risk:'高',
-    executable:true,options:{panel_port:24443},issues:[],requires:[],warnings:[],steps:[],
+    executable:true,options:{panel_port:24443},issues:[],requires:[],warnings:[],steps:[{label:'check',timeout:10,script:'echo safe'}],
   },
 };
 let mockFingerprint = null;
 let fingerprintRequests = 0;
 let planCreations = 0;
+let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
+let xuiReadRequests=0;
 const context = vm.createContext({
   console,
   document,
@@ -82,6 +84,18 @@ const context = vm.createContext({
     if (url==='/api/hosts/1/fingerprint') {
       fingerprintRequests++;
       return {ok:true,status:200,json:async()=>mockFingerprint};
+    }
+    if(url==='/api/hosts/1/3x-ui'){
+      return {ok:true,status:200,json:async()=>xuiStatus};
+    }
+    if(url==='/api/hosts/1/3x-ui/access'){
+      xuiReadRequests++;
+      return {ok:true,status:200,json:async()=>({
+        username:'InitialAdmin88',password:'InitialPassword88',port:24443,
+        local_url:'http://127.0.0.1:24443/SecretRoute123',web_path:'SecretRoute123',
+        ssh_tunnel:'ssh -N -p 22 -L 24443:127.0.0.1:24443 root@45.32.35.195',
+        access_mode:'local'
+      })};
     }
     if (url==='/api/jobs') planCreations++;
     throw new Error('Unexpected network attempt: '+url);
@@ -151,6 +165,21 @@ function fingerprintFor(label) {
   assert(fingerprintTarget.innerHTML.includes('data-action="prepare-rekey"'));
   assert(fingerprintTarget.innerHTML.includes('独立控制台'));
   assert.equal(fingerprintRequests,2);
+
+  // An existing 3X-UI must open read-only information without a new plan.
+  fill({...freshJob,status:'planned',plan:{...freshJob.plan,executable:false,steps:[],
+    issues:['已存在 x-ui 安装，禁止覆盖'],preflight_baseline:{XUI_PRESENT:'yes'}}});
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(!modal.innerHTML.includes('id="approve-form"'));
+  assert(modal.innerHTML.includes('查看现有 3X-UI 面板'));
+  xuiStatus={installed:true,service:'active',managed:true,port:24443,access_mode:'local'};
+  await evaluate("createHostPlan(1,'3x-ui')");
+  assert(modal.innerHTML.includes('已安装，无需重新部署'));
+  assert(modal.innerHTML.includes('id="xui-username"'));
+  assert(modal.innerHTML.includes('id="xui-password"'));
+  assert(modal.innerHTML.includes('data-action="existing-xui-https"'));
+  assert.equal(xuiReadRequests,1);
+  assert.equal(planCreations,0,'Existing installation must not create a new install task');
 
   assert(css.includes('.fingerprint-result{display:flex;flex-direction:column'),
     'Fingerprint results must stack vertically');

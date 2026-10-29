@@ -119,6 +119,9 @@ def test_https_existing_upgrade_api_and_secret_omission(monkeypatch):
         def preflight(self,host):return dict(facts)
         def password_remembered(self,id):return False
         def run(self,host,script,timeout=30):
+            if "XUI_EXISTS=" in script:
+                return ("XUI_EXISTS=yes\nXUI_SERVICE=active\nXUI_MANAGED=yes\n"
+                        "XUI_PORT=24443\nXUI_LISTENER=local\n")
             assert "certbot.timer" in script
             assert "checkhost" in script
             return ("XUI_USERNAME=UserAdmin88\nXUI_PASSWORD=VerySecretPwd123\n"
@@ -136,8 +139,11 @@ def test_https_existing_upgrade_api_and_secret_omission(monkeypatch):
     assert len(source["plan"]["steps"]) == 5
     main.store.set_status(source["id"],"completed")
     facts["XUI_PRESENT"]="yes"
-    assert c.post("/api/jobs",headers=HEAD,json={"host_id":host["id"],
-                   "project":"3x-ui-https"}).status_code==422
+    recovery=c.post("/api/jobs",headers=HEAD,json={"host_id":host["id"],
+                   "project":"3x-ui-https"})
+    assert recovery.status_code==200,recovery.text
+    assert recovery.json()["plan"]["options"]["panel_port"]==24443
+    assert "source_job_id" not in recovery.json()["plan"]["options"]
     upgrade=c.post("/api/jobs",headers=HEAD,json={"host_id":host["id"],
                   "project":"3x-ui-https","source_job_id":source["id"]})
     assert upgrade.status_code==200,upgrade.text

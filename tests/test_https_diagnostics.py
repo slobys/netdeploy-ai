@@ -81,6 +81,6 @@ def test_failed_ip_issuance_emits_only_sanitized_actionable_error(tmp_path, fake
 def test_web_panel_has_no_certificate_mode_selection():
     js = (Path(__file__).resolve().parents[1] / "app" / "static" / "app.js").read_text(encoding="utf-8")
     assert 'name="access_mode"' not in js
-    assert "request.access_mode='https'" in js
-    assert "xuiUpgrade(existing.id)" in js
+    assert "payload.access_mode='https'" in js
+    assert "showExistingXui(id,status)" in js
     assert "修复后重新生成证书方案" in js
