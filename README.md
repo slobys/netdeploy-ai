@@ -1,4 +1,4 @@
-# NetDeploy AI · v0.3.14 Alpha
+# NetDeploy AI · v0.3.15 Alpha
 
 > 一个以 VPS 为优先方向的 AI 辅助网络项目部署面板。2026-10-29 第一阶段原型（Windows SSH 主机指纹扫描修复）。 **不是生产稳定版，不要用重要 VPS 直接试错。**
 
@@ -11,6 +11,15 @@
 参考 NaiLink 的文档使用方式，新建独立的 GitHub Pages 中文手册，包含手机适配、章节导航、搜索和复制命令。仓库 `.github/workflows/docs.yml` 随 main 自动构建发布；首次需要在仓库 **Settings → Pages → Source → GitHub Actions** 启用 Pages。站点未启用前可先阅读 [文档源码](docs/site/README.md)。
 
 **谷歌云 root 密码操作：** 仅推荐交互执行 `sudo passwd root`，不在公共教程中固定密码。附加 [GCP root 辅助脚本](scripts/gcp-root-setup.sh) 默认不启用密码 SSH；可选模式属于高风险操作，请先阅读 [Google Cloud 专题](https://slobys.github.io/netdeploy-ai/google-cloud.html)。
+
+## v0.3.15：S-UI 自动 IP/域名 HTTPS（Alpha）
+
+S-UI v1.6.6 新安装在原有 5 个安全安装阶段后，默认**自动继续 4 个证书阶段**：① 验证公网 IPv4 / 域名 A 与 80/TCP；② 检查 Certbot 与续期能力；③ 申请 IP 短期证书或域名证书，并配置 S-UI 专属续期钩子；④ 原生配置 S-UI TLS、验收 HTTPS 直连、成功后精准放行 UFW 2095/TCP。订阅 2096/TCP 始终仅 VPS 本机监听。
+
+- **填写 HTTPS 域名 → 域名证书；不填域名 → 公网 IPv4 证书**，不要求反复选择证书类型；IP 证书需要支持 shortlived 的新版 Certbot 与自动续期。
+- 只有证书、续期、TCP 2095 真实 TLS 连接验证全部通过后才提供 `https://IP或域名:2095/随机路径/`；**失败不会开放公网明文 HTTP**，已安装面板保持/恢复本机模式。
+- 旧 S-UI 已安装且仍本机监听时，点击“继续完成 HTTPS”仅生成 4 步证书配置计划，不重复安装面板；重试仍需审批。公网 TCP 80 和管理 2095 还需云厂商安全组按需放行。
+- 密码只在用户主动查看时经可信 SSH 读取；项目版本 `v0.3.15` 与在线使用文档同步。仅通过本地/CI 模拟测试，未在真实 VPS 上验收，请先备份测试机。
 
 ## 已有功能
 

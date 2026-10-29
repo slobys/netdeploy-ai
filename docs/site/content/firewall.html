@@ -9,9 +9,10 @@
 <h2 id="ports">常见端口参考</h2>
 <div class="table-wrap"><table><thead><tr><th>端口</th><th>协议</th><th>用途与注意事项</th></tr></thead><tbody>
 <tr><td>22（可自定义）</td><td>TCP</td><td>SSH 登录。建议只对自己的管理 IP 开放。</td></tr>
-<tr><td>80</td><td>TCP</td><td>3X-UI 使用 HTTP-01 验证域名 / IP 证书时需要公网可达。</td></tr>
+<tr><td>80</td><td>TCP</td><td>3X-UI / S-UI 使用 HTTP-01 验证域名或 IP 证书时，需从公网可访问。</td></tr>
 <tr><td>24443（默认示例）</td><td>TCP</td><td>3X-UI 管理面板。实际端口可在安装时自定义，必须确认 HTTPS 有效后才开放。</td></tr>
-<tr><td>2095 / 2096</td><td>TCP</td><td>S-UI 管理与订阅，NetDeploy 默认均为 VPS 回环监听，<strong>不应放行公网</strong>。</td></tr>
+<tr><td>2095</td><td>TCP</td><td>S-UI 管理：仅在可信 HTTPS 验收成功后由本机 UFW 放行；云安全组建议只允许你的管理 IP。</td></tr>
+<tr><td>2096</td><td>TCP</td><td>S-UI 订阅端口，NetDeploy 保持 <code>127.0.0.1</code>，<strong>不开放公网</strong>。</td></tr>
 <tr><td>51820</td><td>UDP</td><td>wg-easy WireGuard 隧道，需按实际使用场景放行。</td></tr>
 <tr><td>51821</td><td>TCP</td><td>wg-easy Web 管理界面默认本机监听，不直接开放公网。</td></tr>
 </tbody></table></div>

@@ -11,6 +11,7 @@ from typing import Any
 from .three_x_ui import DEFAULT_PORT, VERSION as XUI_VERSION, deployment_steps, validate_port
 from .https_upgrade import identify, https_steps
 from .s_ui import VERSION as SUI_VERSION, steps as sui_steps
+from .sui_https import https_steps as sui_https_steps
 
 CATALOG = {
     "3x-ui": {
@@ -32,9 +33,16 @@ CATALOG = {
         "name": "S-UI", "subtitle": "sing-box 可视化管理面板", "category": "面板",
         "icon": "layers", "deployment": "install", "risk": "高",
         "docs": "https://github.com/alireza0/s-ui",
-        "summary": "官方 v1.6.6 已校验发行包，固定版本随机管理凭据，Web 仅监听 127.0.0.1:2095，SSH 隧道访问。",
+        "summary": "官方 v1.6.6 固定发行包与随机管理凭据；签发公网 IP/域名证书并验收后启用 S-UI 原生 HTTPS。",
         "requires": ["Debian/Ubuntu root VPS", "x86_64/arm64", "systemd、ss、Python3 SQLite",
-                     "2095/2096 端口未占用", "无已有 S-UI 安装", "管理面板仅本机 HTTP，公网访问需另行配置 TLS"],
+                     "2095/2096 端口未占用", "无已有 S-UI 安装", "HTTPS 需要公网 TCP 80 及云防火墙允许管理端口"],
+    },
+    "s-ui-https": {
+        "name": "S-UI HTTPS 直连", "subtitle": "为已有 S-UI 面板配置公网 IP/域名证书",
+        "category": "HTTPS", "icon": "lock", "deployment": "install", "internal": True,
+        "risk": "高", "docs": "https://github.com/alireza0/s-ui",
+        "summary": "只升级已安装的受管理 S-UI HTTPS，不覆盖软件或更改订阅端口。",
+        "requires": ["受管理且本机监听的 S-UI", "公网 IPv4/域名", "TCP 80 ACME 入站", "Certbot 自动续期", "云安全组 TCP 2095"],
     },
     "sing-box": {
         "name": "sing-box", "subtitle": "通用网络代理内核", "category": "核心",
@@ -192,15 +200,15 @@ def compatibility(project: str, facts: dict[str, Any]) -> tuple[bool, list[str]]
         expected = "yes" if project == "3x-ui-https" else "no"
         if facts.get("XUI_PRESENT") != expected:
             issues.append("HTTPS 升级要求已安装 x-ui，且已完成冲突检测" if project == "3x-ui-https" else "已存在 x-ui 安装，或尚未完成新版 x-ui 冲突检测；禁止覆盖")
-    if project == "s-ui":
+    if project in {"s-ui", "s-ui-https"}:
         if os_id not in {"debian", "ubuntu"}:
             issues.append("S-UI 自动安装目前仅对 Debian/Ubuntu 开放")
         if arch not in {"x86_64", "aarch64", "arm64"}:
             issues.append("S-UI 目前只支持 x86_64/arm64")
         if facts.get("SYSTEMD") != "yes" or facts.get("SS_AVAILABLE") != "yes":
             issues.append("S-UI 安装需要 systemd 和 ss 端口检测")
-        if facts.get("SUI_PRESENT") != "no":
-            issues.append("已有 S-UI 或尚未完成冲突检查；禁止覆盖已安装程序")
+        if facts.get("SUI_PRESENT") != ("yes" if project == "s-ui-https" else "no"):
+            issues.append("S-UI HTTPS 需要已安装并完成冲突检测的面板" if project == "s-ui-https" else "已有 S-UI 或尚未完成冲突检查；禁止覆盖已安装程序")
     if project == "sing-box" and os_id not in {"debian", "ubuntu"}:
         issues.append("自动安装 sing-box 暂仅覆盖 Debian/Ubuntu APT 环境")
     if project == "wg-easy":
@@ -245,6 +253,42 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             if "tls_identity" in options or "certificate_type" in options or "ssh_ipv4" in options:
                 raise ValueError("仅 HTTPS 模式可填写证书标识")
             options = {"panel_port": port}
+    elif project in {"s-ui", "s-ui-https"}:
+        allowed = {"access_mode", "tls_identity", "certificate_type", "ssh_ipv4"}
+        if project == "s-ui-https":
+            allowed.discard("access_mode")
+            allowed.add("source_job_id")
+        if set(options) - allowed:
+            raise ValueError("S-UI HTTPS 部署含未授权参数")
+        if project == "s-ui":
+            mode = options.get("access_mode", "local")
+            if mode not in {"https", "local"}:
+                raise ValueError("S-UI 访问方式不合法")
+            if mode == "local":
+                if set(options) - {"access_mode"}:
+                    raise ValueError("只有 S-UI HTTPS 模式允许证书选项")
+                options = {"access_mode": "local"}
+        else:
+            mode = "https"
+            if "source_job_id" in options:
+                source = options["source_job_id"]
+                if not isinstance(source, str) or not re.fullmatch(r"[a-f0-9]{16}", source):
+                    raise ValueError("S-UI 原安装任务编号不合法")
+        if mode == "https":
+            tls_mode, identity = identify(options.get("tls_identity", ""))
+            if "certificate_type" in options and options["certificate_type"] != tls_mode:
+                raise ValueError("S-UI 证书类型与 IP/域名不一致")
+            ssh_ip = options.get("ssh_ipv4")
+            if ssh_ip is not None and (tls_mode != "domain" or identify(ssh_ip)[0] != "ip"):
+                raise ValueError("S-UI 证书域名与 SSH IPv4 不匹配")
+            normalized = {"access_mode": "https", "tls_identity": identity, "certificate_type": tls_mode}
+            if ssh_ip is not None:
+                normalized["ssh_ipv4"] = ssh_ip
+            if project == "s-ui-https":
+                normalized.pop("access_mode")
+                if "source_job_id" in options:
+                    normalized["source_job_id"] = options["source_job_id"]
+            options = normalized
     elif project == "3x-ui-https":
         # Recovery after task history was cleared is allowed only when the API
         # independently verifies the *live* managed localhost installation.
@@ -281,6 +325,10 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         steps = https_steps(options["tls_identity"], options["panel_port"], options.get("ssh_ipv4"))
     elif runnable and project == "s-ui":
         steps = sui_steps(str(facts.get("ARCH", "")))
+        if options.get("access_mode") == "https":
+            steps += sui_https_steps(options["tls_identity"], options.get("ssh_ipv4"))
+    elif runnable and project == "s-ui-https":
+        steps = sui_https_steps(options["tls_identity"], options.get("ssh_ipv4"))
     elif runnable and project == "sing-box":
         steps = SINGBOX_STEPS
     elif runnable and project == "wg-easy":
@@ -302,10 +350,12 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             "s-ui": [
                 f"从上游 GitHub Releases 固定下载 {SUI_VERSION} 的 amd64/arm64 发行包，并通过已固定 SHA-256 校验，不运行在线最新安装脚本",
                 "首次初始化随机管理员账号、强密码和 Web 路径；敏感信息仅保存在 VPS 受权限保护的文件中，部署日志不输出密码",
-                "管理 Web 只监听 127.0.0.1:2095，订阅接口也仅本机监听；需要 PowerShell SSH 隧道访问，不能直接打开公网 HTTP",
-                "安装不会自动申请 TLS 证书、放行 UFW 或修改云平台安全组；后续业务端口按需自行配置",
+                "先保持管理 2095 与订阅 2096 都只监听 VPS 本机；HTTPS 通过后才将管理端口切到公网 2095/TCP，订阅 2096 始终不开放",
+                "HTTPS 模式自动按填写的域名或公网 IPv4 申请证书；需开放公网 TCP 80 验证，配置 Certbot 自动续期与可信 TLS",
+                "证书签发或 HTTPS 验收失败时保留/恢复 S-UI 本机监听，不回退成公网明文 HTTP；云安全组需手动放行管理端口",
                 "不会覆盖已有 S-UI；如果失败可能留下需要人工检查的部分目录/服务，不应直接重复执行安装",
             ],
+            "s-ui-https": ["仅为已安装且本机运行的受管理 S-UI 签发 IP/域名证书，不重复下载或安装面板", "先验证公网 IPv4 / DNS A 与 TCP 80 可达，再签发并自动续期", "HTTPS 配置或验证失败自动恢复 127.0.0.1:2095；订阅 2096 始终本机访问", "需要云厂商手动设置 TCP 2095 入站管理 IP 白名单"],
             "sing-box": ["安装的是内核，不会自动配置对外监听或打开端口", "APT 仓库密钥来自官方 HTTPS 地址，初版尚未固定密钥指纹", "APT 变更不会自动回滚"],
             "wg-easy": ["需预先安装 Docker 且 Docker 网络不可与 10.42.42.0/24 冲突；不会自动修改防火墙", "Web 管理端只绑定 VPS 的 localhost，必须使用 SSH 隧道或安全反代", "容器镜像使用 v15 主版本标签，不是不可变 digest", "首次访问还需设置管理员账户及公网地址"],
             "3x-ui": [f"固定官方 {XUI_VERSION} 安装器 SHA-256 后执行，二进制由上游发布的 .sha256 校验；安装依赖可能需要联网和更改 APT 包", "自动生成账户、密码和随机 Web 路径；只在安装后明确点击查看时读取，不存入 NetDeploy 数据库或任务日志", "先将面板绑定本机 127.0.0.1；选择 HTTPS 时自动按公网 IPv4 / 域名签发证书并验证，成功后才开放公网 HTTPS，失败不开放明文 HTTP", "不会自动覆盖已有安装；失败可能留下部分文件，需要人工检查，不能盲目重试"],

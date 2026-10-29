@@ -29,7 +29,7 @@ FACTS={
     "SUI_PRESENT":"no","XUI_PRESENT":"no","DOCKER":"no","COMPOSE":"no",
     "UDP_51820":"free",
 }
-HOST={"name":"VPS","hostname":"203.0.113.10","username":"root","port":22}
+HOST={"name":"VPS","hostname":"45.32.35.195","username":"root","port":22}
 
 
 def test_release_digest_and_frozen_install_steps():
@@ -40,7 +40,7 @@ def test_release_digest_and_frozen_install_steps():
     for arch in ("x86_64","aarch64"):
         plan=build_plan("s-ui",dict(FACTS,ARCH=arch))
         assert plan["executable"] and len(plan["steps"])==5
-        assert not plan["options"]
+        assert plan["options"]=={"access_mode":"local"}
         script="\n".join(x["script"] for x in plan["steps"])
         assert "https://github.com/alireza0/s-ui/releases/download/v1.6.6/" in script
         assert f"s-ui-linux-{ARTIFACTS[arch][0]}.tar.gz" in script
@@ -140,7 +140,7 @@ def test_access_parser_rejects_unexpected_credentials():
     value="SUI_PANEL_PORT=2095\nSUI_USERNAME=nd_123456789abc\nSUI_PASSWORD="+("a"*48)+"\nSUI_WEB_BASE_PATH="+("f"*24)+"\n"
     parsed=parse_access(value,dict(HOST))
     assert parsed["local_url"]=="http://127.0.0.1:2095/"+("f"*24)+"/"
-    assert parsed["ssh_tunnel"]=="ssh -N -p 22 -L 2095:127.0.0.1:2095 root@203.0.113.10"
+    assert parsed["ssh_tunnel"]=="ssh -N -p 22 -L 2095:127.0.0.1:2095 root@45.32.35.195"
     assert parsed["password"]=="a"*48
     with pytest.raises(ValueError):
         parse_access(value.replace("nd_123456789abc","admin"),HOST)
@@ -176,7 +176,9 @@ def test_install_plan_created_then_explicit_approval_not_automatic(sui_api):
     assert r.status_code==200,r.text
     job=r.json()
     assert job["status"]=="planned" and job["plan"]["executable"] is True
-    assert len(job["plan"]["steps"])==5
+    assert len(job["plan"]["steps"])==9
+    assert job["plan"]["options"]["tls_identity"]=="45.32.35.195"
+    assert job["plan"]["options"]["certificate_type"]=="ip"
     assert all("a"*48 not in x["script"] for x in job["plan"]["steps"])
     assert db.job(job["id"])["status"]=="planned"
 

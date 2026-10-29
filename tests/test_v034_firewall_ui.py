@@ -207,4 +207,4 @@ def test_two_column_server_console_and_simple_plan_review():
     assert "请完整输入以下确认语句" not in js
     assert "plan-technical" in js
     assert "prefers-reduced-motion" in css
-    assert 'ALPHA v0.3.14' in html
+    assert 'ALPHA v0.3.15' in html

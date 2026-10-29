@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import re
 
+from .https_upgrade import identify
+from .listening import PUBLIC_SOCKET_CHECK
+
 VERSION = "v1.6.6"
 PORT = 2095
 SUB_PORT = 2096
@@ -287,8 +290,50 @@ esac
 echo 'SUI_LOCAL_READY: S-UI pinned version active on 127.0.0.1:2095; SSH tunnel required'
 """
 
+HTTPS_STATUS_GUARD = r'''# HTTPS is valid only when the certificate, renewal timer, TCP listeners and
+# real IPv4 TLS handshake all agree. No credentials are returned by this check.
+__PUBLIC_SOCKET_CHECK__
+sui_https_verified() {
+    record='/var/lib/netdeploy/s-ui/install-result.env'
+    test -f "$record" && test ! -L "$record" &&
+        test "$(stat -c %u "$record")" = 0 &&
+        test "$(stat -c %a "$record")" = 600 || return 1
+    mode="$(sed -n 's/^SUI_TLS_MODE=//p' "$record")"
+    identity="$(sed -n 's/^SUI_TLS_IDENTITY=//p' "$record")"
+    test "$(grep -c '^SUI_TLS_MODE=' "$record")" = 1 || return 1
+    test "$(grep -c '^SUI_TLS_IDENTITY=' "$record")" = 1 || return 1
+    case "$identity" in ''|*[!a-z0-9.-]*) return 1 ;; esac
+    case "$mode" in
+        ip) printf '%s' "$identity" | grep -Eq '^[0-9.]+$' || return 1
+            check=checkip ;;
+        domain) printf '%s' "$identity" | grep -Eq '^[a-z0-9.-]+[.]([a-z]{2,})$' || return 1
+                check=checkhost ;;
+        *) return 1 ;;
+    esac
+    systemctl is-active --quiet s-ui || return 1
+    test "$(systemctl is-active certbot.timer)" = active || return 1
+    test "$(ss -Hltn 'sport = :2096' | awk '{print $4}')" = "127.0.0.1:2096" || return 1
+    netdeploy_public_socket 2095 || return 1
+    cert="/etc/letsencrypt/live/$identity/fullchain.pem"
+    key="/etc/letsencrypt/live/$identity/privkey.pem"
+    test -s "$cert" && test -s "$key" || return 1
+    openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null 2>&1 || return 1
+    openssl x509 -in "$cert" -noout "-$check" "$identity" 2>/dev/null |
+        grep -Fq 'does match' || return 1
+    path="$(sed -n 's/^SUI_WEB_BASE_PATH=//p' "$record")"
+    printf '%s' "$path" | grep -Eq '^[a-f0-9]{24}$' || return 1
+    code="$(curl --noproxy '*' --proto '=https' --tlsv1.2 -4 --silent \
+        --output /dev/null --write-out '%{http_code}' --connect-timeout 3 --max-time 8 \
+        --connect-to "$identity:2095:127.0.0.1:2095" \
+        "https://$identity:2095/$path/" 2>/dev/null)" || return 1
+    case "$code" in 200|301|302|303|307|308|401|403) ;; *) return 1 ;; esac
+    return 0
+}
+'''.replace("__PUBLIC_SOCKET_CHECK__", PUBLIC_SOCKET_CHECK)
+
 STATUS = r"""set -eu
 __LOCAL_GUARD__
+__HTTPS_GUARD__
 test "$(id -u)" = 0
 if test ! -x /usr/local/s-ui/sui; then
     echo 'SUI_INSTALLED=no'
@@ -304,6 +349,9 @@ else
 fi
 if sui_local_listeners_only; then
     echo 'SUI_ACCESS=local'
+elif sui_https_verified; then
+    echo 'SUI_ACCESS=https'
+    printf 'SUI_IDENTITY=%s\n' "$identity"
 else
     echo 'SUI_ACCESS=unverified'
 fi
@@ -311,12 +359,20 @@ fi
 
 ACCESS = r"""set -eu
 __LOCAL_GUARD__
+__HTTPS_GUARD__
 test "$(id -u)" = 0
 test -x /usr/local/s-ui/sui
 test -f /var/lib/netdeploy/s-ui/install-result.env
 test "$(stat -c %a /var/lib/netdeploy/s-ui/install-result.env)" = 600
 systemctl is-active --quiet s-ui
-sui_local_listeners_only
+if sui_local_listeners_only; then
+    access_mode=local
+elif sui_https_verified; then
+    access_mode=https
+else
+    echo 'SUI_ACCESS_UNVERIFIED: neither safe localhost nor verified HTTPS' >&2
+    exit 49
+fi
 record='/var/lib/netdeploy/s-ui/install-result.env'
 # Only audited, generated alphanumeric entries are accepted.
 username="$(sed -n 's/^SUI_USERNAME=//p' "$record")"
@@ -331,13 +387,14 @@ printf '%s' "$path" | grep -Eq '^[a-f0-9]{24}$'
 code="$(curl --proto '=http' --noproxy '*' --silent --output /dev/null \
  --write-out '%{http_code}' --max-time 10 "http://127.0.0.1:2095/$path/")"
 case "$code" in 200|301|302|303|307|308|401) ;; *) exit 49;; esac
-printf 'SUI_PANEL_PORT=2095\nSUI_USERNAME=%s\nSUI_PASSWORD=%s\nSUI_WEB_BASE_PATH=%s\n' \
- "$username" "$password" "$path"
+printf 'SUI_PANEL_PORT=2095\nSUI_USERNAME=%s\nSUI_PASSWORD=%s\nSUI_WEB_BASE_PATH=%s\nSUI_ACCESS_MODE=%s\n' \
+ "$username" "$password" "$path" "$access_mode"
+if [ "$access_mode" = https ]; then printf 'SUI_TLS_IDENTITY=%s\n' "$identity"; fi
 """
 
 
-STATUS = STATUS.replace("__LOCAL_GUARD__", LOCAL_LISTENER_GUARD)
-ACCESS = ACCESS.replace("__LOCAL_GUARD__", LOCAL_LISTENER_GUARD)
+STATUS = STATUS.replace("__LOCAL_GUARD__", LOCAL_LISTENER_GUARD).replace("__HTTPS_GUARD__", HTTPS_STATUS_GUARD)
+ACCESS = ACCESS.replace("__LOCAL_GUARD__", LOCAL_LISTENER_GUARD).replace("__HTTPS_GUARD__", HTTPS_STATUS_GUARD)
 
 
 def steps(arch: str) -> list[dict]:
@@ -361,18 +418,30 @@ def steps(arch: str) -> list[dict]:
     ]
 
 
+def _sui_identity(raw: str) -> str:
+    """Strictly verify a public certificate identity from a remote root-owned record."""
+    _, identity = identify(raw)
+    if raw != identity:
+        raise ValueError("S-UI HTTPS 证书标识格式不正确")
+    return identity
+
+
 def parse_status(raw: str) -> dict:
     values = dict(line.split("=", 1) for line in raw.splitlines() if "=" in line)
     if values.get("SUI_INSTALLED") == "no":
         return {"installed": False, "service": "absent", "managed": False, "access_mode": "unavailable"}
     if values.get("SUI_INSTALLED") != "yes":
         raise ValueError("无法确认 S-UI 是否安装")
-    return {
+    result = {
         "installed": True, "service": values.get("SUI_SERVICE", "unknown"),
         "managed": values.get("SUI_MANAGED") == "yes",
-        "access_mode": "local" if values.get("SUI_ACCESS") == "local" else "unverified",
+        "access_mode": "https" if values.get("SUI_ACCESS") == "https" else (
+            "local" if values.get("SUI_ACCESS") == "local" else "unverified"),
         "port": PORT,
     }
+    if result["access_mode"] == "https":
+        result["identity"] = _sui_identity(values.get("SUI_IDENTITY", ""))
+    return result
 
 
 def parse_access(raw: str, host: dict) -> dict:
@@ -395,11 +464,19 @@ def parse_access(raw: str, host: dict) -> dict:
         raise ValueError("无法安全读取 S-UI 登录信息")
     sshport = int(host["port"])
     user, hostname = host["username"], host["hostname"]
-    return {
+    access_mode = values.get("SUI_ACCESS_MODE", "local")
+    if access_mode not in {"local", "https"}:
+        raise ValueError("不支持的 S-UI 访问模式")
+    result = {
         "username": username, "password": password,
-        "port": PORT,
-        "local_url": f"http://127.0.0.1:{PORT}/{path}/",
-        "ssh_tunnel": f"ssh -N -p {sshport} -L {PORT}:127.0.0.1:{PORT} {user}@{hostname}",
-        "access_mode": "local",
+        "port": PORT, "access_mode": access_mode,
         "initial_credentials_only": True,
     }
+    if access_mode == "https":
+        identity = _sui_identity(values.get("SUI_TLS_IDENTITY", ""))
+        result["direct_url"] = f"https://{identity}:{PORT}/{path}/"
+        result["certificate_identity"] = identity
+    else:
+        result["local_url"] = f"http://127.0.0.1:{PORT}/{path}/"
+        result["ssh_tunnel"] = f"ssh -N -p {sshport} -L {PORT}:127.0.0.1:{PORT} {user}@{hostname}"
+    return result

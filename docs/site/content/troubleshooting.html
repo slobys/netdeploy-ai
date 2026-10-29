@@ -13,7 +13,8 @@
 <h2 id="https">3X-UI HTTPS 签证书失败</h2>
 <p>检查域名是否解析到该 VPS 公网 IP、TCP 80 是否可从公网访问、Certbot 续期服务是否正常，以及 3X-UI 实际监听与证书配置。如果软件已装好但 HTTPS 阶段失败，应使用 <strong>继续完成 HTTPS</strong> 创建修复计划，不必覆盖现有 3X-UI。</p>
 <h2 id="sui">S-UI 安装后从公网打不开</h2>
-<p>这是默认设计：NetDeploy 将管理 <code>2095/TCP</code> 与订阅 <code>2096/TCP</code> 绑定回环地址 <code>127.0.0.1</code>。先在 Windows PowerShell 建立 SSH 隧道，再用本地地址访问。请不要直接放开 2095 的公网 HTTP。</p>
+<p>新安装会尝试签发公网 IP/域名证书，只有证书、续期及 HTTPS 验证通过才会让管理 2095/TCP 监听公网。先在<strong>查看 S-UI 面板信息</strong>确认显示 HTTPS 直连地址；否则证书尚未生效，仍为本机访问。检查 TCP 80 ACME 验证、DNS A、公网 IP、Certbot 版本、云厂商安全组入站 2095/TCP 和有效证书；不要开放明文 HTTP。</p>
+<p>如果 S-UI 已安装但 HTTPS 失败，保持原程序和凭据，到 S-UI 面板状态页点击<strong>继续完成 HTTPS</strong>即可创建四步证书修复任务，不必重新安装。订阅 2096/TCP 仍只监听本机。</p>
 <h2 id="invalidated">计划提示失效或需要刷新</h2>
 <p>如果服务器重装、SSH 主机密钥更换、证书域名或安装固定脚本发生变化，历史审批不再有效。可返回服务器控制台重新环境检测、刷新方案、再次审核。已有部分安装时先检查真实 VPS 状态，避免重复执行。</p>
 <h2 id="support">如何反馈故障</h2>

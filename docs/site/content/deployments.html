@@ -2,7 +2,7 @@
 <h2 id="matrix">目前支持哪些项目？</h2>
 <div class="table-wrap"><table><thead><tr><th>项目</th><th>当前能力</th><th>主要条件</th></tr></thead><tbody>
 <tr><td>3X-UI</td><td>固定脚本自动安装，支持公网 IP / 域名 HTTPS 与查看面板</td><td>Debian/Ubuntu、root、x86_64/ARM64、systemd</td></tr>
-<tr><td>S-UI</td><td>固定 v1.6.6 发行包、自动安装、本机受限面板</td><td>Debian/Ubuntu、root、x86_64/ARM64、2095/2096 空闲</td></tr>
+<tr><td>S-UI</td><td>固定 v1.6.6 自动安装，支持公网 IP/域名 HTTPS 与续期</td><td>Debian/Ubuntu、root、x86_64/ARM64、2095/2096 空闲、TCP 80 ACME 可达</td></tr>
 <tr><td>sing-box</td><td>通过签名 APT 仓库安装内核</td><td>需自行创建配置、认证与监听</td></tr>
 <tr><td>wg-easy</td><td>使用 Docker Compose 安装 WireGuard 管理容器</td><td>Docker、Compose v2、51820/UDP 空闲</td></tr>
 <tr><td>Hysteria2</td><td>仅引导、兼容性提示与技能资料</td><td>暂未开放正式一键自动部署</td></tr>
@@ -17,10 +17,12 @@
 <p>IP 证书有效期可能为约 160 小时，需要保持续期服务有效。公网面板建议开启强密码、双因素认证与云防火墙管理 IP 白名单。</p>
 <h2 id="s-ui">S-UI · sing-box 面板</h2>
 <p>NetDeploy 使用官方固定 <code>v1.6.6</code> Release 发行包、SHA-256 校验和随机初始账户，不会运行上游的“最新版本安装脚本”。初次启动前将 Web 管理与订阅监听限制在 VPS <code>127.0.0.1</code>。</p>
-<p>安装后点击 <strong>查看 S-UI 面板信息</strong>，按提示在 Windows PowerShell 执行 SSH 隧道，并访问显示的随机本地地址；不要将 <code>2095/TCP</code> 或 <code>2096/TCP</code> 当作应直接公网放行的端口。</p>
-<pre><code># 仅为格式示意，实际命令以 NetDeploy 面板生成的为准：
+<p>新安装默认按服务器信息自动选择证书：填写了域名则验证 DNS A 并签发域名证书；不填域名则为 VPS 公网 IPv4 签发短期 IP 证书。依次完成 S-UI 本机安装、Let’s Encrypt 验证、自动续期、原生 TLS 配置及 HTTPS 验收。</p>
+<p>证书和续期验收成功后，<strong>查看 S-UI 面板信息</strong>会显示可直接打开的 <code>https://IP或域名:2095/随机路径/</code>。本机 UFW 会精准放行 2095/TCP，云厂商安全组还须为固定管理 IP 开放 2095/TCP。<strong>订阅 2096/TCP 永远只在 VPS 本机监听</strong>，不需要公网放行。</p>
+<div class="callout"><strong>证书失败时不会开放公网 HTTP</strong><p>如果 IP/域名证书未签发或 HTTPS 验收失败，已安装的 S-UI 会保持或恢复 <code>127.0.0.1:2095</code>。你可以先用 SSH 隧道访问，并点击<strong>继续完成 HTTPS</strong>单独重试证书阶段，无需覆盖重新安装。</p></div>
+<pre><code># 仅用于暂时本机访问（证书失败或主动选择本机模式）：
 ssh -N -p 22 -L 2095:127.0.0.1:2095 root@YOUR_VPS_IP</code></pre>
-<p>如果服务已存在，NetDeploy 只检查状态，不会重复覆盖。已在原面板修改过管理员密码时，初始安装记录不代表当前密码。</p>
+<p>如果服务已存在，NetDeploy 只检查状态，不重复覆盖。初始密码可能已经由管理员修改；若需重新配置 HTTPS，必须先通过可信 SSH 确认服务仍由 NetDeploy 管理且在本机监听。</p>
 <h2 id="sing-box">sing-box · 只有内核</h2>
 <p>安装完成代表程序存在，不会自动产生可用代理节点、TLS 证书或公网监听。用户须自行完成合法配置、运行 <code>sing-box check</code> 并检查防火墙策略。</p>
 <h2 id="wg-easy">wg-easy · WireGuard</h2>

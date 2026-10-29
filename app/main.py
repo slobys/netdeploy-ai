@@ -26,7 +26,7 @@ from .firewall import (PortRule, FirewallBatch, STATUS_SCRIPT, allow_port_script
                        allow_ports_script, parse_firewall_batch_output,
                        FirewallToggle, firewall_toggle_script)
 from .xui_existing import status_script, parse_status, public_access_script, direct_url
-from .s_ui import (STATUS as SUI_STATUS_SCRIPT, ACCESS as SUI_ACCESS_SCRIPT,
+from .s_ui import (PORT as SUI_PORT, STATUS as SUI_STATUS_SCRIPT, ACCESS as SUI_ACCESS_SCRIPT,
                    parse_status as parse_sui_status, parse_access as parse_sui_access)
 
 BASE = Path(__file__).resolve().parent
@@ -42,7 +42,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.14")
+app = FastAPI(title="NetDeploy AI", version="0.3.15")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -188,7 +188,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.14", "security": "local-only"}
+    return {"ok": True, "version": "0.3.15", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -475,12 +475,16 @@ def sui_access(id: int):
     status = read_existing_sui(host)
     if not status["installed"]:
         raise HTTPException(status_code=409, detail="尚未安装 S-UI")
-    if status["service"] != "active" or not status["managed"] or status["access_mode"] != "local":
-        raise HTTPException(status_code=409, detail="S-UI 服务或本地监听尚未验证；不会猜测登录凭据或开放公网")
+    if status["service"] != "active" or not status["managed"] or status["access_mode"] not in {"local", "https"}:
+        raise HTTPException(status_code=409, detail="S-UI 的本机监听或可信 HTTPS 尚未验证；不会提供不安全的直连地址")
     try:
-        result = parse_sui_access(executor.run(host, SUI_ACCESS_SCRIPT, timeout=25), host)
+        result = parse_sui_access(executor.run(host, SUI_ACCESS_SCRIPT, timeout=35), host)
     except (SSHError, ValueError) as exc:
         raise HTTPException(status_code=409, detail="无法安全读取 S-UI 初始凭据；请在 VPS 控制台检查安装记录") from exc
+    if result["access_mode"] != status["access_mode"] or (
+        result["access_mode"] == "https" and result.get("certificate_identity") != status.get("identity")
+    ):
+        raise HTTPException(status_code=409, detail="S-UI 的 HTTPS 身份或监听在检查时发生变化，请刷新后重试")
     return result
 
 
@@ -663,8 +667,34 @@ def new_job(body: NewJob):
         if options["panel_port"] == host["port"]:
             raise HTTPException(status_code=422, detail="面板端口不能与 VPS SSH 端口相同")
     elif body.project == "s-ui":
+        if body.panel_port is not None or body.source_job_id:
+            raise HTTPException(status_code=422, detail="S-UI 使用固定管理端口 2095，初次安装不能提供原任务编号")
+        if host["port"] == SUI_PORT:
+            raise HTTPException(status_code=422, detail="S-UI 管理端口 2095 与 SSH 端口相同，请先检查 VPS")
         if host["facts"].get("SUI_PRESENT") != "no":
             raise HTTPException(status_code=409, detail="S-UI 已安装或冲突检查不完整，请先查看现有面板；禁止覆盖重装")
+        access_mode = body.access_mode or "https"
+        options = {"access_mode": access_mode}
+        if access_mode == "https":
+            options.update(tls_options(host))
+    elif body.project == "s-ui-https":
+        if body.panel_port is not None or body.access_mode:
+            raise HTTPException(status_code=422, detail="已安装 S-UI HTTPS 续接不允许覆盖端口或访问模式")
+        if body.source_job_id:
+            source = find_job(body.source_job_id)
+            if source["plan"].get("trust_epoch", 0) != host.get("trust_epoch", 0):
+                raise HTTPException(status_code=409, detail="原 S-UI 任务属于重装前的 VPS")
+            if source["project"] != "s-ui" or source["host_id"] != host["id"] or source["status"] not in {"completed", "partial"}:
+                raise HTTPException(status_code=409, detail="S-UI 原安装任务未完成，无法继续 HTTPS")
+            if source["status"] == "completed" and source["plan"].get("options", {}).get("access_mode") == "https":
+                raise HTTPException(status_code=409, detail="该 S-UI 原任务已经完成 HTTPS")
+        existing = read_existing_sui(host)
+        if (not existing["installed"] or not existing["managed"] or existing["service"] != "active"
+                or existing["access_mode"] != "local"):
+            raise HTTPException(status_code=409, detail="只允许对已验证且本机监听的 S-UI 继续配置 HTTPS；不会覆盖未知设置")
+        options = {**tls_options(host)}
+        if body.source_job_id:
+            options["source_job_id"] = body.source_job_id
     elif body.project == "3x-ui-https":
         if body.access_mode or body.panel_port is not None:
             raise HTTPException(status_code=422, detail="现有面板的 HTTPS 升级端口由服务器实际配置决定，不能手工覆盖")

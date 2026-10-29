@@ -74,12 +74,12 @@ class JobRunner:
             msg = sanitize(str(exc))
             last = self.store.job(job_id)
             installed_locally = (
-                last is not None and last["project"] == "3x-ui"
+                last is not None and last["project"] in {"3x-ui", "s-ui"}
                 and last["plan"].get("options", {}).get("access_mode") == "https"
                 and completed_steps >= 5
             )
             if installed_locally:
-                self.store.log(job_id, f"HTTPS 未完成：{msg}；3X-UI 原安装步骤已完成，需核查本机监听状态")
+                self.store.log(job_id, f"HTTPS 未完成：{msg}；{last['project']} 原安装步骤已完成，需核查本机监听状态")
                 self.store.set_status(job_id, "partial", msg)
             else:
                 self.store.log(job_id, f"失败：{msg}")

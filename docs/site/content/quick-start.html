@@ -4,7 +4,7 @@
 <ol>
   <li>打开 NetDeploy 面板，点击右上角 <strong>添加 VPS</strong>。</li>
   <li>输入易识别的名称、服务器<strong>公网 IPv4</strong>、SSH 端口（默认 22）、SSH 用户（自动安装目前要求 root）。</li>
-  <li>如果已有域名需要签 HTTPS 证书，再填写 <strong>HTTPS 证书域名</strong>；没有域名可以留空，由 3X-UI 安装方案按公网 IP 选择证书类型。</li>
+  <li>如果已有域名需要签 HTTPS 证书，再填写 <strong>HTTPS 证书域名</strong>；没有域名可以留空，3X-UI 与 S-UI 都会自动尝试为公网 IP 申请 IP 证书。</li>
   <li>选择 SSH 密码或私钥登录，保存后继续下一步。</li>
 </ol>
 <h2 id="fingerprint">第 2 步：SSH 主机指纹</h2>
@@ -20,5 +20,5 @@ ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256</code></pre>
 <h2 id="choose">第 5 步：选择软件</h2>
 <p>从项目卡片选择 3X-UI、S-UI、sing-box 或 wg-easy。系统会识别现有安装并生成计划，先展示兼容性要求、具体命令和风险，再由管理员审核批准。Hysteria2 当前仍为引导方案，不能当作完整自动安装。</p>
 <h2 id="completion">任务执行完成后</h2>
-<p>到 <strong>最近任务 / 部署任务</strong>查看状态与分步骤日志。对于支持登录信息展示的 3X-UI、S-UI，可点击 <strong>查看面板信息</strong>按需读取 VPS 上的初始凭据。S-UI 默认仅本地监听，需要按提示使用 SSH 隧道访问。</p>
+<p>到 <strong>最近任务 / 部署任务</strong>查看状态与分步骤日志。对于支持登录信息展示的 3X-UI、S-UI，可点击 <strong>查看面板信息</strong>按需读取 VPS 上的初始凭据。S-UI 新安装默认自动申请 IP/域名证书并启用 HTTPS；证书尚未成功时保留 SSH 隧道本机访问，并可单独继续完成 HTTPS。</p>
 <p>如果任务状态是失败或部分完成，先对照 <a href="troubleshooting.html">故障排查</a>，不要在原 VPS 上盲目重复安装。</p>

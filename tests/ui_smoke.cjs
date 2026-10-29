@@ -107,7 +107,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.14';
+let runtimeVersion='0.3.15';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -193,9 +193,14 @@ const context = vm.createContext({
       suiReadRequests++;
       return {ok:true,status:200,json:async()=>({
         username:'nd_aabbccddeeff',password:'a'.repeat(48),port:2095,
-        local_url:'http://127.0.0.1:2095/deadbeefdeadbeefdeadbeef/',
-        ssh_tunnel:'ssh -N -p 22 -L 2095:127.0.0.1:2095 root@45.32.35.195',
-        access_mode:'local'
+        ...(suiStatus.access_mode==='https'?{
+          direct_url:'https://panel.example.com:2095/deadbeefdeadbeefdeadbeef/',
+          certificate_identity:'panel.example.com',access_mode:'https'
+        }:{
+          local_url:'http://127.0.0.1:2095/deadbeefdeadbeefdeadbeef/',
+          ssh_tunnel:'ssh -N -p 22 -L 2095:127.0.0.1:2095 root@45.32.35.195',
+          access_mode:'local'
+        })
       })};
     }
     if(url==='/api/hosts/1/3x-ui'){
@@ -275,9 +280,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.14';
+  runtimeVersion='0.3.15';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.14');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.15');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -373,8 +378,15 @@ function fingerprintFor(label) {
   assert(modal.innerHTML.includes('id="sui-url"'));
   assert(modal.innerHTML.includes('id="sui-password" type="password"'));
   assert(modal.innerHTML.includes('SSH 隧道命令'));
+  assert(modal.innerHTML.includes('data-action="sui-upgrade"'), 'Existing S-UI must offer a HTTPS-only upgrade');
   assert.equal(suiReadRequests,1);
   assert.equal(planCreations,0,'S-UI already installed must never be reinstalled');
+  suiStatus={installed:true,service:'active',managed:true,port:2095,access_mode:'https',identity:'panel.example.com'};
+  await evaluate('showExistingSui(1)');
+  assert(modal.innerHTML.includes('直接打开 HTTPS 面板'));
+  assert(modal.innerHTML.includes('https://panel.example.com:2095/deadbeef'));
+  assert(!modal.innerHTML.includes('SSH 隧道命令'));
+  assert.equal(suiReadRequests,2);
   suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
 
   // A running job becoming completed via polling must immediately grow its
