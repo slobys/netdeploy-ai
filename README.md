@@ -1,4 +1,4 @@
-# NetDeploy AI · v0.3.8 Alpha
+# NetDeploy AI · v0.3.9 Alpha
 
 > 一个以 VPS 为优先方向的 AI 辅助网络项目部署面板。2026-10-29 第一阶段原型（Windows SSH 主机指纹扫描修复）。 **不是生产稳定版，不要用重要 VPS 直接试错。**
 
@@ -221,6 +221,19 @@ tests/                    自动化测试
 
 参见 [架构](docs/ARCHITECTURE.md)、[安全边界](docs/SECURITY.md)、[阶段计划](docs/ROADMAP.md)。
 
+
+## v0.3.9：修复 HTTPS 最后一步的 Linux/Go TCP 监听误判
+
+**日志依据（2026-10-29）：** 3X-UI 已在 `127.0.0.1:8443` 完成安装与本机 HTTP 验收，Certbot / IP 证书 / 自动续期通过；第 9/9 步 `XUI_LISTENER_MISSING` 仅表示旧脚本没找到字面上完全一致的 `0.0.0.0:8443`，不能据此确认服务没有监听。
+
+**上游源码核实：** 3X-UI v3.11.0 在 [internal/web/web.go](https://github.com/MHSanaei/3x-ui/blob/v3.11.0/internal/web/web.go) 使用 `net.ListenConfig.Listen("tcp", net.JoinHostPort(listen, port))`。Go 的双栈 TCP wildcard 套接字在 Linux `ss` 中可能显示为 `*:8443` 或 `[::]:8443`（也有 `0.0.0.0:8443`）。v0.3.8 使用 `grep -Fxq '0.0.0.0:8443'`，易误判并回滚。
+
+- **修复 3 处一致性**：HTTPS 安装最后一步、已经安装面板的状态只读检查、HTTPS 登录信息读取统一复用经过审查的 `netdeploy_public_socket`。支持 `0.0.0.0:端口`、`*:端口`、`[::]:端口`、`:::端口`，同时严格匹配批准的端口，拒绝 `127.0.0.1` 等仅回环监听和其他端口。
+- **仍需可信 HTTPS 终验**：只把 IPv6 wildcard 视为待验证的候选；后续必须通过 `curl --connect-to IP或域名:端口:127.0.0.1:端口` 的实际 IPv4 连接，校验目标公网 IP/域名对应的可信证书及 Web 路径。禁止 `--insecure`，IPv6-only 但 IPv4 连接失败时依旧阻断并回滚。
+- **自动续接而非重装**：新 VPS 的初次安装沿用一次审批的九步任务；已有安装成功但 HTTPS 部分失败的 VPS 仅创建四步 HTTPS 续接计划，保留现有 3X-UI、受保护的原凭据和有效证书，不会重复安装。已更新的旧审批任务将提示刷新当前代码的固定步骤，**不能未经新授权自动执行更改过的远程脚本**。
+- **测试覆盖**：纯本地 Linux 假 `ss`、假 x-ui CLI 和假 curl 的真实 Bash 执行，覆盖四种 wildcard 输出、只有回环、错误端口、IPv6-only 但 IPv4 连接失败，以及既有面板只读状态和凭据访问的一致行为。不会连接你的真实 VPS。
+
+**更新测试：** 关闭已运行的 NetDeploy AI，在桌面双击 `netdeploy-ai-git\QuickStart-NetDeploy.bat` 更新，浏览器 Ctrl+F5 确认 `ALPHA v0.3.9`。进入原 VPS → 3X-UI → **继续完成 HTTPS**，刷新旧审批方案后只需授权 HTTPS 续接一次；不要重新安装 3X-UI，也不需要为了此误报关闭整个防火墙。证书和回环 HTTPS 检查通过后，还需在云服务商安全组允许已选面板 TCP 端口才能从外网打开。
 
 ## v0.3.8：修复 3X-UI 证书设置实际命令入口，首次安装一次完成 HTTPS
 

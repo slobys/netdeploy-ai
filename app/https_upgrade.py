@@ -11,6 +11,7 @@ import re
 
 from .three_x_ui import validate_port
 from .firewall import acme_ufw_script, allow_port_script
+from .listening import PUBLIC_SOCKET_CHECK
 
 SAFE_DNS = re.compile(r"^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -226,13 +227,13 @@ printf '%s\n' "$listen_settings" | grep -Fxq 'listenIP: 0.0.0.0' || {
     exit 39
 }
 systemctl restart x-ui
-# x-ui can briefly close the listening socket while systemd restarts.
-# Check the actual listener *before* judging TLS, otherwise curl (7) hides
-# whether the service failed to bind, restarted slowly or used another port.
+# Go net.Listen("tcp", "0.0.0.0:PORT") can produce an IPv6
+# dual-stack socket shown by ss as *:PORT / [::]:PORT. These are wildcard
+# candidates, but we still require a *real IPv4 TLS curl probe* below.
+__PUBLIC_SOCKET_CHECK__
 listener_ready=no
 for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-    if systemctl is-active --quiet x-ui &&
-       ss -Hltn 'sport = :__PORT__' | awk '{print $4}' | grep -Fxq '0.0.0.0:__PORT__'; then
+    if systemctl is-active --quiet x-ui && netdeploy_public_socket __PORT__; then
         listener_ready=yes
         break
     fi
@@ -241,8 +242,10 @@ done
 if [ "$listener_ready" != yes ]; then
     if ! systemctl is-active --quiet x-ui; then
         echo 'XUI_SERVICE_FAILED: x-ui exited after HTTPS configuration. Check systemctl status x-ui and journalctl -u x-ui (do not paste secrets).' >&2
+    elif ss -Hltn 'sport = :__PORT__' | awk '{print $4}' | grep -Fxq '127.0.0.1:__PORT__'; then
+        echo 'XUI_LISTENER_LOCAL_ONLY: x-ui is still bound to localhost after the HTTPS switch. Review x-ui getListen setting and any XUI_PORT override.' >&2
     else
-        echo 'XUI_LISTENER_MISSING: x-ui active but not listening on approved IPv4 TCP __PORT__. Check current x-ui panel port, webListen and runtime port overrides.' >&2
+        echo 'XUI_LISTENER_MISSING: x-ui active but no public wildcard listener on TCP __PORT__ (0.0.0.0, * or [::]). Check actual panel port and runtime overrides.' >&2
     fi
     exit 37
 fi
@@ -289,6 +292,7 @@ echo 'Public HTTPS is active; cloud security group must separately permit the se
     # Expand nested placeholders inside the installer command, too.
     values = {"__ISSUE_CMD__": issue_cmd.strip(), "__MODE__": mode,
               "__IDENTITY__": identity, "__PORT__": str(port),
+              "__PUBLIC_SOCKET_CHECK__": PUBLIC_SOCKET_CHECK,
               "__CHECK__": "checkip" if mode == "ip" else "checkhost"}
     result = []
     for label, script, timeout in stages:
@@ -309,8 +313,10 @@ test "$(systemctl is-active certbot.timer)" = active
 test -r /etc/x-ui/install-result.env
 test "$(stat -c %a /etc/x-ui/install-result.env)" = 600
 test "$(sed -n 's/^XUI_PANEL_PORT=//p' /etc/x-ui/install-result.env)" = "__PORT__"
-addresses="$(ss -Hltn 'sport = :__PORT__' | awk '{print $4}')"
-printf '%s\n' "$addresses" | grep -Fxq '0.0.0.0:__PORT__'
+__PUBLIC_SOCKET_CHECK__
+netdeploy_public_socket __PORT__ || {
+    echo 'XUI_HTTPS_LISTENER_NOT_PUBLIC: no verified wildcard socket on panel TCP __PORT__' >&2; exit 37;
+}
 cert="/etc/letsencrypt/live/__IDENTITY__/fullchain.pem"
 test -s "$cert"
 openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null
@@ -325,6 +331,7 @@ case "$http_code" in 200|301|302|303|307|308|401|403) ;; *) exit 38 ;; esac
 grep -E '^XUI_(USERNAME|PASSWORD|PANEL_PORT|WEB_BASE_PATH)=' /etc/x-ui/install-result.env
 """
     for key, value in {"__PORT__": str(port), "__IDENTITY__": identity,
+                       "__PUBLIC_SOCKET_CHECK__": PUBLIC_SOCKET_CHECK,
                        "__CHECK__": "checkip" if mode == "ip" else "checkhost"}.items():
         script = script.replace(key, value)
     return script

@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from .three_x_ui import validate_port
 from .https_upgrade import identify, https_url
+from .listening import PUBLIC_SOCKET_CHECK
 
 
 def _public_identity(hostname: str) -> str | None:
@@ -54,10 +55,11 @@ fi
 # Never print the saved password, username, token or secret web path in status.
 echo 'XUI_MANAGED=yes'
 printf 'XUI_PORT=%s\n' "$port"
+__PUBLIC_SOCKET_CHECK__
 addresses="$(ss -Hltn "sport = :$port" | awk '{print $4}')"
 if test "$addresses" = "127.0.0.1:$port"; then
     echo 'XUI_LISTENER=local'
-elif test "$addresses" = "0.0.0.0:$port"; then
+elif netdeploy_public_socket "$port"; then
     # A public listener is safe to open only when the existing TLS identity
     # validates against the actual hostname with the OS trust store.
     if test -n '__IDENTITY__'; then
@@ -82,7 +84,8 @@ fi
 def status_script(hostname: str) -> str:
     """Hostname is never sent into a command unless independently validated."""
     identity = _public_identity(hostname)
-    return STATUS_TEMPLATE.replace("__IDENTITY__", identity or "")
+    return (STATUS_TEMPLATE.replace("__PUBLIC_SOCKET_CHECK__", PUBLIC_SOCKET_CHECK)
+            .replace("__IDENTITY__", identity or ""))
 
 
 def parse_status(raw: str) -> dict:
@@ -122,8 +125,10 @@ test ! -L /etc/x-ui/install-result.env
 test "$(stat -c %a /etc/x-ui/install-result.env)" = 600
 test "$(stat -c %u /etc/x-ui/install-result.env)" = 0
 test "$(sed -n 's/^XUI_PANEL_PORT=//p' /etc/x-ui/install-result.env)" = "__PORT__"
-addresses="$(ss -Hltn 'sport = :__PORT__' | awk '{print $4}')"
-test "$addresses" = "0.0.0.0:__PORT__"
+__PUBLIC_SOCKET_CHECK__
+netdeploy_public_socket __PORT__ || {
+    echo 'HTTPS access denied: no public wildcard listener on configured TCP port' >&2; exit 44;
+}
 web_path="$(sed -n 's/^XUI_WEB_BASE_PATH=//p' /etc/x-ui/install-result.env)"
 printf '%s' "$web_path" | grep -Eq '^[A-Za-z0-9_-]{4,80}$'
 code="$(curl --noproxy '*' --proto '=https' --tlsv1.2 --silent \
@@ -141,7 +146,8 @@ def public_access_script(hostname: str, port: int) -> str:
     identity = _public_identity(hostname)
     if not identity:
         raise ValueError("当前 SSH 地址不能安全匹配 HTTPS 证书")
-    return PUBLIC_ACCESS_TEMPLATE.replace("__IDENTITY__", identity).replace("__PORT__", str(port))
+    return (PUBLIC_ACCESS_TEMPLATE.replace("__PUBLIC_SOCKET_CHECK__", PUBLIC_SOCKET_CHECK)
+            .replace("__IDENTITY__", identity).replace("__PORT__", str(port)))
 
 
 def direct_url(hostname: str, port: int, web_path: str) -> str:

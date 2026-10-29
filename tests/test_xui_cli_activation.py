@@ -51,8 +51,19 @@ def test_pinned_3xui_cli_is_real_go_binary_not_menu_script():
 
 @pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None,
                     reason="Simulates Linux SSH scripts in an isolated bash environment")
-@pytest.mark.parametrize("failure", [None, "readback", "prior"])
-def test_real_cli_used_and_failed_cert_restores_original_settings(tmp_path, failure):
+@pytest.mark.parametrize(("failure", "socket_addr", "curl_exit"), [
+    (None, "0.0.0.0:24443", 0),
+    (None, "*:24443", 0),
+    (None, "[::]:24443", 0),
+    (None, ":::24443", 0),
+    ("readback", "0.0.0.0:24443", 0),
+    ("prior", "0.0.0.0:24443", 0),
+    ("local", "127.0.0.1:24443", 0),
+    ("wrong_port", "*:24444", 0),
+    ("ipv6_only", "[::]:24443", 7),
+])
+def test_real_cli_used_and_failed_cert_restores_original_settings(
+        tmp_path, failure, socket_addr, curl_exit):
     fake_bin = tmp_path / "mockbin"
     fake_bin.mkdir()
     marker = tmp_path / "state"
@@ -119,9 +130,11 @@ def test_real_cli_used_and_failed_cert_restores_original_settings(tmp_path, fail
                      "esac\n",
         "openssl": "#!/bin/sh\n"
                    "case \" $* \" in *' -checkip '*|*' -checkhost '*) echo 'does match';; esac\n",
-        "ss": "#!/bin/sh\necho 'LISTEN 0 128 0.0.0.0:24443 0.0.0.0:*'\n",
+        "ss": "#!/bin/sh\nprintf 'LISTEN 0 128 %s *:*\\n' \"$FAKE_SS_ADDRESS\"\n",
+        "sleep": "#!/bin/sh\nexit 0\n",
         "curl": "#!/bin/sh\n"
                 "echo \"$*\" >> \"$FAKE_CURL_CALLS\"\n"
+                "if [ \"$FAKE_CURL_EXIT\" = 7 ]; then exit 7; fi\n"
                 "echo 200\n",
         "ufw": "#!/bin/sh\n"
                "if [ \"$1\" = status ]; then echo 'Status: active'; "
@@ -147,6 +160,8 @@ def test_real_cli_used_and_failed_cert_restores_original_settings(tmp_path, fail
         "FAKE_CURL_CALLS": str(tmp_path / "curl.log"),
         "FAKE_UFW_CALLS": str(tmp_path / "ufw.log"),
         "FAKE_READBACK_FAILURE": "yes" if failure in {"readback", "prior"} else "no",
+        "FAKE_SS_ADDRESS": socket_addr,
+        "FAKE_CURL_EXIT": str(curl_exit),
     })
     proc = subprocess.run(["bash", "-se"], input=script, text=True,
                           capture_output=True, timeout=20, env=env)
@@ -155,8 +170,14 @@ def test_real_cli_used_and_failed_cert_restores_original_settings(tmp_path, fail
     assert "cert -webCert" in binary_calls
     assert "setting -getCert true" in binary_calls
     if failure:
-        assert proc.returncode == 39, proc.stderr
-        assert "XUI_CERT_SETTINGS_MISSING" in proc.stderr
+        expected = {"readback": (39, "XUI_CERT_SETTINGS_MISSING"),
+                    "prior": (39, "XUI_CERT_SETTINGS_MISSING"),
+                    "local": (37, "XUI_LISTENER_LOCAL_ONLY"),
+                    "wrong_port": (37, "XUI_LISTENER_MISSING"),
+                    "ipv6_only": (36, "XUI_LOCAL_TLS_CONNECT_FAILED")}
+        code, diagnostic = expected[failure]
+        assert proc.returncode == code, (proc.stdout, proc.stderr)
+        assert diagnostic in proc.stderr, proc.stderr
         assert (marker / "listen").read_text() == "127.0.0.1"
         if failure == "prior":
             # Preserve pre-existing cert configuration when a retry fails.
