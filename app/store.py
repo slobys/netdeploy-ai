@@ -94,8 +94,10 @@ class Store:
             active = c.execute("SELECT COUNT(*) FROM jobs WHERE host_id=? AND status IN ('queued','running')", (host_id,)).fetchone()[0]
             if active:
                 raise ValueError("服务器存在执行中的任务，不能更换 SSH 凭据")
-            c.execute("UPDATE hosts SET auth_mode=?, facts_json=NULL, checked_at=NULL WHERE id=?",
-                      (auth_mode, host_id))
+            c.execute("""UPDATE hosts SET auth_mode=?,
+                      facts_json=CASE WHEN auth_mode=? THEN facts_json ELSE NULL END,
+                      checked_at=CASE WHEN auth_mode=? THEN checked_at ELSE NULL END
+                      WHERE id=?""", (auth_mode, auth_mode, auth_mode, host_id))
             c.commit()
             return self.host(host_id)
 
@@ -114,6 +116,20 @@ class Store:
     def job(self, id: str):
         with self._db() as c:
             return self._row(c.execute("SELECT * FROM jobs WHERE id=?", (id,)).fetchone())
+
+    def completed_https_upgrade(self, host_id: int, origin_job_id: str):
+        """Find a matching completed HTTPS upgrade without trusting a foreign job."""
+        with self._db() as c:
+            rows = c.execute(
+                "SELECT * FROM jobs WHERE host_id=? AND project='3x-ui-https' "
+                "AND status='completed' ORDER BY updated_at DESC",
+                (host_id,),
+            )
+            for row in rows:
+                job = self._row(row)
+                if job["plan"].get("options", {}).get("source_job_id") == origin_job_id:
+                    return job
+        return None
 
     def new_job(self, host_id: int, project: str, plan: dict):
         jid = uuid4().hex[:16]

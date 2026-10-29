@@ -20,6 +20,8 @@ from .executor import SSHConfig, SSHError, SSHExecutor, validate_host
 from .store import Store
 from .tasks import JobRunner
 from .ai import diagnose
+from .os_keyring import VaultUnavailable
+from .https_upgrade import identify, https_access_script, https_url
 
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("NETDEPLOY_DATA", str(BASE.parent / "data")))
@@ -34,7 +36,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.2.1")
+app = FastAPI(title="NetDeploy AI", version="0.3.0")
 
 @app.middleware("http")
 async def security_headers(request, call_next):
@@ -59,11 +61,13 @@ class HostCreate(BaseModel):
     username: str = Field(default="root", min_length=1, max_length=32)
     auth_mode: Literal["key", "password"] = "key"
     password: str | None = None
+    remember_password: bool = False
 
 
 class HostCredentials(BaseModel):
     auth_mode: Literal["key", "password"]
     password: str | None = None
+    remember_password: bool = False
 
 
 class TrustKey(BaseModel):
@@ -75,6 +79,8 @@ class NewJob(BaseModel):
     host_id: int
     project: str
     panel_port: StrictInt | None = Field(default=None, ge=1024, le=65535)
+    access_mode: Literal["local", "https"] | None = None
+    source_job_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{16}$")
 
 
 class Approval(BaseModel):
@@ -98,7 +104,9 @@ def require_password(password: str | None) -> str:
 
 def public_host(host: dict) -> dict:
     # Never return the SSH password or any credential content through this API.
-    return {**host, "credential_ready": executor.credential_ready(host)}
+    remembered = getattr(executor, "password_remembered", lambda _id: False)
+    return {**host, "credential_ready": executor.credential_ready(host),
+            "password_remembered": bool(remembered(host["id"])) if host.get("auth_mode") == "password" else False}
 
 
 def find_job(id: str):
@@ -115,7 +123,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.2.1", "security": "local-only"}
+    return {"ok": True, "version": "0.3.0", "security": "local-only"}
 
 
 @app.get("/api/auth", dependencies=[Depends(authorized)])
@@ -126,6 +134,12 @@ def auth():
 @app.get("/api/catalog", dependencies=[Depends(authorized)])
 def catalog():
     return CATALOG
+
+
+@app.get("/api/capabilities", dependencies=[Depends(authorized)])
+def capabilities():
+    vault = getattr(executor, "vault", None)
+    return {"secure_password_storage": bool(getattr(vault, "available", False))}
 
 
 @app.get("/api/hosts", dependencies=[Depends(authorized)])
@@ -141,10 +155,15 @@ def create_host(body: HostCreate):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if body.auth_mode == "password":
         require_password(body.password)
+        if body.remember_password and not executor.vault.available:
+            raise HTTPException(status_code=422, detail="此设备未启用 Windows 系统凭据保管库，请选择临时密码登录")
     # Do not pass credentials into the database, responses, plan or logs.
     host = store.add_host(body.model_dump(exclude={"password"}))
     if body.auth_mode == "password":
-        executor.set_password(host["id"], body.password)
+        try:
+            executor.set_password(host["id"], body.password, remember=body.remember_password)
+        except VaultUnavailable as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     return public_host(host)
 
 
@@ -154,12 +173,17 @@ def update_credentials(id: int, body: HostCredentials):
     if body.auth_mode == "password":
         require_password(body.password)
     try:
+        # Preserve existing facts when merely refreshing the same password
+        # login method. A different auth mode still invalidates cached facts.
         host = store.update_auth(id, body.auth_mode)
+        if body.auth_mode == "password":
+            executor.set_password(id, body.password, remember=body.remember_password)
+        else:
+            executor.clear_password(id)
+    except VaultUnavailable as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    executor.clear_password(id)
-    if body.auth_mode == "password":
-        executor.set_password(id, body.password)
     return public_host(host)
 
 
@@ -217,17 +241,43 @@ def new_job(body: NewJob):
     host = find_host(body.host_id)
     if body.project not in CATALOG:
         raise HTTPException(status_code=404, detail="不支持的项目")
-    if not host["facts"]:
-        raise HTTPException(status_code=409, detail="请先对服务器执行 SSH 环境检测")
-    if body.project != "3x-ui" and body.panel_port is not None:
-        raise HTTPException(status_code=422, detail="仅 3X-UI 支持设置管理面板端口")
-    options = {"panel_port": body.panel_port if body.panel_port is not None else DEFAULT_PORT} if body.project == "3x-ui" else None
-    if options and options["panel_port"] == host["port"]:
-        raise HTTPException(status_code=422, detail="3X-UI 面板端口不能与 VPS SSH 端口相同")
+    if not executor.credential_ready(host):
+        raise HTTPException(status_code=409, detail="SSH 登录凭据不可用，请在服务器管理中设置登录方式")
+    # Always refresh read-only facts when creating a new plan; cached results
+    # from older app versions and program restarts cannot be silently reused.
+    try:
+        facts = executor.preflight(host)
+    except (ValueError, SSHError) as exc:
+        raise HTTPException(status_code=422, detail=f"自动环境检测失败：{exc}") from exc
+    host = store.save_facts(host["id"], facts)
+    options = None
+    if body.project == "3x-ui":
+        if body.source_job_id:
+            raise HTTPException(status_code=422, detail="新安装不接受已有任务编号")
+        options = {"panel_port": body.panel_port if body.panel_port is not None else DEFAULT_PORT}
+        if body.access_mode == "https":
+            options.update({"access_mode": "https", "tls_identity": host["hostname"]})
+        if options["panel_port"] == host["port"]:
+            raise HTTPException(status_code=422, detail="面板端口不能与 VPS SSH 端口相同")
+    elif body.project == "3x-ui-https":
+        if not body.source_job_id or body.access_mode or body.panel_port is not None:
+            raise HTTPException(status_code=422, detail="HTTPS 升级必须引用已完成的 3X-UI 安装任务")
+        source = find_job(body.source_job_id)
+        if source["project"] != "3x-ui" or source["host_id"] != host["id"] or source["status"] not in {"completed", "partial"}:
+            raise HTTPException(status_code=409, detail="无法核实对应的原 3X-UI 安装任务")
+        if (source["status"] == "completed" and
+                source["plan"].get("options", {}).get("access_mode") == "https"):
+            raise HTTPException(status_code=409, detail="该 3X-UI 安装任务已经使用 HTTPS 部署")
+        if store.completed_https_upgrade(host["id"], source["id"]):
+            raise HTTPException(status_code=409, detail="该任务已完成 HTTPS 升级，请打开原 3X-UI 任务")
+        options = {"panel_port": source["plan"]["options"]["panel_port"],
+                   "tls_identity": host["hostname"], "source_job_id": source["id"]}
+    elif body.panel_port is not None or body.access_mode or body.source_job_id:
+        raise HTTPException(status_code=422, detail="此项目不支持 HTTPS 部署参数")
     try:
         plan = build_plan(body.project, host["facts"], options)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail="证书标识、端口或部署参数不合法") from exc
     plan["hostname"] = host["hostname"]
     plan["host_id"] = host["id"]
     plan["preflight_baseline"] = approval_baseline(host["facts"])
@@ -298,20 +348,32 @@ def job_access(id: str):
     Authenticated localhost API response is marked no-store by middleware.
     """
     job = find_job(id)
-    if job["project"] != "3x-ui" or job["status"] != "completed":
-        raise HTTPException(status_code=409, detail="只有已完成的 3X-UI 部署任务可查看登录信息")
+    if job["project"] != "3x-ui" or job["status"] not in {"completed", "partial"}:
+        raise HTTPException(status_code=409, detail="只有已完成安装或 HTTPS 部分失败的 3X-UI 任务可核验登录信息")
     host = find_host(job["host_id"])
     port = (job["plan"].get("options") or {}).get("panel_port")
     if not executor.credential_ready(host):
-        raise HTTPException(status_code=409, detail="SSH 凭据已经失效，请重新输入 VPS SSH 密码")
+        raise HTTPException(status_code=409, detail="SSH 凭据不可用，请在服务器管理中重新设置")
+    upgrade = store.completed_https_upgrade(host["id"], job["id"])
+    identity = None
+    if job["status"] == "completed" and job["plan"].get("options", {}).get("access_mode") == "https":
+        identity = job["plan"]["options"]["tls_identity"]
+    elif upgrade is not None and upgrade["plan"]["options"]["panel_port"] == port:
+        identity = upgrade["plan"]["options"]["tls_identity"]
+    script = https_access_script(identity, port) if identity else ACCESS_SCRIPT
     try:
-        result = parse_access_result(executor.run(host, ACCESS_SCRIPT, timeout=25), port)
+        result = parse_access_result(executor.run(host, script, timeout=25), port)
     except (SSHError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail=f"无法安全读取 3X-UI 登录信息：{exc}") from exc
-    result["ssh_tunnel"] = (
-        f"ssh -N -p {host['port']} -L {port}:127.0.0.1:{port} "
-        f"{host['username']}@{host['hostname']}"
-    )
+        raise HTTPException(status_code=422, detail="无法验证远端面板或 TLS 证书，请检查服务、证书有效期和自动续期") from exc
+    if identity:
+        result["direct_url"] = https_url(identity, port, result["web_path"])
+        result["access_mode"] = "https"
+    else:
+        result["ssh_tunnel"] = (
+            f"ssh -N -p {host['port']} -L {port}:127.0.0.1:{port} "
+            f"{host['username']}@{host['hostname']}"
+        )
+        result["access_mode"] = "local"
     return result
 
 

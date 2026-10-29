@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from .three_x_ui import DEFAULT_PORT, VERSION as XUI_VERSION, deployment_steps, validate_port
+from .https_upgrade import identify, https_steps
 
 CATALOG = {
     "3x-ui": {
@@ -17,6 +18,14 @@ CATALOG = {
         "docs": "https://docs.sanaei.dev/docs/guide/installation/",
         "summary": "使用固定 v3.11.0 官方安装器及 SHA-256 校验，无 Docker 部署；面板仅监听本机，通过 SSH 隧道安全访问。",
         "requires": ["Ubuntu/Debian root VPS", "x86_64/arm64", "systemd 和 ss", "无已有 x-ui 安装", "面板仅本机监听，不自动打开公网端口"],
+    },
+    "3x-ui-https": {
+        "name": "3X-UI HTTPS 直连", "subtitle": "为已安装面板签发 IP/域名证书",
+        "category": "HTTPS", "icon": "lock", "deployment": "install",
+        "internal": True, "risk": "高",
+        "docs": "https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability",
+        "summary": "对现有 3X-UI 开通公网可信 HTTPS；只有证书验证和续期配置成功才更改监听。",
+        "requires": ["已完成并运行的 3X-UI", "域名 A 记录或公网 IPv4", "公网上 TCP 80 可访问", "支持 IP 证书的 Certbot", "云防火墙放行管理端口"],
     },
     "sing-box": {
         "name": "sing-box", "subtitle": "通用网络代理内核", "category": "核心",
@@ -162,7 +171,7 @@ def compatibility(project: str, facts: dict[str, Any]) -> tuple[bool, list[str]]
         issues.append("第一阶段只允许以已验证的 root SSH 身份执行变更操作")
     if arch not in SUPPORTED_ARCHS:
         issues.append(f"当前 CPU 架构 {arch or '未知'} 尚未通过第一阶段验证")
-    if project == "3x-ui":
+    if project in {"3x-ui", "3x-ui-https"}:
         if os_id not in {"debian", "ubuntu"}:
             issues.append("3X-UI 一键部署目前仅对 Ubuntu/Debian 开放")
         if arch not in {"x86_64", "aarch64"}:
@@ -171,8 +180,9 @@ def compatibility(project: str, facts: dict[str, Any]) -> tuple[bool, list[str]]
             issues.append("3X-UI 需要可用的 systemd")
         if facts.get("SS_AVAILABLE") != "yes":
             issues.append("无法可靠检测面板 TCP 端口，请先安装 iproute2 并重新环境检测")
-        if facts.get("XUI_PRESENT") != "no":
-            issues.append("已存在 x-ui 安装，或尚未完成新版 x-ui 冲突检测；禁止覆盖")
+        expected = "yes" if project == "3x-ui-https" else "no"
+        if facts.get("XUI_PRESENT") != expected:
+            issues.append("HTTPS 升级要求已安装 x-ui，且已完成冲突检测" if project == "3x-ui-https" else "已存在 x-ui 安装，或尚未完成新版 x-ui 冲突检测；禁止覆盖")
     if project == "sing-box" and os_id not in {"debian", "ubuntu"}:
         issues.append("自动安装 sing-box 暂仅覆盖 Debian/Ubuntu APT 环境")
     if project == "wg-easy":
@@ -196,9 +206,35 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         raise ValueError("不支持该项目")
     options = dict(options or {})
     if project == "3x-ui":
-        if set(options) - {"panel_port"}:
+        if set(options) - {"panel_port", "access_mode", "tls_identity", "certificate_type"}:
             raise ValueError("3X-UI 部署选项包含未授权字段")
-        options = {"panel_port": validate_port(options.get("panel_port", DEFAULT_PORT))}
+        port = validate_port(options.get("panel_port", DEFAULT_PORT))
+        access_mode = options.get("access_mode", "local")
+        if access_mode not in {"local", "https"}:
+            raise ValueError("不支持的 3X-UI 访问方式")
+        if access_mode == "https":
+            mode, identity = identify(options.get("tls_identity", ""))
+            if "certificate_type" in options and options["certificate_type"] != mode:
+                raise ValueError("保存的证书类型与 IP/域名不一致，请重新生成部署方案")
+            options = {"panel_port": port, "access_mode": "https", "tls_identity": identity,
+                       "certificate_type": mode}
+        else:
+            if "tls_identity" in options or "certificate_type" in options:
+                raise ValueError("仅 HTTPS 模式可填写证书标识")
+            options = {"panel_port": port}
+    elif project == "3x-ui-https":
+        if set(options) not in ({"panel_port", "tls_identity", "source_job_id"},
+                                {"panel_port", "tls_identity", "source_job_id", "certificate_type"}):
+            raise ValueError("3X-UI HTTPS 升级缺少已批准的原安装任务信息")
+        mode, identity = identify(options["tls_identity"])
+        if "certificate_type" in options and options["certificate_type"] != mode:
+            raise ValueError("保存的证书类型与 IP/域名不一致，请重新生成部署方案")
+        source = options["source_job_id"]
+        if not isinstance(source, str) or not re.fullmatch(r"[a-f0-9]{16}", source):
+            raise ValueError("3X-UI 原安装任务编号不合法")
+        options = {"panel_port": validate_port(options["panel_port"]),
+                   "tls_identity": identity, "certificate_type": mode,
+                   "source_job_id": source}
     elif options:
         raise ValueError("此项目暂不支持自定义部署选项")
     meta = CATALOG[project]
@@ -208,6 +244,10 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         issues.append("此项目暂采用人工确认的引导模式；第一阶段不执行远程安装命令")
     if runnable and project == "3x-ui":
         steps = deployment_steps(options["panel_port"])
+        if options.get("access_mode") == "https":
+            steps = steps + https_steps(options["tls_identity"], options["panel_port"])
+    elif runnable and project == "3x-ui-https":
+        steps = https_steps(options["tls_identity"], options["panel_port"])
     elif runnable and project == "sing-box":
         steps = SINGBOX_STEPS
     elif runnable and project == "wg-easy":
@@ -229,6 +269,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             "sing-box": ["安装的是内核，不会自动配置对外监听或打开端口", "APT 仓库密钥来自官方 HTTPS 地址，初版尚未固定密钥指纹", "APT 变更不会自动回滚"],
             "wg-easy": ["需预先安装 Docker 且 Docker 网络不可与 10.42.42.0/24 冲突；不会自动修改防火墙", "Web 管理端只绑定 VPS 的 localhost，必须使用 SSH 隧道或安全反代", "容器镜像使用 v15 主版本标签，不是不可变 digest", "首次访问还需设置管理员账户及公网地址"],
             "3x-ui": [f"固定官方 {XUI_VERSION} 安装器 SHA-256 后执行，二进制由上游发布的 .sha256 校验；安装依赖可能需要联网和更改 APT 包", "自动生成账户、密码和随机 Web 路径；只在安装后明确点击查看时读取，不存入 NetDeploy 数据库或任务日志", "管理端为 HTTP，但强制仅监听 127.0.0.1，必须使用 SSH 隧道；不会自动放开防火墙或设置证书", "不会自动覆盖已有安装；失败可能留下部分文件，需要人工检查，不能盲目重试"],
+            "3x-ui-https": ["公网 80 端口必须能完成 ACME HTTP-01 验证，DNS A 记录需匹配服务器公网 IP", "IP 证书有效期 160 小时，必须保持 certbot.timer 运行；若签发或验收失败，不开放公网管理面板", "公网 HTTPS 管理面板属于高敏感服务，请启用强密码、双因素认证和云防火墙 IP 白名单"],
             "hysteria2": ["需要单独实现 TLS 证书、身份认证和服务器配置"],
         }[project],
     }

@@ -26,7 +26,8 @@ def test_api_auth_and_preflight_plans(monkeypatch):
     assert c.get('/api/auth',headers=HEAD).status_code == 200
     host=c.post('/api/hosts',headers=HEAD,json={'name':'test','hostname':'example.com','port':22,'username':'root'}).json()
     assert host['facts'] is None
-    assert c.post('/api/jobs',headers=HEAD,json={'host_id':host['id'],'project':'wg-easy'}).status_code==409
+    # Plans now automatically run a read-only preflight; no manual scan required.
+    assert c.post('/api/jobs',headers=HEAD,json={'host_id':host['id'],'project':'wg-easy'}).status_code==200
     assert c.post(f'/api/hosts/{host["id"]}/preflight',headers=HEAD).status_code==200
     plan=c.post('/api/jobs',headers=HEAD,json={'host_id':host['id'],'project':'wg-easy'}).json()
     assert plan['plan']['executable'] is True

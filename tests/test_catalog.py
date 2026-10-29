@@ -6,11 +6,11 @@ GOOD = {"OS_ID":"debian", "ARCH":"x86_64", "UID":"0", "FREE_KB":"3000000", "DOCK
 
 
 def test_catalog_has_four_known_projects():
-    assert set(CATALOG) == {"3x-ui", "sing-box", "hysteria2", "wg-easy"}
+    assert set(CATALOG) == {"3x-ui", "3x-ui-https", "sing-box", "hysteria2", "wg-easy"}
 
 
 def test_supported_recipes_executable():
-    assert set(p for p in CATALOG if build_plan(p,GOOD)['executable']) == {'3x-ui','wg-easy','sing-box'}
+    assert set(p for p in CATALOG if p!='3x-ui-https' and build_plan(p,GOOD)['executable']) == {'3x-ui','wg-easy','sing-box'}
 
 
 def test_xui_pinned_install_plan_requires_compatibility():
@@ -73,6 +73,7 @@ def test_non_root_blocks_install():
 
 def test_failed_guard_has_no_remote_steps():
     for p in CATALOG:
+        if p=='3x-ui-https': continue  # Internal upgrades require an approved source job.
         x=build_plan(p, dict(GOOD, ARCH='mips'))
         assert not x['executable'] and not x['steps']
 

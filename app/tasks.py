@@ -45,6 +45,7 @@ class JobRunner:
             threading.Thread(target=self._run, args=(job["id"], host, lock), daemon=True).start()
 
     def _run(self, job_id: str, host: dict, lock: threading.Lock):
+        completed_steps = 0
         try:
             job = self.store.job(job_id)
             if not job:
@@ -61,11 +62,22 @@ class JobRunner:
                 self.store.log(job_id, f'步骤 {idx}/{len(expected["steps"])}：{step["label"]}')
                 out = self.executor.run(host, step["script"], timeout=step["timeout"])
                 self.store.log(job_id, f'通过：{sanitize(out[-900:]) or "已完成"}')
+                completed_steps = idx
             self.store.set_status(job_id, "completed")
             self.store.log(job_id, "部署执行结束。请检查项目的首次配置和网络连通性；这不等于业务已配置完成。")
-        except (SSHError, Exception) as exc:
+        except Exception as exc:
             msg = sanitize(str(exc))
-            self.store.log(job_id, f"失败：{msg}")
-            self.store.set_status(job_id, "failed", msg)
+            last = self.store.job(job_id)
+            installed_locally = (
+                last is not None and last["project"] == "3x-ui"
+                and last["plan"].get("options", {}).get("access_mode") == "https"
+                and completed_steps >= 5
+            )
+            if installed_locally:
+                self.store.log(job_id, f"HTTPS 未完成：{msg}；3X-UI 原安装步骤已完成，需核查本机监听状态")
+                self.store.set_status(job_id, "partial", msg)
+            else:
+                self.store.log(job_id, f"失败：{msg}")
+                self.store.set_status(job_id, "failed", msg)
         finally:
             lock.release()

@@ -16,6 +16,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from .os_keyring import WindowsCredentialVault, VaultUnavailable
+
 SAFE_HOST = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$")
 SAFE_USER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$", re.IGNORECASE)
 
@@ -43,30 +45,43 @@ class SSHExecutor:
     def __init__(self, config: SSHConfig):
         self.config = config
         self._passwords: dict[int, str] = {}
+        self.vault = WindowsCredentialVault(str(Path(config.known_hosts).parent))
         self._credentials_lock = threading.RLock()
         self._known_hosts_lock = threading.RLock()
 
-    def set_password(self, host_id: int, password: str) -> None:
+    def set_password(self, host_id: int, password: str, remember: bool = False) -> None:
         if not password or len(password) > 1024:
             raise ValueError("SSH 密码长度必须在 1 到 1024 字符之间")
         with self._credentials_lock:
+            if remember:
+                # Require an OS-protected vault; never fall back to plaintext.
+                self.vault.set(host_id, password)
+            elif self.vault.available:
+                self.vault.delete(host_id)
             self._passwords[host_id] = password
 
     def clear_password(self, host_id: int) -> None:
         with self._credentials_lock:
+            if self.vault.available:
+                self.vault.delete(host_id)
             self._passwords.pop(host_id, None)
+
+    def password_remembered(self, host_id: int) -> bool:
+        return bool(self.vault.get(host_id))
 
     def credential_ready(self, host: dict) -> bool:
         if host.get("auth_mode", "key") == "password":
             with self._credentials_lock:
-                return bool(self._passwords.get(host["id"]))
+                return bool(self._passwords.get(host["id"]) or self.vault.get(host["id"]))
         return Path(self.config.keyfile).is_file()
 
     def _password(self, host_id: int) -> str:
         with self._credentials_lock:
             password = self._passwords.get(host_id)
+            if not password:
+                password = self.vault.get(host_id)
         if not password:
-            raise SSHError("SSH 密码尚未设置或服务已经重启，请在服务器管理中重新输入密码")
+            raise SSHError("SSH 密码尚未设置或系统凭据保管库不可用，请在服务器管理中重新输入密码")
         return password
 
     def _args(self, host: dict) -> list[str]:

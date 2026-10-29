@@ -78,6 +78,95 @@ def test_xui_tampered_options_cannot_change_remote_commands():
         assert executor.scripts==[]
 
 
+def test_xui_installed_but_certificate_failed_is_partial_not_reinstalled():
+    """If certificate setup fails after step 5, preserve the installed panel."""
+    from app.executor import SSHError
+
+    class CertbotFailureExecutor(StubExecutor):
+        def run(self, host, script, timeout=30):
+            self.scripts.append(script)
+            if len(self.scripts) == 7:
+                raise SSHError("Certbot not available - test failure")
+            return "stage passed\\n"
+
+    with TemporaryDirectory() as td:
+        store = Store(str(Path(td) / "data.db"))
+        host = store.add_host({'name': 'xui', 'hostname': 'panel.example.com',
+                               'username': 'root', 'port': 22})
+        store.save_facts(host['id'], FACTS)
+        plan = build_plan('3x-ui', FACTS, {
+            'panel_port': 24443, 'access_mode': 'https',
+            'tls_identity': 'panel.example.com'
+        })
+        job = store.new_job(host['id'], '3x-ui', plan)
+        ssh = CertbotFailureExecutor()
+        runner = JobRunner(store, ssh)
+        runner.enqueue(job, host, 'DEPLOY 3x-ui TO panel.example.com')
+        for _ in range(100):
+            if store.job(job['id'])['status'] == 'partial':
+                break
+            sleep(.01)
+        state = store.job(job['id'])
+        assert state['status'] == 'partial'
+        assert len(ssh.scripts) == 7
+        assert state['logs'].count('通过：') == 6
+        assert 'HTTPS 未完成' in state['logs']
+        assert 'secret' not in state['logs'].lower()
+
+
+def test_existing_xui_https_upgrade_executes_only_certificate_steps():
+    """Reconstructed source-controlled upgrade must not rerun 3X-UI installer."""
+    with TemporaryDirectory() as td:
+        store = Store(str(Path(td) / "data.db"))
+        host = store.add_host({'name':'xui','hostname':'panel.example.com',
+                               'username':'root','port':22})
+        facts = dict(FACTS, XUI_PRESENT='yes')
+        store.save_facts(host['id'], facts)
+        options = {'panel_port': 24443, 'tls_identity':'panel.example.com',
+                   'source_job_id':'a'*16}
+        plan = build_plan('3x-ui-https', facts, options)
+        assert plan['options']['certificate_type'] == 'domain'
+        job = store.new_job(host['id'], '3x-ui-https', plan)
+        ssh = StubExecutor()
+        runner = JobRunner(store, ssh)
+        runner.enqueue(job, host, 'DEPLOY 3x-ui-https TO panel.example.com')
+        for _ in range(100):
+            if store.job(job['id'])['status'] == 'completed':
+                break
+            sleep(.01)
+        assert store.job(job['id'])['status'] == 'completed'
+        assert len(ssh.scripts) == 4
+        assert all('/var/lib/netdeploy/3x-ui/install-' not in x for x in ssh.scripts)
+
+
+def test_certificate_mode_tampering_blocks_execution():
+    """A changed certificate mode must never bypass audited script checks."""
+    with TemporaryDirectory() as td:
+        store = Store(str(Path(td) / 'data.db'))
+        host = store.add_host({'name':'xui','hostname':'panel.example.com',
+                               'username':'root','port':22})
+        store.save_facts(host['id'], FACTS)
+        plan = build_plan('3x-ui', FACTS, {'panel_port':24443,
+            'access_mode':'https','tls_identity':'panel.example.com'})
+        job = store.new_job(host['id'], '3x-ui', plan)
+        import json, sqlite3
+        with sqlite3.connect(store.path) as db:
+            saved = store.job(job['id'])
+            saved['plan']['options']['certificate_type'] = 'ip'
+            db.execute('UPDATE jobs SET plan_json=? WHERE id=?',
+                       (json.dumps(saved['plan']),job['id']))
+        ssh = StubExecutor()
+        runner = JobRunner(store, ssh)
+        runner.enqueue(store.job(job['id']), host,
+                       'DEPLOY 3x-ui TO panel.example.com')
+        for _ in range(100):
+            if store.job(job['id'])['status'] == 'failed':
+                break
+            sleep(.01)
+        assert store.job(job['id'])['status'] == 'failed'
+        assert ssh.scripts == []
+
+
 def test_secret_redaction():
     assert 'my-secret' not in sanitize('password=my-secret')
     assert 'oops' not in sanitize('token: oops')
