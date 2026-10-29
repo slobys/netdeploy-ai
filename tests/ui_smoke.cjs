@@ -156,6 +156,18 @@ function fingerprintFor(label) {
   await evaluate("createHostPlan(1,'3x-ui')");
   assert.equal(planCreations,0,'Pending plans must be reused');
 
+  // After a Git update, an approval generated for the old shell recipe is
+  // flagged before the user can accidentally approve stale code.
+  fill({...freshJob,needs_refresh:true});
+  evaluate('openHostConsole(1)');
+  assert(modal.innerHTML.includes('旧版代码'));
+  assert(modal.innerHTML.includes('data-action="regenerate-plan"'));
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('这份审批计划来自更新前的版本'));
+  assert(!modal.innerHTML.includes('id="approve-form"'),
+    'Old script plans must not have a direct approval button');
+  assert(modal.innerHTML.includes('更新为最新 HTTPS 修复方案'));
+
   fill({...freshJob,created_at:new Date(Date.now()-12*60*1000).toISOString()});
   evaluate('openHostConsole(1)');
   assert(modal.innerHTML.includes('部署计划已过期'));

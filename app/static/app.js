@@ -83,7 +83,7 @@ function render(){
       <button class="host-card-delete" type="button" data-action="delete-host" data-id="${h.id}" aria-label="删除 ${escapeHtml(h.name)} 的本地服务器记录">删除服务器</button>
     </article>`;
  }).join(''):`<div class="empty"><span class="empty-icon">▤</span><span>还没有 VPS。添加后点击卡片，即可在同一个控制台管理连接、部署与端口。</span><button class="btn primary" data-action="add-host">＋ 添加第一台 VPS</button></div>`;
- el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${isExistingXuiPlan(j)?'<span class="chip success">已安装 · 无需审批</span>':chip(j.status)}<button class="btn ${j.status==='planned'?'primary':'subtle'}" data-action="${isExistingXuiPlan(j)?'installed-xui':isPlanExpired(j)&&j.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(isExistingXuiPlan(j)?j.host_id:j.id)}">${escapeHtml(jobNextAction(j))} →</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
+ el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${isExistingXuiPlan(j)?'<span class="chip success">已安装 · 无需审批</span>':chip(j.status)}<button class="btn ${j.status==='planned'?'primary':'subtle'}" data-action="${isExistingXuiPlan(j)?'installed-xui':planNeedsUpdate(j)&&j.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(isExistingXuiPlan(j)?j.host_id:j.id)}">${escapeHtml(jobNextAction(j))} →</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
  renderSection();
 }
 function renderSection(){
@@ -101,6 +101,9 @@ function isPlanExpired(job){
  const timestamp=Date.parse(job.created_at);
  return Number.isFinite(timestamp)&&Date.now()-timestamp>10*60*1000;
 }
+function planNeedsUpdate(job){
+ return job.status==='planned'&&(job.needs_refresh===true||isPlanExpired(job));
+}
 function isExistingXuiPlan(job){
  const host=state.hosts.find(h=>h.id===job.host_id);
  return job.project==='3x-ui'&&job.status==='planned'&&!job.plan?.executable&&
@@ -115,6 +118,7 @@ function jobLabel(job){
 function jobNextAction(job){
  if(isExistingXuiPlan(job))return '查看已安装面板';
  if(job.status==='planned'&&!job.plan?.executable)return '查看原因';
+ if(job.status==='planned'&&job.needs_refresh===true)return '更新为最新安全部署方案';
  if(isPlanExpired(job))return '更新方案，继续审批';
  return ({planned:'继续审批部署',queued:'查看等待进度',running:'查看部署进度',
    partial:'继续完成配置',failed:'查看失败原因',completed:'查看结果 / 面板',
@@ -126,7 +130,7 @@ function hostTaskLink(job){
  const action=stale?'查看旧任务':jobNextAction(job);
  const openExisting=!stale&&isExistingXuiPlan(job);
  const name=state.catalog[job.project]?.name||job.project;
- return `<button type="button" class="server-history-item ${job.status==='planned'&&job.plan?.executable&&!stale?'is-pending':''}" data-action="${openExisting?'installed-xui':isPlanExpired(job)&&!stale&&job.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(openExisting?job.host_id:job.id)}"
+ return `<button type="button" class="server-history-item ${job.status==='planned'&&job.plan?.executable&&!stale?'is-pending':''}" data-action="${openExisting?'installed-xui':planNeedsUpdate(job)&&!stale&&job.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(openExisting?job.host_id:job.id)}"
     aria-label="${escapeHtml(name)}，${escapeHtml(stale?'已失效':jobLabel(job))}，${escapeHtml(action)}">
    <span class="server-task-icon" aria-hidden="true">${symbol[job.project]||'▣'}</span>
    <span class="server-task-title"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(stale?'服务器重装前的历史':isExistingXuiPlan(job)?'面板已存在，不需要执行安装审批':isPlanExpired(job)&&job.plan?.executable?'审批计划已过期':jobLabel(job))} · ${escapeHtml(job.created_at.slice(0,16).replace('T',' '))}</small></span>
@@ -154,13 +158,13 @@ function openHostConsole(id,tab='overview'){
      </section>`;
    }else if(active){
      const pending=active.status==='planned',running=['queued','running'].includes(active.status);
-     const header=pending?(isPlanExpired(active)?'部署计划已过期，刷新后继续':'部署方案已准备好，等待你的批准'):running?'部署正在执行':'上次部署需要处理';
-     const detail=pending?(isPlanExpired(active)?'计划创建超过 10 分钟，出于安全考虑必须重新检测。点击即可生成最新方案，不会直接安装。':'目前还未开始在 VPS 上安装。点击下面按钮，核对目标和风险后即可一次确认启动。'):
+     const header=pending?(active.needs_refresh?'此部署方案来自旧版代码，需要刷新':isPlanExpired(active)?'部署计划已过期，刷新后继续':'部署方案已准备好，等待你的批准'):running?'部署正在执行':'上次部署需要处理';
+     const detail=pending?(active.needs_refresh?'GitHub 已更新经过审核的固定脚本。请生成最新方案，避免继续执行旧版 HTTPS 命令；更新方案不会直接修改 VPS。':isPlanExpired(active)?'计划创建超过 10 分钟，出于安全考虑必须重新检测。点击即可生成最新方案，不会直接安装。':'目前还未开始在 VPS 上安装。点击下面按钮，核对目标和风险后即可一次确认启动。'):
         running?'可直接查看安装进度，无需重复创建部署任务。':'查看具体失败原因或继续完成后续配置，无需重复安装已部署的软件。';
      next=`<section class="server-next-action ${pending?'pending':''}" aria-label="当前待办任务">
        <span class="server-next-kicker">${pending?'下一步 · 待审批':running?'正在执行 · 任务进度':'需要处理 · 部署任务'}</span>
        <h3>${header}</h3><p>${detail}</p>
-       <button type="button" class="btn primary" data-action="${isPlanExpired(active)?'regenerate-plan':'job'}" data-id="${escapeHtml(active.id)}">${jobNextAction(active)} →</button>
+       <button type="button" class="btn primary" data-action="${planNeedsUpdate(active)?'regenerate-plan':'job'}" data-id="${escapeHtml(active.id)}">${jobNextAction(active)} →</button>
      </section>`;
    }else if(!ready){
      next=`<section class="server-next-action"><span class="server-next-kicker">下一步 · 连接服务器</span>
@@ -193,7 +197,7 @@ function openHostConsole(id,tab='overview'){
    content=`<div class="server-tab-intro"><h3>安装或继续配置软件</h3>
      <p>只需要选择项目。系统会自动检测、生成安全计划并识别已有安装，安装前仅需批准一次。</p></div>
      ${pending.length?`<div class="server-pending-shortcut"><strong>你有 ${pending.length} 个等待审批的计划</strong>
-       <button class="btn primary" data-action="${isPlanExpired(pending[0])?'regenerate-plan':'job'}" data-id="${escapeHtml(pending[0].id)}">${isPlanExpired(pending[0])?'刷新方案并继续':'立即继续审批'} →</button></div>`:''}
+       <button class="btn primary" data-action="${planNeedsUpdate(pending[0])?'regenerate-plan':'job'}" data-id="${escapeHtml(pending[0].id)}">${planNeedsUpdate(pending[0])?'刷新方案并继续':'立即继续审批'} →</button></div>`:''}
      <div class="server-project-grid">${visible.map(([key,project])=>`<button class="server-project-choice" data-action="server-install" data-id="${id}" data-project="${escapeHtml(key)}">
        <span class="project-choice-icon">${symbol[key]||'▣'}</span><strong>${escapeHtml(project.name)}</strong>${key==='3x-ui'&&installedXui?'<span class="chip success">已安装</span>':''}<small>${escapeHtml(project.subtitle)}</small>
        <span class="project-choice-link">${key==='3x-ui'&&installedXui?'已安装 · 查看面板信息':project.deployment==='install'?'安装 / 继续配置':'查看部署方案'} →</span>
@@ -295,7 +299,7 @@ async function createHostPlan(id,project,panelPort=null,absenceVerified=false){
  }
  const existing=state.jobs.find(j=>j.project===project&&j.host_id===id&&
    (j.plan?.trust_epoch||0)===(host.trust_epoch||0)&&j.plan?.executable&&
-   j.plan?.steps?.length>0&&['planned','queued','running'].includes(j.status)&&!isPlanExpired(j));
+   j.plan?.steps?.length>0&&['planned','queued','running'].includes(j.status)&&!planNeedsUpdate(j));
  if(existing){showJob(existing.id);toast(existing.status==='planned'?'已有审批方案，直接继续即可':'已有执行中的任务，无需重复创建');return;}
  if(project==='3x-ui'&&panelPort===null){
    const detectedHost=host.hostname;
@@ -398,7 +402,7 @@ async function continueExistingXuiHttps(id){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
  const pending=state.jobs.find(j=>j.project==='3x-ui-https'&&j.host_id===id&&
    (j.plan?.trust_epoch||0)===(host.trust_epoch||0)&&j.plan?.executable&&j.plan?.steps?.length>0&&
-   ['planned','queued','running'].includes(j.status)&&!isPlanExpired(j));
+   ['planned','queued','running'].includes(j.status)&&!planNeedsUpdate(j));
  if(pending){showJob(pending.id);return;}
  toast('正在检查当前端口并生成 HTTPS 续接方案…');
  try{
@@ -608,7 +612,12 @@ function showJob(id){
  let html=modalHead(`${p.name} · 部署任务`)+`<div class="toolbar">${chip(job.status)}<span class="chip">${escapeHtml(host?.name||p.hostname)}</span><span class="chip">${escapeHtml(p.options?.panel_port||'')}${p.options?.panel_port?' / TCP':''}</span></div>`;
  if(stale)html+='<div class="modal-tip warning">此任务属于服务器重装前的系统。旧登录信息和审批计划已失效，必须重新检测并创建新的部署方案。</div>';
  if(p.issues.length&&!isExistingXuiPlan(job))html+=`<div class="modal-tip warning">${p.issues.map(escapeHtml).join('；')}</div>`;
- if(job.status==='planned'&&p.executable&&!stale&&isPlanExpired(job)){
+ if(job.status==='planned'&&p.executable&&!stale&&job.needs_refresh===true){
+   html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧脚本已更新</span>
+     <h3>这份审批计划来自更新前的版本</h3><p>3X-UI HTTPS 命令已修复，旧计划不能直接用。点击下面按钮重新检测并生成当前版本的固定方案；不会立即改动 VPS。</p>
+     <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">更新为最新 HTTPS 修复方案 →</button>
+   </section>`;
+ }else if(job.status==='planned'&&p.executable&&!stale&&isPlanExpired(job)){
    html+=`<section class="server-next-action pending"><span class="server-next-kicker">需要更新计划</span>
      <h3>部署计划已超过 10 分钟</h3><p>为防止服务器环境发生变化，点击下方按钮重新检测并生成最新计划。此操作不会直接安装软件。</p>
      <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">更新方案并继续审批 →</button>
@@ -709,7 +718,7 @@ async function xuiUpgrade(id){
  if(!source){toast('请先完成 3X-UI 安装',true);return;}
  const existing=state.jobs.find(j=>j.project==='3x-ui-https'&&j.host_id===source.host_id&&
    j.plan?.options?.source_job_id===source.id&&
-   ['planned','queued','running'].includes(j.status)&&!isPlanExpired(j));
+   ['planned','queued','running'].includes(j.status)&&!planNeedsUpdate(j));
  if(existing){
    showJob(existing.id);
    toast(existing.status==='planned'?'已有 HTTPS 待审批方案，可直接继续':'HTTPS 配置任务已启动，可直接查看进度');

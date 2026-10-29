@@ -473,9 +473,34 @@ def firewall_toggle(id: int, body: FirewallToggle):
             "cloud_notice": "仅更改 VPS 的 UFW 状态，云厂商安全组不受此操作影响"}
 
 
+def plan_needs_refresh(job: dict) -> bool:
+    """Detect a planned job built with another source-controlled recipe.
+
+    No remote commands and no mutation. Old approved scripts must never be
+    silently promoted to changed scripts after a Git update.
+    """
+    if job["status"] != "planned":
+        return False
+    host = store.host(job["host_id"])
+    if not host or not host.get("facts"):
+        return True
+    saved = job.get("plan") or {}
+    if saved.get("trust_epoch", 0) != host.get("trust_epoch", 0):
+        return True
+    try:
+        current = build_plan(job["project"], host["facts"], saved.get("options"))
+    except (ValueError, KeyError, TypeError):
+        return True
+    return current["steps"] != saved.get("steps") or current["executable"] != saved.get("executable")
+
+
+def public_job(job: dict) -> dict:
+    return {**job, "needs_refresh": plan_needs_refresh(job)}
+
+
 @app.get("/api/jobs", dependencies=[Depends(authorized)])
 def list_jobs():
-    return store.jobs()
+    return [public_job(job) for job in store.jobs()]
 
 
 def approval_baseline(facts: dict) -> dict:
@@ -552,7 +577,7 @@ def new_job(body: NewJob):
 
 @app.get("/api/jobs/{id}", dependencies=[Depends(authorized)])
 def get_job(id: str):
-    return find_job(id)
+    return public_job(find_job(id))
 
 
 @app.delete("/api/jobs/{id}", dependencies=[Depends(authorized)])
