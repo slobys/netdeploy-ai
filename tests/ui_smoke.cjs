@@ -525,6 +525,13 @@ function fingerprintFor(label) {
   assert(modal.innerHTML.includes('第 5 步 · 选择要安装的软件'));
   assert.equal(firewallDisableCount,1,'Skip next step must not disable UFW a second time');
 
+  // Cloud console help remains reachable after onboarding in server network tab.
+  evaluate("openHostConsole(1,'network')");
+  assert(modal.innerHTML.includes('cloud-firewall-help'));
+  assert(modal.innerHTML.includes('https://console.cloud.tencent.com/cvm/securitygroup'));
+  assert(modal.innerHTML.includes('https://console.aws.amazon.com/ec2/'));
+  assert(modal.innerHTML.includes('若登录后停留在首页') || modal.innerHTML.includes('如果登录后停留在首页'));
+
   // A known, unchanged pinned fingerprint can proceed straight to SSH
   // detection, without making the user tick the same checkbox twice.
   mockFingerprint={

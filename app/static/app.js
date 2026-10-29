@@ -231,6 +231,7 @@ function openHostConsole(id,tab='overview'){
        <div class="form-group"><label>协议</label><select name="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div>
      </div><div class="modal-actions"><button type="submit" class="btn primary">放行本机防火墙端口</button></div></form>
      <p class="helptext">仅设置 VPS 内的 UFW。云厂商安全组不受本功能影响。</p>
+     ${cloudFirewallHelp()}
      <div class="firewall-toggle-panel">
        <h4>本机防火墙开关（高级操作）</h4>
        <p>关闭 UFW 会取消整台 VPS 的本机端口过滤，但不会关闭云厂商安全组。仅用于确认排障需要时手动操作。</p>
@@ -671,6 +672,19 @@ function setupFirewallResult(id,message){
     <div class="modal-actions"><button type="button" class="btn subtle" data-action="setup-firewall" data-id="${id}">返回网络设置</button>
     <button type="button" class="btn primary" data-action="setup-projects" data-id="${id}">下一步：选择软件 →</button></div>`);
 }
+function cloudFirewallHelp(){return `<details class="cloud-firewall-help">
+      <summary>云厂商安全组 · 快速打开官方控制台（可选）</summary>
+      <p>仅本机 UFW 放行，不代表云防火墙已放行。打开你购买 VPS 的云控制台，选择正确地域与实例，找到关联的安全组或 VPC 入站规则。</p>
+      <div class="cloud-provider-links">
+        <a href="https://ecs.console.aliyun.com/" target="_blank" rel="noopener noreferrer" aria-label="打开阿里云 ECS 控制台安全组">阿里云 ECS <span>安全组 ↗</span></a>
+        <a href="https://console.cloud.tencent.com/cvm/securitygroup" target="_blank" rel="noopener noreferrer" aria-label="打开腾讯云 CVM 安全组控制台">腾讯云 CVM <span>安全组 ↗</span></a>
+        <a href="https://console.cloud.google.com/networking/firewalls/list" target="_blank" rel="noopener noreferrer" aria-label="打开 Google Cloud VPC 防火墙控制台">Google Cloud <span>VPC 防火墙 ↗</span></a>
+        <a href="https://console.aws.amazon.com/ec2/" target="_blank" rel="noopener noreferrer" aria-label="打开 AWS EC2 控制台">AWS EC2 <span>Security Groups ↗</span></a>
+      </div>
+      <p class="cloud-security-note">按实际需要添加 <strong>入站</strong> TCP/UDP 规则；SSH 与管理面板端口建议只允许你的固定管理 IP。登录状态、地域和云账号仍由各平台负责，NetDeploy 不代你修改云安全组。</p>
+      <p class="helptext">如果登录后停留在首页：阿里云在「网络与安全 → 安全组」，AWS 在 EC2 左侧选择 Security Groups。请确认地域和实例。</p>
+    </details>`;}
+
 async function setupFirewall(id){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
  state.setupFlowId=id;state.setupFirewallStatus='unknown';
@@ -690,17 +704,7 @@ async function setupFirewall(id){
       </div>
       <p class="helptext">可添加最多 20 项。每项单独选择 TCP/UDP；相同端口与协议自动检查重复。</p>
     </form>
-    <details class="cloud-firewall-help">
-      <summary>云厂商安全组 · 快速打开官方控制台（可选）</summary>
-      <p>仅本机 UFW 放行，不代表云防火墙已放行。打开你购买 VPS 的云控制台，选择正确地域与实例，找到关联的安全组或 VPC 入站规则。</p>
-      <div class="cloud-provider-links">
-        <a href="https://ecs.console.aliyun.com/" target="_blank" rel="noopener noreferrer" aria-label="打开阿里云 ECS 控制台安全组">阿里云 ECS <span>安全组 ↗</span></a>
-        <a href="https://console.cloud.tencent.com/cvm/securitygroup" target="_blank" rel="noopener noreferrer" aria-label="打开腾讯云 CVM 安全组控制台">腾讯云 CVM <span>安全组 ↗</span></a>
-        <a href="https://console.cloud.google.com/networking/firewalls/list" target="_blank" rel="noopener noreferrer" aria-label="打开 Google Cloud VPC 防火墙控制台">Google Cloud <span>VPC 防火墙 ↗</span></a>
-        <a href="https://console.aws.amazon.com/ec2/" target="_blank" rel="noopener noreferrer" aria-label="打开 AWS EC2 控制台">AWS EC2 <span>Security Groups ↗</span></a>
-      </div>
-      <p class="cloud-security-note">按实际需要添加 <strong>入站</strong> TCP/UDP 规则；SSH 与管理面板端口建议只允许你的固定管理 IP。登录状态、地域和云账号仍由各平台负责，NetDeploy 不代你修改云安全组。</p>
-    </details>
+    ${cloudFirewallHelp()}
     <div class="firewall-toggle-panel"><h4>高级操作：关闭整台 VPS 的本机防火墙</h4>
       <p>此操作会停止 UFW 对所有端口的过滤，可能让管理服务暴露公网；仅在你明确需要时操作。关闭前还会再次确认风险。</p>
       <div class="firewall-toggle-actions"><button type="button" class="btn danger" data-action="toggle-ufw" data-mode="disable" data-id="${id}" disabled>关闭 UFW（需确认风险）</button></div></div>
