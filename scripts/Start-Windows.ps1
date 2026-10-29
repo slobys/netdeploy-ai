@@ -1,4 +1,4 @@
-# NetDeploy AI Windows starter. Never writes credentials to the Git checkout history.
+﻿# NetDeploy AI Windows starter. Never writes credentials to the Git checkout history.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
