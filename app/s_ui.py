@@ -40,6 +40,15 @@ ProtectHome=read-only
 WantedBy=multi-user.target
 """
 
+LOCAL_LISTENER_GUARD = r"""# Accept exactly one TCP listener on each expected IPv4 loopback address.
+# A second wildcard, public, IPv6, or unexpected listener must fail closed.
+sui_local_listeners_only() {
+    for port in 2095 2096; do
+        addresses="$(ss -Hltn "sport = :$port" | awk '{print $4}')"
+        test "$addresses" = "127.0.0.1:$port" || return 1
+    done
+}"""
+
 PRECHECK = r"""set -eu
 test "$(id -u)" = 0
 . /etc/os-release
@@ -53,6 +62,9 @@ test ! -e /etc/s-ui
 test ! -e /etc/systemd/system/s-ui.service
 test ! -e /usr/bin/s-ui
 test ! -e /var/lib/netdeploy/s-ui/install-result.env
+for target in /usr/local/s-ui /etc/s-ui /usr/bin/s-ui /etc/systemd/system/s-ui.service /var/lib/netdeploy/s-ui/install-result.env; do
+    if test -L "$target"; then echo 'SUI_SYMLINK_CONFLICT: refuse to overwrite links' >&2; exit 13; fi
+done
 if systemctl list-unit-files --no-legend s-ui.service 2>/dev/null | grep -q '^s-ui[.]service'; then
     echo 'SUI_ALREADY_INSTALLED: refusing to overwrite an existing service' >&2; exit 13
 fi
@@ -241,6 +253,7 @@ echo 'SUI_CONFIGURED: random admin, private web path and localhost-only listener
 """
 
 VALIDATE = r"""set -eu
+__LOCAL_GUARD__
 test "$(id -u)" = 0
 record='/var/lib/netdeploy/s-ui/install-result.env'
 test -f "$record" && test "$(stat -c %a "$record")" = 600
@@ -248,8 +261,7 @@ systemctl enable s-ui >/dev/null
 systemctl start s-ui >/dev/null
 ready=no
 for n in $(seq 1 18); do
-    if systemctl is-active --quiet s-ui &&
-       ss -Hltn 'sport = :2095' | awk '{print $4}' | grep -Fxq '127.0.0.1:2095'; then
+    if systemctl is-active --quiet s-ui && sui_local_listeners_only; then
         ready=yes
         break
     fi
@@ -276,6 +288,7 @@ echo 'SUI_LOCAL_READY: S-UI pinned version active on 127.0.0.1:2095; SSH tunnel 
 """
 
 STATUS = r"""set -eu
+__LOCAL_GUARD__
 test "$(id -u)" = 0
 if test ! -x /usr/local/s-ui/sui; then
     echo 'SUI_INSTALLED=no'
@@ -289,7 +302,7 @@ if test -f /var/lib/netdeploy/s-ui/install-result.env &&
 else
     echo 'SUI_MANAGED=no'
 fi
-if ss -Hltn 'sport = :2095' | awk '{print $4}' | grep -Fxq '127.0.0.1:2095'; then
+if sui_local_listeners_only; then
     echo 'SUI_ACCESS=local'
 else
     echo 'SUI_ACCESS=unverified'
@@ -297,12 +310,13 @@ fi
 """
 
 ACCESS = r"""set -eu
+__LOCAL_GUARD__
 test "$(id -u)" = 0
 test -x /usr/local/s-ui/sui
 test -f /var/lib/netdeploy/s-ui/install-result.env
 test "$(stat -c %a /var/lib/netdeploy/s-ui/install-result.env)" = 600
 systemctl is-active --quiet s-ui
-ss -Hltn 'sport = :2095' | awk '{print $4}' | grep -Fxq '127.0.0.1:2095'
+sui_local_listeners_only
 record='/var/lib/netdeploy/s-ui/install-result.env'
 # Only audited, generated alphanumeric entries are accepted.
 username="$(sed -n 's/^SUI_USERNAME=//p' "$record")"
@@ -322,6 +336,10 @@ printf 'SUI_PANEL_PORT=2095\nSUI_USERNAME=%s\nSUI_PASSWORD=%s\nSUI_WEB_BASE_PATH
 """
 
 
+STATUS = STATUS.replace("__LOCAL_GUARD__", LOCAL_LISTENER_GUARD)
+ACCESS = ACCESS.replace("__LOCAL_GUARD__", LOCAL_LISTENER_GUARD)
+
+
 def steps(arch: str) -> list[dict]:
     if arch not in ARTIFACTS:
         raise ValueError("S-UI 目前仅支持已验证的 x86_64/aarch64 目标")
@@ -339,7 +357,7 @@ def steps(arch: str) -> list[dict]:
         {"label": "安全解包、随机初始化管理员并强制本机监听（敏感输出隐藏）",
          "script": render(CONFIGURE).replace("__SERVICE_UNIT__", SERVICE_UNIT.rstrip()), "timeout": 180},
         {"label": "启动并验证 127.0.0.1:2095，本机 SSH 隧道访问",
-         "script": VALIDATE, "timeout": 80},
+         "script": VALIDATE.replace("__LOCAL_GUARD__", LOCAL_LISTENER_GUARD), "timeout": 80},
     ]
 
 

@@ -6,6 +6,7 @@ Never connect to GitHub releases, a certificate authority or any VPS.
 from __future__ import annotations
 
 import re
+import os
 import shutil
 import subprocess
 import sys
@@ -17,7 +18,7 @@ from app import main
 from app.catalog import build_plan
 from app.s_ui import (
     VERSION, ARTIFACTS, steps, parse_status, parse_access,
-    PORT, SUB_PORT, RESULT_FILE,
+    PORT, SUB_PORT, RESULT_FILE, LOCAL_LISTENER_GUARD, STATUS, ACCESS,
 )
 from app.store import Store
 
@@ -90,6 +91,39 @@ def test_sui_forbids_custom_arguments_or_unpinned_arch():
         build_plan("s-ui",FACTS,{"panel_port":3333})
     with pytest.raises(ValueError):
         steps("mips64")
+
+
+@pytest.mark.skipif(sys.platform=="win32" or not shutil.which("bash"),
+                    reason="Local binding verification is a Linux bash script")
+@pytest.mark.parametrize("web,sub,accepted", [
+    (["127.0.0.1:2095"], ["127.0.0.1:2096"], True),
+    (["0.0.0.0:2095"], ["127.0.0.1:2096"], False),
+    (["127.0.0.1:2095", "0.0.0.0:2095"], ["127.0.0.1:2096"], False),
+    (["127.0.0.1:2095"], ["[::]:2096"], False),
+    (["127.0.0.1:2095"], [], False),
+])
+def test_sui_local_listener_guard_rejects_public_or_missing_socket(tmp_path, web, sub, accepted):
+    bindir=tmp_path/"bin"
+    bindir.mkdir()
+    fake_ss=bindir/"ss"
+    fake_ss.write_text(r"""#!/bin/sh
+case "$2" in
+  "sport = :2095") printf '%s\n' "$MOCK_WEB";;
+  "sport = :2096") printf '%s\n' "$MOCK_SUB";;
+  *) exit 91;;
+esac
+""", encoding="utf-8")
+    fake_ss.chmod(0o755)
+    def records(addresses):
+        return "\n".join(f"LISTEN 0 128 {addr} 0.0.0.0:*" for addr in addresses)
+    env={**os.environ, "PATH":str(bindir)+os.pathsep+os.environ.get("PATH",""),
+         "MOCK_WEB":records(web), "MOCK_SUB":records(sub)}
+    run=subprocess.run(["bash","-se"],input="set -eu\n"+LOCAL_LISTENER_GUARD+"\nsui_local_listeners_only\n",
+                       text=True,capture_output=True,env=env,timeout=5)
+    assert (run.returncode==0) is accepted,run.stderr
+    for script in (steps("x86_64")[-1]["script"], STATUS, ACCESS):
+        assert "sui_local_listeners_only" in script
+        assert "2095 2096" in script
 
 
 def test_readonly_status_parser_returns_no_credentials():
