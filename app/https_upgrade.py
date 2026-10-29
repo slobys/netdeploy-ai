@@ -93,9 +93,47 @@ echo 'Certbot and renewal timer available'
 umask 077
 cert_log="$(mktemp /tmp/netdeploy-certbot.XXXXXXXX)"
 trap 'rm -f "$cert_log"' EXIT
-if ! __ISSUE_CMD__ >"$cert_log" 2>&1; then
-    echo 'Let’s Encrypt issuance failed. Check public TCP 80, domain A record, CA rate limits, or Certbot version. Panel remains localhost-only.' >&2
-    exit 34
+
+# Never dump Certbot's untrusted raw output into the application or AI logs.
+# Match known error types and show only fixed, actionable diagnostic messages.
+explain_certbot_failure() {
+    if grep -Eiq 'Timeout during connect|Connection refused|Connection timed out|Failed to connect to|connection reset by peer|network is unreachable' "$cert_log"; then
+        echo 'LE_HTTP01_UNREACHABLE: Let’s Encrypt cannot reach this VPS on public TCP 80. Check cloud security group, system firewall and inbound routing (local free port is not sufficient).' >&2
+    elif grep -Eiq 'Problem binding to port 80|Could not bind TCP port 80|Address already in use|Unable to bind|could not bind' "$cert_log"; then
+        echo 'LE_PORT80_BUSY: Certbot cannot listen on TCP 80; check competing web services or firewalls, then retry after resolving.' >&2
+    elif grep -Eiq 'Invalid response from|Incorrect response|unauthorized|Some challenges have failed|Challenge validation has failed' "$cert_log"; then
+        echo 'LE_HTTP01_CHALLENGE_FAILED: HTTP-01 validation returned an unexpected response. Verify domain DNS A, proxies/CDN, and inbound TCP 80 to this VPS.' >&2
+    elif grep -Eiq 'rate limit|too many certificates|too many failed authorizations|rateLimited' "$cert_log"; then
+        echo 'LE_RATE_LIMIT: Let’s Encrypt rate limit was triggered. Do not retry repeatedly; wait for the CA retry window.' >&2
+    elif grep -Eiq 'Profile.*(does not|not permitted|unsupported)|shortlived.*(not found|not available)|profile.*(unrecognized|unavailable)' "$cert_log"; then
+        echo 'LE_PROFILE_UNSUPPORTED: The certificate authority rejected the required short-lived IP certificate profile.' >&2
+    elif grep -Eiq 'unrecognized arguments|no such option|no such command|invalid option|not a valid.*argument' "$cert_log"; then
+        echo 'CERTBOT_ARGS_INVALID: Certbot rejected a command flag. Check the installed Certbot version and supported options.' >&2
+    elif grep -Eiq 'Unable to register|register an account|account.*(error|invalid)|ACME server.*error' "$cert_log"; then
+        echo 'LE_ACCOUNT_ERROR: ACME account or certificate authority operation failed. Check outbound HTTPS and CA account status.' >&2
+    elif grep -Eiq 'DNS problem|no valid A records|NXDOMAIN|SERVFAIL' "$cert_log"; then
+        echo 'LE_DNS_ERROR: DNS resolution failed. Confirm the domain A record points to this VPS public IPv4.' >&2
+    else
+        echo 'LE_UNCLASSIFIED: Certbot failed for an undetermined reason. Review /var/log/letsencrypt/letsencrypt.log on VPS, redact sensitive data before sharing.' >&2
+    fi
+    echo 'Certificate was not activated; existing 3X-UI localhost listener was not opened to public HTTP.' >&2
+}
+
+# If a valid certificate with the correct identity is already present, do
+# not request another one. This avoids needless CA rate-limit consumption.
+reuse_certificate=no
+existing_cert="/etc/letsencrypt/live/__IDENTITY__/fullchain.pem"
+if test -s "$existing_cert" &&
+   openssl x509 -in "$existing_cert" -noout -checkend 86400 >/dev/null 2>&1 &&
+   openssl x509 -in "$existing_cert" -noout -__CHECK__ "__IDENTITY__" 2>/dev/null | grep -Fq 'does match'; then
+    reuse_certificate=yes
+    echo 'Existing valid certificate found for the selected IP/domain; skipping a new ACME request'
+fi
+if [ "$reuse_certificate" = no ]; then
+    if ! __ISSUE_CMD__ >"$cert_log" 2>&1; then
+        explain_certbot_failure
+        exit 34
+    fi
 fi
 test -s "/etc/letsencrypt/live/__IDENTITY__/fullchain.pem"
 test -s "/etc/letsencrypt/live/__IDENTITY__/privkey.pem"
@@ -152,7 +190,8 @@ public_listener_enabled=no
 trap - EXIT
 echo 'HTTPS active with a trusted certificate; public TCP __PORT__ must be allowed by the cloud firewall'
 """
-    stages = [("HTTPS 前置检查、DNS 与 ACME 80 端口", preflight, 35),
+    label = "检查公网 IP 和 ACME 80 端口" if mode == "ip" else "检查域名解析和 ACME 80 端口"
+    stages = [(label, preflight, 35),
               ("安装 Certbot 并检查 IP 短期证书支持及续期定时器", install, 300),
               ("申请证书、验证标识并配置自动续期", issue, 300),
               ("验证后开启 HTTPS 直连（失败回退本机监听）", activate, 60)]

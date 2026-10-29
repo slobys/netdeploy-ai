@@ -1,4 +1,4 @@
-/* NetDeploy AI v0.3.1 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.2 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, pendingFingerprint:null, loading:false};
@@ -120,13 +120,35 @@ function chooseHost(project){
  const p=state.catalog[project];
  if(!state.hosts.length){addHost();return;}
  dialog(modalHead(`${p.deployment==='install'?'部署':'部署规划'} ${p.name}`)+`<form id="plan-form"><p class="helptext">选择目标 VPS，点击生成方案时会自动进行最新的只读环境检测，无需提前手动扫描。</p>
- <div class="form-group"><label>目标服务器</label><select name="host_id" required>${state.hosts.map(h=>`<option value="${h.id}">${escapeHtml(h.name)} (${escapeHtml(h.hostname)})</option>`).join('')}</select></div>
- ${project==='3x-ui'?`<div class="form-group"><label>3X-UI 管理端口</label><input name="panel_port" type="number" min="1024" max="65535" value="24443" required/></div>
- <div class="form-group"><label>面板访问方式</label><select name="access_mode"><option value="https" selected>自动申请 IP / 域名 HTTPS 证书，直连打开（推荐）</option><option value="local">仅本机监听，通过 SSH 隧道访问</option></select></div>
- <div class="modal-tip">服务器地址是公网 IP → 申请 Let's Encrypt 短期 IP 证书（160 小时有效）；服务器地址是域名 → 申请域名证书。HTTPS 需要端口 80 可访问、DNS 正确且 Certbot 支持续期；证书验证失败时不开放公网管理面板。</div>`:''}
+ <div class="form-group"><label>目标服务器</label><select name="host_id" id="plan-host-id" required>${state.hosts.map(h=>`<option value="${h.id}">${escapeHtml(h.name)} (${escapeHtml(h.hostname)})</option>`).join('')}</select></div>
+ ${project==='3x-ui'?`<details><summary class="mini">高级设置（可选）：面板端口，默认 24443</summary><div class="form-group"><label>3X-UI 管理端口</label><input name="panel_port" type="number" min="1024" max="65535" value="24443" required/></div></details>
+ <div class="modal-tip"><b id="cert-type-preview">证书类型自动识别中</b> —  填公网 IPv4 自动申请 IP 短期证书（160 小时），填域名自动申请域名证书。已有 3X-UI 时只升级 HTTPS、不重装。公网 TCP 80 必须允许 Let’s Encrypt 验证；失败时会显示具体原因，并保持原本的本机安全监听。</div>`:''}
  <div class="modal-tip">仅生成可审查的部署计划；确认所有步骤和风险后仍需单独审批执行。</div>
  <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">自动检测并生成方案 →</button></div></form>`);
- el('#plan-form').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.currentTarget);const request={host_id:Number(fd.get('host_id')),project};if(project==='3x-ui'){request.panel_port=Number(fd.get('panel_port'));request.access_mode=String(fd.get('access_mode'));}try{toast('正在读取 VPS 最新环境信息');const job=await api('/jobs',{method:'POST',body:JSON.stringify(request)});state.activeJob=null;await loadAll(true);if(!state.jobs.some(j=>j.id===job.id))state.jobs.unshift(job);showJob(job.id);}catch(err){toast(err.message,true);}});
+ if(project==='3x-ui'){
+   const target=el('#plan-host-id');
+   const preview=()=>{
+     const host=state.hosts.find(h=>h.id===Number(target?.value));
+     if(!host)return;
+     const parts=host.hostname.split('.');
+     const ip=parts.length===4&&parts.every(x=>/^\d{1,3}$/.test(x)&&Number(x)<=255);
+     const indicator=el('#cert-type-preview');
+     if(indicator)indicator.textContent=ip?'识别为公网 IPv4：自动申请短期 IP 证书':'识别为域名：自动申请域名证书';
+   };
+   target?.addEventListener('change',preview);
+   preview();
+ }
+ el('#plan-form').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.currentTarget);const request={host_id:Number(fd.get('host_id')),project};if(project==='3x-ui'){
+  const existing=state.jobs.find(j=>j.project==='3x-ui'&&j.host_id===request.host_id&&['completed','partial'].includes(j.status));
+  if(existing){
+    const upgraded=(existing.status==='completed'&&existing.plan.options?.access_mode==='https')||
+      state.jobs.some(j=>j.project==='3x-ui-https'&&j.host_id===request.host_id&&j.status==='completed'&&j.plan.options?.source_job_id===existing.id);
+    if(upgraded){closeDialog();showJob(existing.id);toast('已部署 HTTPS，可直接查看面板登录信息');return;}
+    await xuiUpgrade(existing.id);return;
+  }
+  request.panel_port=Number(fd.get('panel_port'));
+  request.access_mode='https';
+}try{toast('正在读取 VPS 最新环境信息');const job=await api('/jobs',{method:'POST',body:JSON.stringify(request)});state.activeJob=null;await loadAll(true);if(!state.jobs.some(j=>j.id===job.id))state.jobs.unshift(job);showJob(job.id);}catch(err){toast(err.message,true);}});
 }
 function showJob(id){
  const job=state.jobs.find(j=>j.id===id);if(!job){toast('未找到任务，请刷新',true);return;}
@@ -134,7 +156,7 @@ function showJob(id){
  const approval=`DEPLOY ${job.project} TO ${host?.hostname||p.hostname}`;
  let html=modalHead(`${escapeHtml(p.name)} · 部署任务`)+`<div class="toolbar">${chip(job.status)}<span class="chip">风险等级：${escapeHtml(p.risk)}</span><span class="chip">${p.executable?'自动部署':'引导模式'}</span></div>
  <p class="helptext" class="mt14">目标服务器：${escapeHtml(host?.name||p.hostname)} · 任务编号 ${escapeHtml(job.id)}</p>
- ${job.project==='3x-ui'?`<div class="modal-tip">3X-UI v3.11.0 · TCP ${escapeHtml(p.options?.panel_port||'未知')} · ${p.options?.access_mode==='https'?'自动申请公网 HTTPS 证书；签发失败不开放明文管理面板':'仅本机 HTTP / SSH 隧道模式，可后续单独开通 HTTPS'}</div>`:''}
+ ${job.project==='3x-ui'?`<div class="modal-tip">3X-UI v3.11.0 · TCP ${escapeHtml(p.options?.panel_port||'未知')} · ${p.options?.access_mode==='https'?'自动申请'+(p.options?.certificate_type==='ip'?'公网 IP 短期证书':'域名证书')+'；签发失败不开放明文管理面板':'仅本机 HTTP / SSH 隧道模式，可后续单独开通 HTTPS'}</div>`:''}
  <h3>部署前置要求</h3><div class="checks">${p.requires.map(req=>`<div class="check">✓ ${escapeHtml(req)}</div>`).join('')}</div>
  <h3>风险提示</h3><ul class="notice-list">${p.warnings.map(w=>`<li>${escapeHtml(w)}</li>`).join('')}</ul>`;
  if(p.issues.length)html+=`<h3>兼容性 / 支持限制</h3><div class="checks">${p.issues.map(i=>`<div class="check fail">${escapeHtml(i)}</div>`).join('')}</div>`;
@@ -143,7 +165,7 @@ function showJob(id){
  if(job.status==='planned'&&p.executable)html+=`<form id="approve-form"><div class="modal-tip warning"><b>高权限操作确认</b>：SSH 执行器会运行上方固定脚本，可能修改远端软件包或创建容器。自动回滚暂不可用。请先核对风险和命令。部署计划仅在创建后 10 分钟内可以审批；若过期或服务器关键环境改变，请重新生成计划。</div>
  <div class="form-group"><label>请完整输入以下确认语句</label><div class="pre">${escapeHtml(approval)}</div><input name="confirmation" required autocomplete="off" placeholder="输入上方确认语句"/></div>
  <div class="modal-actions"><button type="button" class="btn subtle" data-action="delete-job" data-id="${escapeHtml(job.id)}">删除任务</button><button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检查并生成新方案</button><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">审批并开始部署</button></div></form>`;
- else html+=`<h3>执行日志</h3><div id="job-state" class="log-status">${escapeHtml(stateText(job.status))}</div><pre class="pre" id="task-log">${escapeHtml(job.logs||'等待日志...')}</pre><div class="modal-actions"><button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读诊断</button>${job.project==='3x-ui'&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(job.id)}">查看面板登录信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||state.jobs.some(other=>other.project==='3x-ui-https'&&other.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(other.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">启用 HTTPS 直连</button>`}`:''}${job.project==='3x-ui-https'&&job.status==='completed'?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(p.options?.source_job_id)}">打开原面板登录信息</button>`:''}${["queued","running"].includes(job.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(job.id)}">删除任务</button>`}<button class="btn primary" data-action="close-modal">关闭</button></div><div id="ai-response"></div>`;
+ else html+=`<h3>执行日志</h3><div id="job-state" class="log-status">${escapeHtml(stateText(job.status))}</div><pre class="pre" id="task-log">${escapeHtml(job.logs||'等待日志...')}</pre><div class="modal-actions"><button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读诊断</button>${job.project==='3x-ui'&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(job.id)}">查看面板登录信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||state.jobs.some(other=>other.project==='3x-ui-https'&&other.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(other.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">启用 HTTPS 直连</button>`}`:''}${job.project==='3x-ui-https'&&job.status==='completed'?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(p.options?.source_job_id)}">打开原面板登录信息</button>`:''}${["queued","running"].includes(job.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(job.id)}">删除任务</button>`}${job.project==='3x-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成证书方案</button>`:''}<button class="btn primary" data-action="close-modal">关闭</button></div><div id="ai-response"></div>`;
  dialog(html);
  const form=el('#approve-form');if(form)form.addEventListener('submit',async e=>{e.preventDefault();const confirmation=new FormData(form).get('confirmation');try{await api(`/jobs/${job.id}/approve`,{method:'POST',body:JSON.stringify({confirmation})});await loadAll(true);showJob(id);toast('任务已获批准并启动执行');}catch(err){toast(err.message,true);}});
 }
@@ -179,7 +201,7 @@ async function regeneratePlan(id){
  if(button)button.disabled=true;
  try{
    const payload={host_id:host.id,project:oldJob.project};
-   if(oldJob.project==='3x-ui'){payload.panel_port=oldJob.plan.options?.panel_port||24443;payload.access_mode=oldJob.plan.options?.access_mode||'local';}
+   if(oldJob.project==='3x-ui'){payload.panel_port=oldJob.plan.options?.panel_port||24443;payload.access_mode=oldJob.plan.options?.access_mode||'https';}
    if(oldJob.project==='3x-ui-https')payload.source_job_id=oldJob.plan.options?.source_job_id;
    const newJob=await api('/jobs',{method:'POST',body:JSON.stringify(payload)});
    state.activeJob=null;
