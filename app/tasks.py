@@ -52,7 +52,7 @@ class JobRunner:
             # Rebuild each command from source-controlled recipes, NOT mutable job data.
             # No user/AI/DB-origin script is ever passed to SSH.
             current_host = self.store.host(host["id"])
-            expected = build_plan(job["project"], current_host["facts"] or {})
+            expected = build_plan(job["project"], current_host["facts"] or {}, job["plan"].get("options"))
             if not expected["executable"] or expected["steps"] != job["plan"]["steps"]:
                 raise SSHError("拒绝执行：计划脚本与当前已审查的内置模板不一致，请重新生成")
             self.store.set_status(job_id, "running")

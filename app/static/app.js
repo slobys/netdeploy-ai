@@ -1,4 +1,4 @@
-/* NetDeploy AI v0.1.3 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.2.0 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, section:'dashboard', activeJob:null, pendingFingerprint:null, loading:false};
@@ -25,7 +25,10 @@ async function loadAll(silent=false){
     if(state.activeJob && !el('#modal').classList.contains('hidden')) {
       const active=state.jobs.find(j=>j.id===state.activeJob);
       if(active && ['running','queued','completed','failed','interrupted'].includes(active.status)){
-        const logbox=el('#task-log'); if(logbox){logbox.textContent=active.logs || '还没有执行日志'; el('#job-state').textContent=stateText(active.status);}
+        const logbox=el('#task-log'); if(logbox){
+          logbox.textContent=active.logs || '还没有执行日志'; el('#job-state').textContent=stateText(active.status);
+          if(active.project==='3x-ui'&&active.status==='completed'&&!el('[data-action="xui-access"]'))showJob(active.id);
+        }
       }
     }
   } catch(err){if(!silent)toast(err.message,true);} finally{state.loading=false;}
@@ -114,9 +117,10 @@ function chooseHost(project){
  if(!state.hosts.length){addHost();return;}
  dialog(modalHead(`${p.deployment==='install'?'部署':'部署规划'} ${p.name}`)+`<form id="plan-form"><p class="helptext">选择目标 VPS，将结合其最近一次环境检测生成固定部署方案。</p>
  <div class="form-group" class="mt20"><label>目标服务器</label><select name="host_id" required>${state.hosts.map(h=>`<option value="${h.id}">${escapeHtml(h.name)} (${escapeHtml(h.hostname)}) ${h.facts?'✓ 已检测':'· 需先检测'}</option>`).join('')}</select></div>
+ ${project==='3x-ui'?`<div class="form-group"><label>3X-UI 管理面板端口（1024–65535）</label><input name="panel_port" type="number" min="1024" max="65535" value="24443" required/></div><div class="modal-tip">固定官方 v3.11.0，自动生成强随机账号与密码，跳过公网 TLS 配置；面板仅允许本机访问，需通过 SSH 隧道登录。不会开放公网面板端口。</div>`:''}
  <div class="modal-tip">此步骤只生成计划，不修改服务器。执行前将展示固定命令、风险提醒和明确审批。</div>
  <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">生成部署方案 →</button></div></form>`);
- el('#plan-form').addEventListener('submit',async e=>{e.preventDefault();const h=Number(new FormData(e.currentTarget).get('host_id'));try{const job=await api('/jobs',{method:'POST',body:JSON.stringify({host_id:h,project})});await loadAll(true);showJob(job.id);}catch(err){toast(err.message,true);}});
+ el('#plan-form').addEventListener('submit',async e=>{e.preventDefault();const formData=new FormData(e.currentTarget);const h=Number(formData.get('host_id'));const request={host_id:h,project};if(project==='3x-ui')request.panel_port=Number(formData.get('panel_port'));try{const job=await api('/jobs',{method:'POST',body:JSON.stringify(request)});await loadAll(true);showJob(job.id);}catch(err){toast(err.message,true);}});
 }
 function showJob(id){
  const job=state.jobs.find(j=>j.id===id);if(!job){toast('未找到任务，请刷新',true);return;}
@@ -124,6 +128,7 @@ function showJob(id){
  const approval=`DEPLOY ${job.project} TO ${host?.hostname||p.hostname}`;
  let html=modalHead(`${escapeHtml(p.name)} · 部署任务`)+`<div class="toolbar">${chip(job.status)}<span class="chip">风险等级：${escapeHtml(p.risk)}</span><span class="chip">${p.executable?'自动部署':'引导模式'}</span></div>
  <p class="helptext" class="mt14">目标服务器：${escapeHtml(host?.name||p.hostname)} · 任务编号 ${escapeHtml(job.id)}</p>
+ ${job.project==='3x-ui'?`<div class="modal-tip">3X-UI v3.11.0 · TCP 端口 ${escapeHtml(p.options?.panel_port||'未知')} · 仅本机 HTTP · SSH 隧道访问 · 安装结果不会自动暴露公网</div>`:''}
  <h3>部署前置要求</h3><div class="checks">${p.requires.map(req=>`<div class="check">✓ ${escapeHtml(req)}</div>`).join('')}</div>
  <h3>风险提示</h3><ul class="notice-list">${p.warnings.map(w=>`<li>${escapeHtml(w)}</li>`).join('')}</ul>`;
  if(p.issues.length)html+=`<h3>兼容性 / 支持限制</h3><div class="checks">${p.issues.map(i=>`<div class="check fail">${escapeHtml(i)}</div>`).join('')}</div>`;
@@ -132,7 +137,7 @@ function showJob(id){
  if(job.status==='planned'&&p.executable)html+=`<form id="approve-form"><div class="modal-tip warning"><b>高权限操作确认</b>：SSH 执行器会运行上方固定脚本，可能修改远端软件包或创建容器。自动回滚暂不可用。请先核对风险和命令。</div>
  <div class="form-group"><label>请完整输入以下确认语句</label><div class="pre">${escapeHtml(approval)}</div><input name="confirmation" required autocomplete="off" placeholder="输入上方确认语句"/></div>
  <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">审批并开始部署</button></div></form>`;
- else html+=`<h3>执行日志</h3><div id="job-state" class="log-status">${escapeHtml(stateText(job.status))}</div><pre class="pre" id="task-log">${escapeHtml(job.logs||'等待日志...')}</pre><div class="modal-actions"><button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读诊断</button><button class="btn primary" data-action="close-modal">关闭</button></div><div id="ai-response"></div>`;
+ else html+=`<h3>执行日志</h3><div id="job-state" class="log-status">${escapeHtml(stateText(job.status))}</div><pre class="pre" id="task-log">${escapeHtml(job.logs||'等待日志...')}</pre><div class="modal-actions"><button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读诊断</button>${job.project==='3x-ui'&&job.status==='completed'?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(job.id)}">查看面板登录信息</button>`:''}<button class="btn primary" data-action="close-modal">关闭</button></div><div id="ai-response"></div>`;
  dialog(html);
  const form=el('#approve-form');if(form)form.addEventListener('submit',async e=>{e.preventDefault();const confirmation=new FormData(form).get('confirmation');try{await api(`/jobs/${job.id}/approve`,{method:'POST',body:JSON.stringify({confirmation})});await loadAll(true);showJob(id);toast('任务已获批准并启动执行');}catch(err){toast(err.message,true);}});
 }
@@ -141,6 +146,18 @@ async function diagnoseJob(id){
  target.innerHTML='<div class="modal-tip">Codex 正在进行只读分析。不会获得 SSH 私钥或远程执行权限。</div>';
  try{const res=await api(`/jobs/${id}/diagnose`,{method:'POST'});target.innerHTML='<h3>Codex 诊断建议</h3><pre class="pre">'+escapeHtml(res.message)+'</pre>';}
  catch(err){target.innerHTML='<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>';}
+}
+async function xuiAccess(id){
+ dialog(modalHead('3X-UI 安全登录')+'<p class="helptext">正在通过 SSH 读取 VPS 上仅 root 可访问的登录凭据。不保存到部署日志或浏览器存储。</p>');
+ try{
+   const res=await api(`/jobs/${id}/access`);
+   dialog(modalHead('3X-UI 登录信息')+`<div class="modal-tip warning">该面板只绑定 VPS 的 127.0.0.1。请先在你自己的 PowerShell 窗口建立 SSH 隧道，然后再打开下方本机网址。不要将面板账号或密码公开传播。</div>
+   <div class="form-group"><label>SSH 隧道命令（需要另开 PowerShell 执行）</label><div class="pre">${escapeHtml(res.ssh_tunnel)}</div></div>
+   <div class="form-group"><label>本机面板地址</label><div class="pre">${escapeHtml(res.local_url)}</div><a class="external" href="${escapeHtml(res.local_url)}" target="_blank" rel="noopener noreferrer">SSH 隧道建立后打开面板 ↗</a></div>
+   <div class="form-group"><label>管理员用户名</label><div class="pre">${escapeHtml(res.username)}</div></div>
+   <div class="form-group"><label>管理员密码（仅本次弹窗显示）</label><input id="xui-password" type="password" readonly autocomplete="off" value="${escapeHtml(res.password)}"/></div>
+   <div class="modal-actions"><button class="btn subtle" data-action="toggle-xui-password">显示 / 隐藏密码</button><button class="btn subtle" data-action="copy-xui-password">复制密码</button><button class="btn primary" data-action="close-modal">关闭</button></div>`);
+ }catch(err){dialog(modalHead('无法读取登录信息')+`<div class="modal-tip warning">${escapeHtml(err.message)}</div><div class="modal-actions"><button class="btn primary" data-action="close-modal">关闭</button></div>`);}
 }
 function go(section){state.section=section;renderSection();window.scrollTo({top:0,behavior:'smooth'});}
 async function start(){if(state.token){try{await api('/auth');el('#login').classList.add('hidden');await loadAll(true);return;}catch{state.token='';sessionStorage.removeItem('nd_token');}}el('#login').classList.remove('hidden');}
@@ -156,6 +173,9 @@ document.addEventListener('click',async e=>{const t=e.target.closest('[data-acti
  else if(act==='plan')chooseHost(t.dataset.project);
  else if(act==='job')showJob(id);
  else if(act==='diagnose')await diagnoseJob(id);
+ else if(act==='xui-access')await xuiAccess(id);
+ else if(act==='toggle-xui-password'){const field=el('#xui-password');if(field)field.type=field.type==='password'?'text':'password';}
+ else if(act==='copy-xui-password'){const field=el('#xui-password');try{if(field){await navigator.clipboard.writeText(field.value);toast('密码已复制，请勿转发');}}catch{toast('复制失败：请手动显示并复制密码',true);}}
  else if(act==='trust'){
    if(!el('#verified-key')?.checked){toast('请先通过 VPS 云控制台独立核实指纹',true);return;}
    try{const result=await api(`/hosts/${id}/trust`,{method:'POST',body:JSON.stringify({fingerprint:t.dataset.fingerprint,confirmed_out_of_band:true})});closeDialog();toast(result.already_trusted?'主机密钥与已保存记录一致，无需重复信任，可以继续环境检测':'主机公钥已固定，现在可以进行环境检测');}catch(err){toast(err.message,true);}

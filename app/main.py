@@ -11,6 +11,9 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from pydantic.types import StrictInt
+
+from .three_x_ui import ACCESS_SCRIPT, DEFAULT_PORT, parse_access_result
 
 from .catalog import CATALOG, build_plan
 from .executor import SSHConfig, SSHError, SSHExecutor, validate_host
@@ -31,7 +34,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.1.3")
+app = FastAPI(title="NetDeploy AI", version="0.2.0")
 
 @app.middleware("http")
 async def security_headers(request, call_next):
@@ -71,6 +74,7 @@ class TrustKey(BaseModel):
 class NewJob(BaseModel):
     host_id: int
     project: str
+    panel_port: StrictInt | None = Field(default=None, ge=1024, le=65535)
 
 
 class Approval(BaseModel):
@@ -111,7 +115,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.1.3", "security": "local-only"}
+    return {"ok": True, "version": "0.2.0", "security": "local-only"}
 
 
 @app.get("/api/auth", dependencies=[Depends(authorized)])
@@ -205,7 +209,15 @@ def new_job(body: NewJob):
         raise HTTPException(status_code=404, detail="不支持的项目")
     if not host["facts"]:
         raise HTTPException(status_code=409, detail="请先对服务器执行 SSH 环境检测")
-    plan = build_plan(body.project, host["facts"])
+    if body.project != "3x-ui" and body.panel_port is not None:
+        raise HTTPException(status_code=422, detail="仅 3X-UI 支持设置管理面板端口")
+    options = {"panel_port": body.panel_port if body.panel_port is not None else DEFAULT_PORT} if body.project == "3x-ui" else None
+    if options and options["panel_port"] == host["port"]:
+        raise HTTPException(status_code=422, detail="3X-UI 面板端口不能与 VPS SSH 端口相同")
+    try:
+        plan = build_plan(body.project, host["facts"], options)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     plan["hostname"] = host["hostname"]
     plan["host_id"] = host["id"]
     return store.new_job(host["id"], body.project, plan)
@@ -236,6 +248,31 @@ def approve_job(id: str, body: Approval):
         return {"ok": True, "job_id": id, "status": "queued"}
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/jobs/{id}/access", dependencies=[Depends(authorized)])
+def job_access(id: str):
+    """Explicit, one-time-style read of upstream-generated credentials.
+
+    Never persist the returned password or include it in task logs/AI input.
+    Authenticated localhost API response is marked no-store by middleware.
+    """
+    job = find_job(id)
+    if job["project"] != "3x-ui" or job["status"] != "completed":
+        raise HTTPException(status_code=409, detail="只有已完成的 3X-UI 部署任务可查看登录信息")
+    host = find_host(job["host_id"])
+    port = (job["plan"].get("options") or {}).get("panel_port")
+    if not executor.credential_ready(host):
+        raise HTTPException(status_code=409, detail="SSH 凭据已经失效，请重新输入 VPS SSH 密码")
+    try:
+        result = parse_access_result(executor.run(host, ACCESS_SCRIPT, timeout=25), port)
+    except (SSHError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"无法安全读取 3X-UI 登录信息：{exc}") from exc
+    result["ssh_tunnel"] = (
+        f"ssh -N -p {host['port']} -L {port}:127.0.0.1:{port} "
+        f"{host['username']}@{host['hostname']}"
+    )
+    return result
 
 
 @app.post("/api/jobs/{id}/diagnose", dependencies=[Depends(authorized)])

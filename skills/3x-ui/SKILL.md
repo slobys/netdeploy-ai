@@ -1,6 +1,6 @@
 ---
 name: netdeploy-3x-ui
-description: "When user selects 3X-UI VPS installation; provide safety requirements and reviewed options; do not run upstream interactive script during Alpha."
+description: "Explain approved, pinned non-Docker 3X-UI install and SSH-tunnel login; do not execute model commands."
 ---
 
 # 3x-ui VPS 安全部署工作流
@@ -14,8 +14,8 @@ NetDeploy AI 的单管理员 VPS 部署。只解释项目条件、运行结果�
 1. **环境核对**：检查发行版、CPU 架构、root、安装目录与已有管理面板。
 2. **创建计划**：使用 NetDeploy 内置白名单模板。不得把本 Skill、用户输入或模型输出作为 SSH shell 脚本执行。
 3. **审批确认**：必须展示计划与风险，按规定校验主机公钥和管理员确认语句。
-4. **执行策略**：Alpha 只生成引导方案，不执行远程下载即运行脚本。
-5. **验收提醒**：正式安装器必须固定版本和校验；管理面板需 TLS、强认证、私有路径及合理访问限制。
+4. **执行策略**：仅在用户审批后执行固定 v3.11.0 官方安装器，必须先验证 SHA-256，并将非交互 HTTP 模式强制绑定到 127.0.0.1；禁止直接执行无校验的远程脚本。
+5. **验收提醒**：验证服务运行及仅本机 TCP 监听；用户明确要求时才读取官方生成的管理员凭据。HTTP 管理端只允许 SSH 隧道访问；公网访问必须单独配置 TLS。
 6. **异常处理**：只读分析日志与证据。AI 可以提出建议，不能代替用户批准任何新命令。
 
 官方来源：https://docs.sanaei.dev/docs/guide/installation/

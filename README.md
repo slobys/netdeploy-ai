@@ -1,4 +1,4 @@
-# NetDeploy AI · v0.1.3 Alpha
+# NetDeploy AI · v0.2.0 Alpha
 
 > 一个以 VPS 为优先方向的 AI 辅助网络项目部署面板。2026-10-29 第一阶段原型（Windows SSH 主机指纹扫描修复）。 **不是生产稳定版，不要用重要 VPS 直接试错。**
 
@@ -8,10 +8,11 @@
 
 - 独立响应式 Web 面板（项目中心、VPS 设备、环境检测、部署任务、日志）
 - **新增 SSH 密码/私钥双模式**；Ed25519/ECDSA/RSA 主机指纹独立核对，拒绝自动信任未知主机；密码只保存在服务端运行内存，不写磁盘
-- Linux 发行版 / CPU 架构 / root / 空间 / Docker / systemd / UDP 端口预检
+- Linux 发行版 / CPU 架构 / root / 空间 / Docker / systemd / UDP 端口 / 已有 x-ui / ss 工具预检
 - **sing-box**：Debian/Ubuntu 通过官方签名 APT 源安装**内核**（并不自动生成服务端配置）
 - **wg-easy**：Docker Compose 部署 v15，管理端绑定 VPS localhost:51821；仍需首次账号/公网 IP 设置
-- **3X-UI / Hysteria2**：界面、Skills 和部署引导就绪，尚不开放一键安装
+- **3X-UI**：Ubuntu/Debian 无 Docker 安装 v3.11.0，固定 SHA-256 校验、强制本机监听、按需读取登录信息（Alpha）
+- **Hysteria2**：界面、Skills 和部署引导就绪，尚不开放一键安装
 - 自动展示 SSH 脚本 + 手动确认审批 + 执行中状态、步骤级日志 + 防重复任务
 - 可选隔离 Codex Worker：只读分析脱敏日志，不能执行服务器命令
 
@@ -138,6 +139,23 @@ ssh -L 51821:127.0.0.1:51821 root@YOUR_VPS_IP
 
 系统只安装程序，不会生成对外代理节点；请根据官方文档创建合法配置、执行 `sing-box check`，完成 TLS、认证和服务端口方案后再启动。面板不会自动降低系统防火墙安全性。
 
+
+## v0.2.0 Alpha：3X-UI 一键安装（非 Docker）
+
+**代码提供经审批的自动化安装，但仍未在真实 VPS 上完成端到端验收。请先使用有快照、可重装的测试机。**
+
+固定官方 `v3.11.0` 安装器及 SHA-256。下载后校验原始脚本一致，再做经过审查的精确修改，强制跳过 TLS 时的无人值守 HTTP 绑定到 127.0.0.1。上游发布包还会验证其公开的 .sha256 文件；本版本尚未独立签名验证二进制。
+
+使用步骤：
+
+1. 停止 NetDeploy 服务并通过 Git 更新后重新启动，然后对 VPS 再执行一次“环境检测”（需 `XUI_PRESENT=no`、`SS_AVAILABLE=yes`）。
+2. 选择 **3X-UI → 部署项目**，选 VPS 与面板端口（默认 `24443`），审阅固定脚本和高权限风险，输入审批确认语句。
+3. 安装程序会完成依赖安装、校验和无人值守部署、systemd 检测、本机监听检测。安装器的密码与 API Token 不会进入 NetDeploy 日志。
+4. 任务完成后打开 **查看面板登录信息**，才会按需读取在 VPS 上生成的管理员账号、密码和随机 Web 路径。
+5. 在自己电脑的新 PowerShell 窗口运行面板提供的 SSH 隧道命令，例如 `ssh -N -p 22 -L 24443:127.0.0.1:24443 root@YOUR_VPS_IP`。隧道保持运行时，浏览器打开显示的 `http://127.0.0.1:24443/<随机路径>`。
+
+不会自动安装 Docker、开放公网面板端口或签发 TLS 证书；没有事务级自动回滚。失败或网络中断后必须先检查 VPS 远端状态，不要盲目重新安装。
+
 ## 可选 Codex AI 诊断
 
 必须具有可用的 Codex 运行身份/凭据。只有需要 AI 诊断时才启动隔离服务：
@@ -164,6 +182,7 @@ pytest -q
 app/
   main.py             FastAPI API 与管理员权限检查
   catalog.py          唯一许可的固定部署脚本和兼容性判定
+  three_x_ui.py       固定 3X-UI 安装器校验、非公网监听与按需登录信息读取
   executor.py         SSH 验证/远程预检/受控命令执行
   store.py            SQLite 持久化
   tasks.py            审批、状态管理、运行队列、日志
@@ -180,7 +199,7 @@ tests/                    自动化测试
 ## 项目边界与注意事项
 
 - **Alpha 不是无人工干预的一键安装**。root VPS 变更仍需审批，不允许直接执行 Codex 生成的 shell。
-- 第一阶段「自动部署」只对通过了环境检查的 **sing-box 核心安装、wg-easy 容器部署**开放。3X-UI、Hysteria2 仍是引导模式。
+- Alpha 可审批执行 **3X-UI 非 Docker 安装**、sing-box 核心安装与 wg-easy 容器部署；Hysteria2 仍是引导模式。
 - SSH 支持密码或专用私钥登录；两种方式都必须固定主机密钥。密码仅驻留当前 API 进程内存，服务重启后需重新输入。
 - 暂时没有自动快照、回滚、幂等断点恢复。任务超时/重启必须手工核对 VPS 结果后再操作。
 - `CODEX_API_KEY` 属于可选的 AI Worker 环境变量，不应发送给 VPS 或写进 Skills 文件。

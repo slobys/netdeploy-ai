@@ -8,13 +8,15 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .three_x_ui import DEFAULT_PORT, VERSION as XUI_VERSION, deployment_steps, validate_port
+
 CATALOG = {
     "3x-ui": {
         "name": "3X-UI", "subtitle": "Xray 可视化管理面板", "category": "面板",
-        "icon": "layers", "deployment": "guided", "risk": "高",
+        "icon": "layers", "deployment": "install", "risk": "高",
         "docs": "https://docs.sanaei.dev/docs/guide/installation/",
-        "summary": "官方提供交互式安装脚本和 Docker 部署。初版仅提供审核后的部署方案，不会直接执行未固定版本的远程脚本。",
-        "requires": ["Linux VPS", "管理员权限", "管理面板 TLS 与访问控制方案"],
+        "summary": "使用固定 v3.11.0 官方安装器及 SHA-256 校验，无 Docker 部署；面板仅监听本机，通过 SSH 隧道安全访问。",
+        "requires": ["Ubuntu/Debian root VPS", "x86_64/arm64", "systemd 和 ss", "无已有 x-ui 安装", "面板仅本机监听，不自动打开公网端口"],
     },
     "sing-box": {
         "name": "sing-box", "subtitle": "通用网络代理内核", "category": "核心",
@@ -160,6 +162,17 @@ def compatibility(project: str, facts: dict[str, Any]) -> tuple[bool, list[str]]
         issues.append("第一阶段只允许以已验证的 root SSH 身份执行变更操作")
     if arch not in SUPPORTED_ARCHS:
         issues.append(f"当前 CPU 架构 {arch or '未知'} 尚未通过第一阶段验证")
+    if project == "3x-ui":
+        if os_id not in {"debian", "ubuntu"}:
+            issues.append("3X-UI 一键部署目前仅对 Ubuntu/Debian 开放")
+        if arch not in {"x86_64", "aarch64"}:
+            issues.append("3X-UI 目前仅支持 x86_64 / aarch64")
+        if facts.get("SYSTEMD") != "yes":
+            issues.append("3X-UI 需要可用的 systemd")
+        if facts.get("SS_AVAILABLE") != "yes":
+            issues.append("无法可靠检测面板 TCP 端口，请先安装 iproute2 并重新环境检测")
+        if facts.get("XUI_PRESENT") != "no":
+            issues.append("已存在 x-ui 安装，或尚未完成新版 x-ui 冲突检测；禁止覆盖")
     if project == "sing-box" and os_id not in {"debian", "ubuntu"}:
         issues.append("自动安装 sing-box 暂仅覆盖 Debian/Ubuntu APT 环境")
     if project == "wg-easy":
@@ -173,20 +186,34 @@ def compatibility(project: str, facts: dict[str, Any]) -> tuple[bool, list[str]]
         issues.append("Hysteria2 官方安装脚本需要 systemd")
     if not str(facts.get("FREE_KB", "")).isdigit():
         issues.append("无法确认根分区可用空间")
-    elif int(facts["FREE_KB"]) < 400_000:
-        issues.append("根分区可用空间低于 400 MB")
+    elif int(facts["FREE_KB"]) < (600_000 if project == "3x-ui" else 400_000):
+        issues.append("根分区可用空间不足（3X-UI 最低要求 600 MB）" if project == "3x-ui" else "根分区可用空间低于 400 MB")
     return not issues, issues
 
 
-def build_plan(project: str, facts: dict[str, Any]) -> dict[str, Any]:
+def build_plan(project: str, facts: dict[str, Any], options: dict | None = None) -> dict[str, Any]:
     if project not in CATALOG:
         raise ValueError("不支持该项目")
+    options = dict(options or {})
+    if project == "3x-ui":
+        if set(options) - {"panel_port"}:
+            raise ValueError("3X-UI 部署选项包含未授权字段")
+        options = {"panel_port": validate_port(options.get("panel_port", DEFAULT_PORT))}
+    elif options:
+        raise ValueError("此项目暂不支持自定义部署选项")
     meta = CATALOG[project]
     eligible, issues = compatibility(project, facts)
     runnable = eligible and meta["deployment"] == "install"
     if meta["deployment"] == "guided":
         issues.append("此项目暂采用人工确认的引导模式；第一阶段不执行远程安装命令")
-    steps = (SINGBOX_STEPS if project == "sing-box" else WGEASY_STEPS) if runnable else []
+    if runnable and project == "3x-ui":
+        steps = deployment_steps(options["panel_port"])
+    elif runnable and project == "sing-box":
+        steps = SINGBOX_STEPS
+    elif runnable and project == "wg-easy":
+        steps = WGEASY_STEPS
+    else:
+        steps = []
     return {
         "project": project,
         "name": meta["name"],
@@ -194,13 +221,14 @@ def build_plan(project: str, facts: dict[str, Any]) -> dict[str, Any]:
         "risk": meta["risk"],
         "eligible": eligible,
         "executable": runnable,
+        "options": options,
         "issues": issues,
         "requires": meta["requires"],
         "steps": [dict(x) for x in steps],
         "warnings": {
             "sing-box": ["安装的是内核，不会自动配置对外监听或打开端口", "APT 仓库密钥来自官方 HTTPS 地址，初版尚未固定密钥指纹", "APT 变更不会自动回滚"],
             "wg-easy": ["需预先安装 Docker 且 Docker 网络不可与 10.42.42.0/24 冲突；不会自动修改防火墙", "Web 管理端只绑定 VPS 的 localhost，必须使用 SSH 隧道或安全反代", "容器镜像使用 v15 主版本标签，不是不可变 digest", "首次访问还需设置管理员账户及公网地址"],
-            "3x-ui": ["需要固定上游版本及安装器校验后才能开放自动执行"],
+            "3x-ui": [f"固定官方 {XUI_VERSION} 安装器 SHA-256 后执行，二进制由上游发布的 .sha256 校验；安装依赖可能需要联网和更改 APT 包", "自动生成账户、密码和随机 Web 路径；只在安装后明确点击查看时读取，不存入 NetDeploy 数据库或任务日志", "管理端为 HTTP，但强制仅监听 127.0.0.1，必须使用 SSH 隧道；不会自动放开防火墙或设置证书", "不会自动覆盖已有安装；失败可能留下部分文件，需要人工检查，不能盲目重试"],
             "hysteria2": ["需要单独实现 TLS 证书、身份认证和服务器配置"],
         }[project],
     }

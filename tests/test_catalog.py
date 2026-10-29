@@ -2,15 +2,57 @@ from app.catalog import build_plan, compatibility, CATALOG
 from app.executor import validate_host
 import pytest
 
-GOOD = {"OS_ID":"debian", "ARCH":"x86_64", "UID":"0", "FREE_KB":"3000000", "DOCKER":"yes", "COMPOSE":"yes", "UDP_51820":"free", "SYSTEMD":"yes"}
+GOOD = {"OS_ID":"debian", "ARCH":"x86_64", "UID":"0", "FREE_KB":"3000000", "DOCKER":"yes", "COMPOSE":"yes", "UDP_51820":"free", "SYSTEMD":"yes", "XUI_PRESENT":"no", "SS_AVAILABLE":"yes"}
 
 
 def test_catalog_has_four_known_projects():
     assert set(CATALOG) == {"3x-ui", "sing-box", "hysteria2", "wg-easy"}
 
 
-def test_only_two_recipes_executable():
-    assert set(p for p in CATALOG if build_plan(p,GOOD)['executable']) == {'wg-easy','sing-box'}
+def test_supported_recipes_executable():
+    assert set(p for p in CATALOG if build_plan(p,GOOD)['executable']) == {'3x-ui','wg-easy','sing-box'}
+
+
+def test_xui_pinned_install_plan_requires_compatibility():
+    from app.three_x_ui import VERSION, INSTALLER_SHA256
+    facts=dict(GOOD, OS_ID='ubuntu', OS_VERSION='26.10', DOCKER='no', COMPOSE='no')
+    plan=build_plan('3x-ui',facts,{'panel_port':25443})
+    assert plan['executable'] is True
+    assert plan['options']=={'panel_port':25443}
+    assert len(plan['steps'])==5
+    scripts='\n'.join(s['script'] for s in plan['steps'])
+    assert VERSION in scripts and INSTALLER_SHA256 in scripts
+    assert 'XUI_NONINTERACTIVE=1' in scripts
+    assert 'XUI_SSL_MODE=none' in scripts
+    assert 'XUI_PANEL_PORT=25443' in scripts
+    assert 'XUI_ENABLE_FAIL2BAN=false' in scripts
+    assert 'bind_local="y"' in scripts
+    assert 'systemctl stop x-ui' in scripts
+    assert '127.0.0.1:25443' in scripts
+    assert 'docker' not in scripts.lower()
+
+
+@pytest.mark.parametrize('change', [
+    {'OS_ID':'alpine'}, {'ARCH':'mips'}, {'UID':'1000'}, {'SYSTEMD':'no'},
+    {'XUI_PRESENT':'yes'}, {'XUI_PRESENT':'unknown'}, {'SS_AVAILABLE':'no'},
+    {'FREE_KB':'100000'}
+])
+def test_xui_safely_blocked_if_host_does_not_match(change):
+    plan=build_plan('3x-ui',dict(GOOD,**change))
+    assert not plan['executable'] and plan['steps']==[]
+
+
+@pytest.mark.parametrize('bad_port', [0,22,1023,65536,'24443',True,None,24443.5,'$(id)'])
+def test_xui_port_rejects_invalid_input(bad_port):
+    with pytest.raises(ValueError):
+        build_plan('3x-ui', GOOD, {'panel_port':bad_port})
+
+
+def test_xui_rejects_unknown_options_and_other_projects_reject_custom_options():
+    with pytest.raises(ValueError):
+        build_plan('3x-ui', GOOD, {'panel_port':24443,'inject':'echo hi'})
+    with pytest.raises(ValueError):
+        build_plan('wg-easy', GOOD, {'panel_port':24443})
 
 
 def test_incompatible_distro_blocks_package_install():

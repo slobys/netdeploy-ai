@@ -3,7 +3,7 @@ from app import main
 
 TOKEN = 'test-only-' + 'a' * 32
 HEAD = {'X-Admin-Token':TOKEN}
-GOOD = {"OS_ID":"debian","ARCH":"x86_64","UID":"0","FREE_KB":"3333333","DOCKER":"yes","COMPOSE":"yes","SYSTEMD":"yes","UDP_51820":"free"}
+GOOD = {"OS_ID":"debian","ARCH":"x86_64","UID":"0","FREE_KB":"3333333","DOCKER":"yes","COMPOSE":"yes","SYSTEMD":"yes","UDP_51820":"free", "XUI_PRESENT":"no", "SS_AVAILABLE":"yes"}
 
 
 class FakeSSH:
@@ -37,6 +37,47 @@ def test_api_auth_and_preflight_plans(monkeypatch):
     assert not guided['plan']['executable']
     denied=c.post(f'/api/jobs/{guided["id"]}/approve',headers=HEAD,json={'confirmation':f'DEPLOY hysteria2 TO example.com'})
     assert denied.status_code==409
+
+
+def test_xui_job_options_and_explicit_credentials(monkeypatch):
+    fake=FakeSSH()
+    monkeypatch.setattr(main, 'executor', fake)
+    monkeypatch.setattr(main.runner, 'executor', fake)
+    c=TestClient(main.app)
+    host=c.post('/api/hosts',headers=HEAD,json={
+        'name':'xui-test', 'hostname':'192.0.2.88','username':'root','port':22
+    }).json()
+    c.post(f'/api/hosts/{host["id"]}/preflight',headers=HEAD)
+    body={'host_id':host['id'],'project':'3x-ui','panel_port':25443}
+    assert c.post('/api/jobs',json=body).status_code==401
+    for bad in ['$(id)', True, 22.5]:
+        assert c.post('/api/jobs',headers=HEAD,json={**body,'panel_port':bad}).status_code==422
+    assert c.post('/api/jobs',headers=HEAD,json={**body,'panel_port':22}).status_code==422
+    job=c.post('/api/jobs',headers=HEAD,json=body).json()
+    assert job['plan']['options']=={'panel_port':25443}
+    assert job['plan']['executable'] is True
+    assert c.get(f'/api/jobs/{job["id"]}/access',headers=HEAD).status_code==409
+
+    main.store.set_status(job['id'],'completed')
+    assert c.get(f'/api/jobs/{job["id"]}/access').status_code==401
+    secret='MyPrivatePass87'
+    def fake_access(host,script,timeout=30):
+        assert 'install-result.env' in script
+        return ('XUI_USERNAME=WebAdmin77\n'
+                f'XUI_PASSWORD={secret}\n'
+                'XUI_PANEL_PORT=25443\n'
+                'XUI_WEB_BASE_PATH=SecretRoute123\n')
+    fake.run=fake_access
+    access=c.get(f'/api/jobs/{job["id"]}/access',headers=HEAD)
+    assert access.status_code==200,access.text
+    result=access.json()
+    assert result['password']==secret
+    assert result['local_url']=='http://127.0.0.1:25443/SecretRoute123'
+    assert 'ssh -N -p 22 -L 25443:127.0.0.1:25443 root@192.0.2.88'==result['ssh_tunnel']
+    assert access.headers['cache-control']=='no-store'
+    assert secret not in c.get('/api/jobs',headers=HEAD).text
+    assert secret not in c.get(f'/api/jobs/{job["id"]}',headers=HEAD).text
+    assert secret not in open(main.store.path,'rb').read().decode('utf-8','ignore')
 
 
 def test_security_headers_and_static_serve():

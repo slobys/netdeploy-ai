@@ -6,7 +6,7 @@ from contextlib import closing
 from pathlib import Path
 from time import sleep
 
-FACTS={'OS_ID':'debian','ARCH':'x86_64','UID':'0','FREE_KB':'1000000','DOCKER':'yes','COMPOSE':'yes','UDP_51820':'free','SYSTEMD':'yes'}
+FACTS={'OS_ID':'debian','ARCH':'x86_64','UID':'0','FREE_KB':'1000000','DOCKER':'yes','COMPOSE':'yes','UDP_51820':'free','SYSTEMD':'yes','XUI_PRESENT':'no','SS_AVAILABLE':'yes'}
 
 class StubExecutor:
     def __init__(self):self.scripts=[]
@@ -31,6 +31,51 @@ def test_job_approval_and_audited_execution():
         assert s.job(j['id'])['status']=='completed'
         assert len(fake.scripts)==len(plan['steps'])
         assert s.job(j['id'])['logs'].count('通过：')==3
+
+
+def test_xui_install_is_approved_and_runs_only_frozen_steps():
+    with TemporaryDirectory() as td:
+        store=Store(str(Path(td)/'data.db'))
+        host=store.add_host({'name':'xui','hostname':'example.com','username':'root','port':22})
+        store.save_facts(host['id'],FACTS)
+        plan=build_plan('3x-ui',FACTS,{'panel_port':25443})
+        job=store.new_job(host['id'],'3x-ui',plan)
+        executor=StubExecutor()
+        runner=JobRunner(store,executor)
+        try:
+            runner.enqueue(job,host,'INVALID CONFIRMATION')
+        except ValueError:
+            pass
+        assert executor.scripts==[]
+        runner.enqueue(job,host,'DEPLOY 3x-ui TO example.com')
+        for _ in range(100):
+            if store.job(job['id'])['status']=='completed':break
+            sleep(.01)
+        assert store.job(job['id'])['status']=='completed'
+        assert executor.scripts==[step['script'] for step in plan['steps']]
+        assert len(executor.scripts)==5
+        assert 'password=' not in store.job(job['id'])['logs'].lower()
+
+
+def test_xui_tampered_options_cannot_change_remote_commands():
+    with TemporaryDirectory() as td:
+        store=Store(str(Path(td)/'data.db'))
+        host=store.add_host({'name':'xui','hostname':'example.com','username':'root','port':22})
+        store.save_facts(host['id'],FACTS)
+        job=store.new_job(host['id'],'3x-ui',build_plan('3x-ui',FACTS,{'panel_port':25443}))
+        import sqlite3,json
+        with closing(sqlite3.connect(store.path)) as db,db:
+            j=store.job(job['id'])
+            j['plan']['options']={'panel_port':26500}
+            db.execute('UPDATE jobs SET plan_json=? WHERE id=?',(json.dumps(j['plan']),j['id']))
+        executor=StubExecutor()
+        runner=JobRunner(store,executor)
+        runner.enqueue(store.job(job['id']),host,'DEPLOY 3x-ui TO example.com')
+        for _ in range(100):
+            if store.job(job['id'])['status']=='failed':break
+            sleep(.01)
+        assert store.job(job['id'])['status']=='failed'
+        assert executor.scripts==[]
 
 
 def test_secret_redaction():
