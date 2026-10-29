@@ -1,0 +1,67 @@
+{
+  "title": "NetDeploy AI 使用文档",
+  "url": "https://slobys.github.io/netdeploy-ai/",
+  "version": "0.3.14",
+  "groups": [
+    {
+      "title": "开始使用",
+      "pages": [
+        {
+          "id": "index",
+          "title": "文档首页",
+          "description": "从安装到部署，一站式管理你的 VPS。"
+        },
+        {
+          "id": "installation",
+          "title": "安装与更新",
+          "description": "Windows 一键启动，保留原有服务器与任务数据。"
+        },
+        {
+          "id": "quick-start",
+          "title": "第一次部署",
+          "description": "五步配置服务器，完成第一项软件部署。"
+        }
+      ]
+    },
+    {
+      "title": "服务器与部署",
+      "pages": [
+        {
+          "id": "servers",
+          "title": "添加 VPS 与 SSH",
+          "description": "登录方式、指纹核验、重装后恢复。"
+        },
+        {
+          "id": "firewall",
+          "title": "端口与防火墙",
+          "description": "批量放行 TCP/UDP 和云厂商安全组。"
+        },
+        {
+          "id": "deployments",
+          "title": "软件部署指南",
+          "description": "3X-UI、S-UI、sing-box 和 wg-easy 的实际支持边界。"
+        },
+        {
+          "id": "google-cloud",
+          "title": "Google Cloud 专题",
+          "description": "谷歌云 SSH、root 密码修改与风险控制。"
+        }
+      ]
+    },
+    {
+      "title": "维护与帮助",
+      "pages": [
+        {
+          "id": "troubleshooting",
+          "title": "常见问题",
+          "description": "按症状定位安装、SSH、证书与面板错误。"
+        },
+        {
+          "id": "security",
+          "title": "安全与限制",
+          "description": "了解 Alpha 风险、密钥保管和真实支持范围。"
+        }
+      ]
+    }
+  ]
+}

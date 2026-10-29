@@ -1,0 +1,18 @@
+<h2 id="choose-auth">SSH 密码还是 SSH 私钥？</h2>
+<p>添加服务器时 NetDeploy 提供 SSH 密码与专用私钥两种方式。Google Cloud 优先使用<strong>由云平台管理的 SSH 密钥 / OS Login</strong>，一般不需要启用 root 密码 SSH。</p>
+<div class="table-wrap"><table><thead><tr><th>方式</th><th>适用情况</th><th>建议</th></tr></thead><tbody>
+<tr><td>SSH 密码</td><td>自己管理的测试 VPS</td><td>设置唯一强密码，并在云安全组只开放管理 IP</td></tr>
+<tr><td>SSH 私钥</td><td>生产 VPS、云厂商 SSH 密钥环境</td><td>优先选择，单独生成部署专用密钥</td></tr>
+<tr><td>Google Cloud OS Login</td><td>IAM 管理的 GCP 虚拟机</td><td>优先遵守平台身份策略，详见 <a href="google-cloud.html">谷歌云专题</a></td></tr>
+</tbody></table></div>
+<h2 id="hostname">主机地址和证书域名如何填写</h2>
+<p>NetDeploy 的 SSH 连接地址填写 VPS 的公网 IPv4；“HTTPS 证书域名”可选，只用于匹配 3X-UI 的 HTTPS 身份，不作为 SSH 登录地址。使用域名证书时，域名 A 记录必须指向目标 VPS；无域名时可以尝试自动签发公网 IP 证书。</p>
+<h2 id="key-check">如何在云控制台核对指纹</h2>
+<pre><code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256</code></pre>
+<p>先通过服务商的网页串口 / 原生终端运行，确保它不依赖尚未验证的同一 SSH 链路。如果提示指纹不同，先检查是不是实例重装或公网 IP 指向了不同服务器，不要忽略 SSH 密钥变化警告。</p>
+<h2 id="preflight">连接与环境检测</h2>
+<p>点击 VPS 卡片进入服务器控制台，可以重新检测 SSH 状态、选择安装软件、放行端口或更新登录方式。系统会记录已检测的 OS 与架构，但<strong>创建部署任务时还会复核</strong>，避免基于过期环境直接安装。</p>
+<h2 id="rekey">VPS 重装之后无法连接</h2>
+<p>重装系统会改变 SSH 服务器主机密钥。到可信云厂商控制台核对新指纹后，在 NetDeploy 的 <strong>SSH 安全</strong>中更新信任关系；旧的部署计划将按安全规则失效，可能需要重新生成。不要直接清空 <code>known_hosts</code> 或关闭指纹校验。</p>
+<h2 id="password-reset">修改 root 密码</h2>
+<p>如果只有 root 本地密码需要修改，不需要同时开启公网密码登录。Linux 控制台执行 <code>sudo passwd root</code> 即可。Google Cloud 的完整教程和交互式脚本在 <a href="google-cloud.html#root-password">谷歌云专题</a>。</p>

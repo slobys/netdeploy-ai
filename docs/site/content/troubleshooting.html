@@ -1,0 +1,20 @@
+<h2 id="panel-not-open">Windows 本地页面打不开</h2>
+<ol><li>确认运行 NetDeploy 的 PowerShell 窗口还在，没有按 <code>Ctrl+C</code>。</li><li>打开 <code>http://127.0.0.1:8787/api/health</code> 检查后台版本。</li><li>若提示 8787 端口被占用，先停止旧实例，不要强行同时启动两个服务；之后按 <code>Ctrl+F5</code> 刷新网页。</li></ol>
+<h2 id="ssh-refused">SSH 连接被拒绝 / 超时</h2>
+<p>从 Windows PowerShell 检查：</p>
+<pre><code>Test-NetConnection YOUR_VPS_IP -Port 22</code></pre>
+<p>连接失败说明可能是云防火墙、VPS UFW、sshd 没监听、实例停机或地址/端口错误。连接成功但认证失败，才检查用户名、密码或 SSH 私钥。Google Cloud 用户先从云控制台的浏览器 SSH 入口排查。</p>
+<h2 id="fingerprint">SSH 指纹变化、信任失败</h2>
+<p>VPS 重装、系统更新了主机密钥、IP 发生回收都可能导致指纹变化。请从服务商独立控制台核对后使用 NetDeploy 的 <strong>SSH 安全 → 更新指纹</strong>；不要使用 <code>StrictHostKeyChecking=no</code> 绕过身份校验。</p>
+<h2 id="wrong-credentials">root 密码正确但仍无法登录</h2>
+<p>需要区分 root 本地密码、SSH 是否启用密码认证、root SSH 是否被禁用，以及 Google Cloud 的 OS Login/IAM 或 PAM 限制。见 <a href="google-cloud.html#os-login">谷歌云专题</a>。修改 root 密码本身不等于开放 root SSH。</p>
+<h2 id="ufw">UFW 放行了，公网仍打不开</h2>
+<p>确认 VPS 真正监听对应端口、已通过有效 HTTPS / TLS 配置、云安全组的入站规则确实作用于目标实例，以及源 IP 和协议正确。Google Cloud 和 AWS 的 VPC 规则属于另一层网络控制。</p>
+<h2 id="https">3X-UI HTTPS 签证书失败</h2>
+<p>检查域名是否解析到该 VPS 公网 IP、TCP 80 是否可从公网访问、Certbot 续期服务是否正常，以及 3X-UI 实际监听与证书配置。如果软件已装好但 HTTPS 阶段失败，应使用 <strong>继续完成 HTTPS</strong> 创建修复计划，不必覆盖现有 3X-UI。</p>
+<h2 id="sui">S-UI 安装后从公网打不开</h2>
+<p>这是默认设计：NetDeploy 将管理 <code>2095/TCP</code> 与订阅 <code>2096/TCP</code> 绑定回环地址 <code>127.0.0.1</code>。先在 Windows PowerShell 建立 SSH 隧道，再用本地地址访问。请不要直接放开 2095 的公网 HTTP。</p>
+<h2 id="invalidated">计划提示失效或需要刷新</h2>
+<p>如果服务器重装、SSH 主机密钥更换、证书域名或安装固定脚本发生变化，历史审批不再有效。可返回服务器控制台重新环境检测、刷新方案、再次审核。已有部分安装时先检查真实 VPS 状态，避免重复执行。</p>
+<h2 id="support">如何反馈故障</h2>
+<p>在 <a href="https://github.com/slobys/netdeploy-ai/issues">GitHub Issues</a> 留下：NetDeploy 版本、VPS 系统、CPU、执行项目、出错阶段和<strong>脱敏</strong>的最后一步错误。禁止上传 SSH 密码、Token、证书私钥、管理员初始密码或完整 <code>.env</code>。</p>

@@ -1,0 +1,24 @@
+<div class="step-flow"><span>① 添加服务器</span><b>→</b><span>② SSH 指纹</span><b>→</b><span>③ 连接检测</span><b>→</b><span>④ 网络端口（可跳过）</span><b>→</b><span>⑤ 选择软件</span></div>
+<div class="callout warn"><strong>先备份测试 VPS</strong><p>本版会使用已审核的远程高权限安装脚本；请先使用临时、可快照或可重装的 Debian / Ubuntu VPS。</p></div>
+<h2 id="add">第 1 步：添加 VPS</h2>
+<ol>
+  <li>打开 NetDeploy 面板，点击右上角 <strong>添加 VPS</strong>。</li>
+  <li>输入易识别的名称、服务器<strong>公网 IPv4</strong>、SSH 端口（默认 22）、SSH 用户（自动安装目前要求 root）。</li>
+  <li>如果已有域名需要签 HTTPS 证书，再填写 <strong>HTTPS 证书域名</strong>；没有域名可以留空，由 3X-UI 安装方案按公网 IP 选择证书类型。</li>
+  <li>选择 SSH 密码或私钥登录，保存后继续下一步。</li>
+</ol>
+<h2 id="fingerprint">第 2 步：SSH 主机指纹</h2>
+<p>面板会扫描 SSH 主机公钥并显示 SHA-256 指纹。请<strong>在云厂商独立可信控制台</strong>查看服务器公钥指纹，两边一致后再点击确认；不要只凭 NetDeploy 自己显示的结果就信任。</p>
+<pre><code># 在 VPS 云厂商的原生终端中运行（示例为 ED25519）：
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256</code></pre>
+<p>若服务器使用 RSA / ECDSA，按提示选择对应的 <code>/etc/ssh/ssh_host_*.pub</code>。曾经信任且未变化的指纹可直接继续；VPS 重装后出现变化，必须重新独立核对。</p>
+<h2 id="preflight">第 3 步：测试 SSH 连接与系统</h2>
+<p>点击环境检测。系统会确认发行版、CPU、root 权限、磁盘、systemd、端口占用和已安装组件；检测失败会在当前步骤说明原因，无需返回主页重新添加。</p>
+<h2 id="network">第 4 步：端口与防火墙（可跳过）</h2>
+<p>可以先只查看 UFW 状态。需要开放端口时点击 <strong>＋ 添加端口</strong>，逐条填写 TCP/UDP，最后点 <strong>一次放行全部端口</strong>。如果你还没确定要开放哪些端口，点击 <strong>跳过此步，下一步：选择软件</strong> 即可。</p>
+<p>阿里云、腾讯云、Google Cloud 和 AWS 还需要在对应云控制台检查入站安全组；本机 UFW 规则不等于公网自动放行。详见 <a href="firewall.html">端口与防火墙</a>。</p>
+<h2 id="choose">第 5 步：选择软件</h2>
+<p>从项目卡片选择 3X-UI、S-UI、sing-box 或 wg-easy。系统会识别现有安装并生成计划，先展示兼容性要求、具体命令和风险，再由管理员审核批准。Hysteria2 当前仍为引导方案，不能当作完整自动安装。</p>
+<h2 id="completion">任务执行完成后</h2>
+<p>到 <strong>最近任务 / 部署任务</strong>查看状态与分步骤日志。对于支持登录信息展示的 3X-UI、S-UI，可点击 <strong>查看面板信息</strong>按需读取 VPS 上的初始凭据。S-UI 默认仅本地监听，需要按提示使用 SSH 隧道访问。</p>
+<p>如果任务状态是失败或部分完成，先对照 <a href="troubleshooting.html">故障排查</a>，不要在原 VPS 上盲目重复安装。</p>

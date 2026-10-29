@@ -1,0 +1,20 @@
+<div class="callout warn"><strong>不是生产稳定版</strong><p>NetDeploy v{{version}} 仍处于 Alpha 阶段。Web 管理面板、SSH 自动化与软件安装都涉及高权限操作，建议先在有快照的测试 VPS 上使用，完成自己的部署验收后再考虑扩大使用范围。</p></div>
+<h2 id="localhost">管理面板应在哪里运行</h2>
+<p>推荐 Windows 11 本机 <code>127.0.0.1:8787</code>，或者 Docker / NAS 仅绑定本机环回并使用 SSH 隧道。不要将带免登录的管理 Web API 直接暴露到公网，尤其不要通过反向代理无鉴权开放它。</p>
+<h2 id="approval">为什么部署前要审核</h2>
+<p>每个项目使用固定、可见的步骤。部署前会重新检测 SSH 身份、兼容条件和可能冲突；管理员审阅并明确批准后才启动。AI Worker 仅用于只读诊断脱敏日志，不应该执行它临时生成的系统命令。</p>
+<h2 id="credentials">管理员密码与凭据</h2>
+<ul>
+<li>绝不将 root 密码、SSH 私钥、初始管理密码粘贴到 GitHub Issue 或公开文档。</li>
+<li>Windows SSH 密码可以按需使用系统凭据库；NetDeploy 不能替代 Windows 账户锁屏和主机安全。</li>
+<li>3X-UI / S-UI 初始管理员信息只在用户主动查看时经可信 SSH 读取，不应进入普通部署日志。</li>
+<li>一旦密码出现在聊天、教程截图、Shell 历史或公开仓库，应视为<strong>已经泄露</strong>，立即更换，并检查近期登录记录。</li>
+</ul>
+<h2 id="gcp">Google Cloud root 密码登录特别风险</h2>
+<p>Google Cloud 官方优先推荐 OS Login、SSH 密钥和 sudo，不推荐通过 SSH 启用 root 密码认证。NetDeploy 文档的 <a href="google-cloud.html#root-password">交互式密码修改</a> 默认只更新本地密码。高风险远程 root 密码登录必须单独确认云防火墙与恢复方式；更推荐限定 SSH 访问范围并尽快回到密钥认证。</p>
+<h2 id="network">网络与证书</h2>
+<p>公网 HTTPS 管理服务必须验收证书身份、监听端口和对应防火墙规则。S-UI、wg-easy 的管理 Web 默认以本机访问为基础；不要为了方便临时开放明文管理端口。关闭整台 UFW 不是解决连通性问题的首选办法。</p>
+<h2 id="docs">在线文档的隐私</h2>
+<p>本站使用仓库内的静态 HTML、CSS 和 JavaScript，通过 GitHub Pages 分发，不需要账户、访问令牌或外部统计服务。搜索索引在浏览器本地查找，不会向文档服务上传搜索词。所有命令都应先阅读用途再执行。</p>
+<h2 id="source">查看源码与许可</h2>
+<p><a href="https://github.com/slobys/netdeploy-ai">NetDeploy AI GitHub 源码</a> · <a href="https://github.com/slobys/netdeploy-ai/blob/main/LICENSE">LICENSE</a> · <a href="https://github.com/slobys/netdeploy-ai/issues">提交反馈</a>。</p>

@@ -1,0 +1,32 @@
+<div class="callout warn"><strong>谷歌云特别注意：不要把 root 固定密码放到公开命令里</strong>
+<p>你可能在网络教程看到 <code>echo root:某个固定密码 | sudo chpasswd</code>，再把 SSH 的 <code>PermitRootLogin</code>、<code>PasswordAuthentication</code> 改为 <code>yes</code> 后重启。<strong>这会暴露密码并扩大公网 SSH 攻击面</strong>；本文提供更安全的交互式替代方法，绝不公开预设 root 密码。</p></div>
+<h2 id="recommended">谷歌云的推荐 SSH 管理方式</h2>
+<p>Google Cloud Compute Engine 公开 Linux 镜像一般不允许 root 密码 SSH 登录。官方优先推荐通过 <strong>OS Login / SSH 密钥</strong> 登录普通账户，再使用 <code>sudo</code> 执行管理操作，而不是开放 root 密码登录。<a href="https://docs.cloud.google.com/compute/docs/connect/root-ssh">Google Cloud 官方 root SSH 说明 ↗</a>。</p>
+<p>先进入 <a href="https://console.cloud.google.com/compute/instances">Google Cloud Compute Engine 实例</a>，选择实例、项目与区域，使用浏览器里的 SSH 按钮连接。若当前实例启用了 OS Login 或被组织策略约束，应继续使用 IAM 管理的密钥，不要通过修改单个文件绕过组织要求。</p>
+<h2 id="root-password">快捷修改 root 本地密码（推荐）</h2>
+<p>在谷歌云实例的<strong>原生 SSH / 串口控制台</strong>执行一条命令：</p>
+<pre><code>sudo passwd root</code></pre>
+<p>系统会要求你输入新密码两次。终端不会回显密码，命令历史不会记录明文。此操作仅修改 root <strong>本地密码</strong>，不保证允许从外网用 root 密码登录 SSH，也<strong>不会自动重启</strong>。</p>
+<h2 id="helper">NetDeploy 交互式脚本（可复制）</h2>
+<p>也可以下载 NetDeploy 仓库提供的帮助脚本并执行。初次使用请先浏览脚本内容；它默认只修改本地 root 密码，不变更 SSH 配置。</p>
+<pre><code>curl -fsSLo /tmp/netdeploy-gcp-root-setup.sh https://raw.githubusercontent.com/slobys/netdeploy-ai/main/scripts/gcp-root-setup.sh
+less /tmp/netdeploy-gcp-root-setup.sh
+sudo bash /tmp/netdeploy-gcp-root-setup.sh --password-only</code></pre>
+<div class="callout success"><strong>更改密码不是重启服务器</strong><p>脚本使用 <code>passwd root</code> 交互输入密码，默认不修改 SSH 登录方式，不会执行 <code>reboot</code>，避免使当前连接突然中断。</p></div>
+<h2 id="enable-root-password-ssh">确实需要 root 密码 SSH？仅限受控测试</h2>
+<div class="callout warn"><strong>高风险操作，默认关闭</strong><p>仅当你明确需要 NetDeploy 的 root 密码认证、已在 Google Cloud VPC 防火墙将 SSH TCP 22 入站来源限制为<strong>自己的管理公网 IP /32</strong>、已保存实例快照，并拥有云厂商控制台恢复通道时，才考虑开启。官方建议仍是密钥与 sudo。</p></div>
+<p>若目标是 Debian / Ubuntu、<strong>未启用 OS Login</strong>，且你明确理解风险，可以在上述脚本下载并审查后使用可选模式：</p>
+<pre><code>sudo bash /tmp/netdeploy-gcp-root-setup.sh --enable-root-password-ssh</code></pre>
+<p>脚本会要求输入指定的完整风险确认语句，交互设置 root 密码，备份原 <code>sshd_config</code>，写入独立配置文件，并检查 <code>sshd -t</code> 与有效配置；成功后只重新加载 SSH 服务，不会重启整台 VPS。检测到 Google Cloud OS Login 为启用状态时会拒绝继续。此模式仍不保证云平台组织策略允许直接 root SSH。</p>
+<p><strong>保持原来的云控制台窗口打开。</strong>在另一台电脑、另一个终端测试 root SSH 是否能成功；确认前不要断开原会话。如果失败，按脚本提示从云终端撤销新增配置并重新加载 SSH。不要为了测试而向 <code>0.0.0.0/0</code> 公开 22 端口。</p>
+<h2 id="verify">修改之后怎样验证？</h2>
+<ol>
+<li>在谷歌云实例终端运行 <code>sudo /usr/sbin/sshd -t</code>，确认配置语法有效。</li>
+<li>运行 <code>sudo /usr/sbin/sshd -T</code> 检查生效的认证策略；不要仅以文本文件的字面设置判断。</li>
+<li>在 Windows PowerShell 运行 <code>Test-NetConnection YOUR_VPS_IP -Port 22</code>；能连接仅证明端口可达，不代表认证成功。</li>
+<li>通过另一终端验证登录，再在 NetDeploy 完成 SSH 主机指纹独立核验。</li>
+</ol>
+<h2 id="os-login">为什么改了密码仍然不能登录？</h2>
+<p>可能是 Google Cloud OS Login / IAM 规则生效、云防火墙未允许你的来源 IP、sshd 有其他配置优先级、root 账户策略、PAM 或实例没有公网 IPv4。优先检查 <a href="https://docs.cloud.google.com/compute/docs/connect/ssh-best-practices/login-access">Google Cloud SSH 最佳实践</a> 与 <a href="https://docs.cloud.google.com/compute/docs/connect/ssh-using-iap">IAP SSH 隧道</a>；不要为了“能登录”而关闭所有安全设置。</p>
+<h2 id="cloud-firewall">谷歌云 VPC 防火墙</h2>
+<p>打开 <a href="https://console.cloud.google.com/networking/firewalls/list">Google Cloud 防火墙规则</a>，选择实例关联的 VPC / 网络、匹配的目标标签或服务账号、协议与端口。仅向指定源地址开放必要入站流量；修改 VPS 本地 UFW 不等于同时修改云端规则。</p>

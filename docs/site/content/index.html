@@ -1,0 +1,30 @@
+<section class="hero">
+  <span class="badge">OPEN SOURCE · v{{version}} ALPHA</span>
+  <h2 id="hero-intro">让 VPS 部署变得更简单</h2>
+  <p>从添加服务器、核对 SSH 身份，到安装软件、配置证书与端口；跟着图形化向导一步一步操作，不需要记复杂命令。</p>
+  <div class="hero-actions"><a class="button primary" href="installation.html">立即开始安装 →</a><a class="button secondary" href="quick-start.html">查看五步部署教程</a></div>
+</section>
+<div class="callout warn"><strong>这是 Alpha 测试版</strong><p>当前以 Windows 11 本机面板、Debian / Ubuntu 测试 VPS 为主。先使用可重置服务器试用，不要直接在重要生产业务上执行未经验证的部署任务。</p></div>
+
+<h2 id="start">第一次使用从这里开始</h2>
+<div class="cards">
+  <a href="installation.html"><strong>01 · 安装 NetDeploy</strong><small>准备 Git、Python，Windows 一条命令启动。以后可保留数据直接更新。</small></a>
+  <a href="quick-start.html"><strong>02 · 五步添加与部署</strong><small>服务器信息 → SSH 指纹 → 系统检测 → 可选防火墙 → 选择项目。</small></a>
+  <a href="google-cloud.html"><strong>03 · Google Cloud 谷歌云</strong><small>从云控制台建立安全 SSH；交互修改 root 密码与检查登录设置。</small></a>
+  <a href="troubleshooting.html"><strong>04 · 解决常见问题</strong><small>打不开页面、指纹变化、SSH 超时、HTTPS 证书失败时怎么办。</small></a>
+</div>
+
+<h2 id="features">能帮你做什么？</h2>
+<div class="cards">
+  <a href="servers.html"><strong>🖥 服务器与 SSH 管理</strong><small>保存服务器记录、检查连接、核对主机指纹、恢复重装后的信任关系。</small></a>
+  <a href="firewall.html"><strong>🔐 TCP / UDP 端口</strong><small>最多批量放行 20 条 UFW 规则，也可以打开云厂商安全组页面。</small></a>
+  <a href="deployments.html"><strong>⚙️ 软件部署</strong><small>3X-UI、S-UI、sing-box、wg-easy 的安装路径与验证步骤。</small></a>
+  <a href="security.html"><strong>🛡 数据与安全</strong><small>了解本机运行、审批机制、密钥保管方式和当前不支持的情况。</small></a>
+</div>
+
+<h2 id="workflow">NetDeploy 的实际工作流程</h2>
+<div class="step-flow"><span>添加 VPS</span><b>→</b><span>核对指纹</span><b>→</b><span>环境检测</span><b>→</b><span>可选网络配置</span><b>→</b><span>部署软件</span></div>
+<p>安装不是“点一下就不经确认地运行远程命令”。面板会先检查系统与冲突，再生成可审核的固定脚本；管理员明确批准之后才执行。日志和错误状态会显示在任务页面。</p>
+
+<h2 id="links">项目与反馈</h2>
+<p>源代码、测试与提交记录托管在 <a href="https://github.com/slobys/netdeploy-ai">GitHub · slobys/netdeploy-ai</a>。遇到问题可到 <a href="https://github.com/slobys/netdeploy-ai/issues">Issues</a> 提交系统版本、软件版本和<strong>脱敏</strong>错误日志，不要上传私钥、密码、令牌或真实凭据。</p>

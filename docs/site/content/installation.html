@@ -1,0 +1,25 @@
+<div class="callout success"><strong>推荐方式：Windows 11 本机运行</strong><p>NetDeploy 是在你自己的电脑上打开的 Web 管理面板，默认访问地址为 <code>http://127.0.0.1:8787</code>。你的 VPS 不需要安装 NetDeploy 本体。</p></div>
+<h2 id="requirements">安装前准备</h2>
+<ul>
+  <li>电脑：Windows 11，能访问 GitHub。</li>
+  <li>安装 <a href="https://git-scm.com/downloads/win">Git for Windows</a> 和 <a href="https://www.python.org/downloads/windows/">Python 3.12 或以上版本</a>，需有 Windows <code>py</code> 启动器。</li>
+  <li>预备一台 Debian / Ubuntu 测试 VPS，能够通过云厂商控制台独立查看 SSH 指纹。</li>
+</ul>
+<h2 id="one-command">一条命令安装与启动</h2>
+<p>打开 <strong>Windows PowerShell</strong>，复制以下整行。脚本会在桌面创建或复用 <code>netdeploy-ai-git</code> 目录，检查 GitHub 来源、更新代码、安装依赖，再启动面板。</p>
+<pre><code>$repo=Join-Path ([Environment]::GetFolderPath('Desktop')) 'netdeploy-ai-git'; if(-not(Test-Path $repo)){git clone https://github.com/slobys/netdeploy-ai.git $repo; if($LASTEXITCODE -ne 0){throw 'Git clone failed'}}; $start=Join-Path $repo 'scripts\QuickStart-Windows.ps1'; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $start</code></pre>
+<p>启动成功后，浏览器通常会自动打开 <code>http://127.0.0.1:8787</code>。桌面出现的 <code>netdeploy-ai-git</code> 是本机工作目录，不是 VPS 数据目录。</p>
+<div class="callout"><strong>首次启动不需要手填面板令牌</strong><p>Windows 单机快捷启动可自动创建本机管理员令牌并启用环回地址自动登录；VPS SSH 密码仍必须单独提供。</p></div>
+<h2 id="start-again">以后怎么重新打开？</h2>
+<ol>
+<li>进入桌面 <code>netdeploy-ai-git</code>。</li>
+<li>双击 <code>QuickStart-NetDeploy.bat</code>，即可检查更新并打开面板。</li>
+<li>若提示 <code>8787</code> 已被占用，先到旧的 PowerShell 服务窗口按 <code>Ctrl+C</code> 停止，再重新启动；不要用两个进程同时操作同一数据库。</li>
+</ol>
+<h2 id="update">更新软件，不丢原有数据</h2>
+<p>推荐先停止旧服务，再双击 <code>QuickStart-NetDeploy.bat</code>；也可运行 <code>Update-NetDeploy.bat</code> 更新后用 <code>Start-NetDeploy.bat</code> 启动。更新器会保留原有的本地配置、任务数据库、可信 SSH 主机密钥，并对本地数据执行备份。</p>
+<p>更新后在浏览器按 <code>Ctrl+F5</code> 强制刷新。右上角版本号与 <code>/api/health</code> 返回的版本应一致；否则可能仍在运行旧进程。</p>
+<h2 id="docker">Docker / NAS 用户</h2>
+<p>仓库提供 <code>compose.yaml</code>，适用于懂得管理 Docker、目录权限与管理员令牌的用户。此模式默认只映射宿主机 <code>127.0.0.1:8787</code>，不应直接暴露公网。请按 <a href="https://github.com/slobys/netdeploy-ai#docker-compose-安装更适合-nas--linux">README 的 Docker 操作说明</a> 配置管理员密钥并使用 SSH 隧道访问。</p>
+<h2 id="after-install">下一步</h2>
+<p>打开 <a href="quick-start.html">五步部署教程</a>，先在测试 VPS 上练习完整流程。</p>

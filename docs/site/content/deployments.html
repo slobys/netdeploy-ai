@@ -1,0 +1,30 @@
+<div class="callout warn"><strong>安装计划不等于已经在你的 VPS 上验证成功</strong><p>NetDeploy v{{version}} 仍是 Alpha；自动安装已通过本地模拟测试，但不同 VPS 镜像、上游网络和防火墙仍可能产生差异。先用测试服务器。</p></div>
+<h2 id="matrix">目前支持哪些项目？</h2>
+<div class="table-wrap"><table><thead><tr><th>项目</th><th>当前能力</th><th>主要条件</th></tr></thead><tbody>
+<tr><td>3X-UI</td><td>固定脚本自动安装，支持公网 IP / 域名 HTTPS 与查看面板</td><td>Debian/Ubuntu、root、x86_64/ARM64、systemd</td></tr>
+<tr><td>S-UI</td><td>固定 v1.6.6 发行包、自动安装、本机受限面板</td><td>Debian/Ubuntu、root、x86_64/ARM64、2095/2096 空闲</td></tr>
+<tr><td>sing-box</td><td>通过签名 APT 仓库安装内核</td><td>需自行创建配置、认证与监听</td></tr>
+<tr><td>wg-easy</td><td>使用 Docker Compose 安装 WireGuard 管理容器</td><td>Docker、Compose v2、51820/UDP 空闲</td></tr>
+<tr><td>Hysteria2</td><td>仅引导、兼容性提示与技能资料</td><td>暂未开放正式一键自动部署</td></tr>
+</tbody></table></div>
+<h2 id="three-x-ui">3X-UI · Xray 面板</h2>
+<ol>
+<li>在项目中心选择 <strong>3X-UI</strong>，选择目标 VPS 和面板端口；默认示例端口 <code>24443/TCP</code>，也可以自定义。</li>
+<li>填了 HTTPS 域名则按域名签证书；否则对公网 IPv4 尝试 IP 证书。需要满足公网 TCP 80 可达。</li>
+<li>检查兼容性与固定脚本，审核批准部署。部署成功且证书验收通过后才可作为公网 HTTPS 地址使用。</li>
+<li>已装 3X-UI 时优先点击 <strong>查看已安装面板</strong>；如果 HTTPS 阶段失败，走 <strong>继续完成 HTTPS</strong>，不要覆盖重装。</li>
+</ol>
+<p>IP 证书有效期可能为约 160 小时，需要保持续期服务有效。公网面板建议开启强密码、双因素认证与云防火墙管理 IP 白名单。</p>
+<h2 id="s-ui">S-UI · sing-box 面板</h2>
+<p>NetDeploy 使用官方固定 <code>v1.6.6</code> Release 发行包、SHA-256 校验和随机初始账户，不会运行上游的“最新版本安装脚本”。初次启动前将 Web 管理与订阅监听限制在 VPS <code>127.0.0.1</code>。</p>
+<p>安装后点击 <strong>查看 S-UI 面板信息</strong>，按提示在 Windows PowerShell 执行 SSH 隧道，并访问显示的随机本地地址；不要将 <code>2095/TCP</code> 或 <code>2096/TCP</code> 当作应直接公网放行的端口。</p>
+<pre><code># 仅为格式示意，实际命令以 NetDeploy 面板生成的为准：
+ssh -N -p 22 -L 2095:127.0.0.1:2095 root@YOUR_VPS_IP</code></pre>
+<p>如果服务已存在，NetDeploy 只检查状态，不会重复覆盖。已在原面板修改过管理员密码时，初始安装记录不代表当前密码。</p>
+<h2 id="sing-box">sing-box · 只有内核</h2>
+<p>安装完成代表程序存在，不会自动产生可用代理节点、TLS 证书或公网监听。用户须自行完成合法配置、运行 <code>sing-box check</code> 并检查防火墙策略。</p>
+<h2 id="wg-easy">wg-easy · WireGuard</h2>
+<p>默认 WireGuard 隧道使用 <code>51820/UDP</code>，Web 管理页面绑定 VPS <code>127.0.0.1:51821</code>。首次访问应使用 SSH 隧道初始化管理员与公网连接参数。</p>
+<pre><code>ssh -N -p 22 -L 51821:127.0.0.1:51821 root@YOUR_VPS_IP</code></pre>
+<h2 id="jobs">失败、重试与日志</h2>
+<p>任务列表将显示等待审批、执行中、已完成、部分成功或失败状态。出现异常时，先查看最后一步实际日志，再通过服务器控制台核对远端程序状态。不同版本固定脚本变更后应刷新旧审批方案，不能继续执行过期计划。</p>

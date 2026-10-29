@@ -4,6 +4,14 @@
 
 ![Status](https://img.shields.io/badge/stage-alpha-blue) ![Tests](https://img.shields.io/badge/stage-local--tests%20only-orange)
 
+## 📖 中文在线文档
+
+[在线使用手册](https://slobys.github.io/netdeploy-ai/) · [Windows 安装](https://slobys.github.io/netdeploy-ai/installation.html) · [首次部署](https://slobys.github.io/netdeploy-ai/quick-start.html) · [Google Cloud / root 密码](https://slobys.github.io/netdeploy-ai/google-cloud.html) · [常见问题](https://slobys.github.io/netdeploy-ai/troubleshooting.html)
+
+参考 NaiLink 的文档使用方式，新建独立的 GitHub Pages 中文手册，包含手机适配、章节导航、搜索和复制命令。仓库 `.github/workflows/docs.yml` 随 main 自动构建发布；首次需要在仓库 **Settings → Pages → Source → GitHub Actions** 启用 Pages。站点未启用前可先阅读 [文档源码](docs/site/README.md)。
+
+**谷歌云 root 密码操作：** 仅推荐交互执行 `sudo passwd root`，不在公共教程中固定密码。附加 [GCP root 辅助脚本](scripts/gcp-root-setup.sh) 默认不启用密码 SSH；可选模式属于高风险操作，请先阅读 [Google Cloud 专题](https://slobys.github.io/netdeploy-ai/google-cloud.html)。
+
 ## 已有功能
 
 - 响应式 Web 工作台（VPS 管理优先显示在首页首屏，直接编辑/删除/指纹重核验/连接检测；动画与明确的操作反馈）

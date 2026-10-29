@@ -1,0 +1,30 @@
+<div class="callout"><strong>两个独立的防火墙</strong><p>NetDeploy 当前能操作 VPS 内部的 UFW；阿里云、腾讯云、Google Cloud、AWS 等云平台还有一层独立的安全组 / VPC 防火墙。两边都要允许目标流量，公网访问才可能成功。</p></div>
+<h2 id="add-many">如何一次添加多个端口</h2>
+<ol>
+<li>打开 <strong>添加 VPS → 第 4 步：端口与防火墙</strong>，或者已有服务器的 <strong>网络端口</strong>页面。</li>
+<li>点击 <strong>＋ 添加端口</strong>，逐行输入 1–65535 的端口并选择 TCP / UDP。</li>
+<li>最多一次提交 20 项。<code>8443/TCP</code> 和 <code>8443/UDP</code> 是不同规则，完全重复的端口/协议组合会提示错误。</li>
+<li>点击 <strong>一次放行全部端口</strong>，查看每项成功、失败或“未修改”状态。出现部分失败时只重试失败项。</li>
+</ol>
+<h2 id="ports">常见端口参考</h2>
+<div class="table-wrap"><table><thead><tr><th>端口</th><th>协议</th><th>用途与注意事项</th></tr></thead><tbody>
+<tr><td>22（可自定义）</td><td>TCP</td><td>SSH 登录。建议只对自己的管理 IP 开放。</td></tr>
+<tr><td>80</td><td>TCP</td><td>3X-UI 使用 HTTP-01 验证域名 / IP 证书时需要公网可达。</td></tr>
+<tr><td>24443（默认示例）</td><td>TCP</td><td>3X-UI 管理面板。实际端口可在安装时自定义，必须确认 HTTPS 有效后才开放。</td></tr>
+<tr><td>2095 / 2096</td><td>TCP</td><td>S-UI 管理与订阅，NetDeploy 默认均为 VPS 回环监听，<strong>不应放行公网</strong>。</td></tr>
+<tr><td>51820</td><td>UDP</td><td>wg-easy WireGuard 隧道，需按实际使用场景放行。</td></tr>
+<tr><td>51821</td><td>TCP</td><td>wg-easy Web 管理界面默认本机监听，不直接开放公网。</td></tr>
+</tbody></table></div>
+<h2 id="cloud">云厂商安全组快捷入口</h2>
+<div class="cards">
+<a href="https://ecs.console.aliyun.com/"><strong>阿里云 ECS 安全组 ↗</strong><small>进入云控制台后选择对应地域、实例与安全组。</small></a>
+<a href="https://console.cloud.tencent.com/cvm/securitygroup"><strong>腾讯云 CVM 安全组 ↗</strong><small>找到与目标实例关联的安全组，检查入站规则。</small></a>
+<a href="https://console.cloud.google.com/networking/firewalls/list"><strong>Google Cloud VPC 防火墙 ↗</strong><small>检查网络、目标实例标签 / 服务账号与允许的来源网段。</small></a>
+<a href="https://console.aws.amazon.com/ec2/"><strong>AWS EC2 Security Groups ↗</strong><small>选择正确 Region，在 EC2 的安全组里设置入站规则。</small></a>
+</div>
+<p>以上是官方入口，不代表点击后规则已经自动创建。建议 SSH 与管理面板只允许固定的管理 IP（例如 <code>203.0.113.10/32</code>，仅为文档示例地址）。</p>
+<h2 id="ufw-status">UFW 未启用代表什么？</h2>
+<p>如果系统没有安装 UFW 或显示 <code>inactive</code>，本机不需要重复添加 UFW 规则；但云平台安全组、其他防火墙组件、服务监听以及运营商网络仍可能阻断访问。不要把“软件安装成功”误认为“公网端口已经开放”。</p>
+<h2 id="disable">关闭 UFW 会怎样？</h2>
+<div class="callout warn"><strong>不推荐为了省事关闭全部防火墙</strong><p>这会失去 VPS 本机的 UFW 端口过滤保护，并可能暴露 SSH 或管理面板。NetDeploy 将此操作置于高级区域，明确确认风险后才执行，正常安装过程不会自动关闭 UFW。</p></div>
+<p>更合适的方案是精确开放所需端口，再到云平台安全组设置限制来源。若暂时不确定，直接跳过第 4 步，等软件安装完成后再检查。</p>
