@@ -150,7 +150,7 @@ def test_certificate_mode_tampering_blocks_execution():
             'access_mode':'https','tls_identity':'panel.example.com'})
         job = store.new_job(host['id'], '3x-ui', plan)
         import json, sqlite3
-        with sqlite3.connect(store.path) as db:
+        with closing(sqlite3.connect(store.path)) as db, db:
             saved = store.job(job['id'])
             saved['plan']['options']['certificate_type'] = 'ip'
             db.execute('UPDATE jobs SET plan_json=? WHERE id=?',

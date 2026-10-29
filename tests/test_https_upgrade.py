@@ -195,6 +195,6 @@ def test_vault_backend_fail_closed_on_linux(tmp_path, monkeypatch):
 
 
 def test_frontend_has_independent_copy_buttons():
-    js=(Path(__file__).resolve().parents[1]/"app"/"static"/"app.js").read_text()
+    js=(Path(__file__).resolve().parents[1]/"app"/"static"/"app.js").read_text(encoding="utf-8")
     for action in ("copy-xui-url","copy-xui-username","copy-xui-password","xui-upgrade"):
         assert action in js
