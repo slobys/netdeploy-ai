@@ -24,3 +24,23 @@ jobs:
         run: python -m pytest -q
       - name: Compile application code
         run: python -m compileall -q app
+
+      - name: Validate Windows PowerShell 5.1 launcher and updater
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($relativePath in @('scripts/Start-Windows.ps1', 'scripts/Update-Windows.ps1')) {
+            $path = Join-Path $env:GITHUB_WORKSPACE ($relativePath -replace '/', '\')
+            $content = [System.IO.File]::ReadAllBytes($path)
+            if ($content.Length -lt 3 -or $content[0] -ne 239 -or $content[1] -ne 187 -or $content[2] -ne 191) {
+              throw "$relativePath must have a UTF-8 BOM for Windows PowerShell 5.1"
+            }
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              throw "$relativePath has parser errors: $($parseErrors -join '; ')"
+            }
+            Write-Host "$relativePath parsed successfully."
+          }
