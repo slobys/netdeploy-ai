@@ -31,7 +31,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.1.2")
+app = FastAPI(title="NetDeploy AI", version="0.1.3")
 
 @app.middleware("http")
 async def security_headers(request, call_next):
@@ -111,7 +111,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.1.2", "security": "local-only"}
+    return {"ok": True, "version": "0.1.3", "security": "local-only"}
 
 
 @app.get("/api/auth", dependencies=[Depends(authorized)])

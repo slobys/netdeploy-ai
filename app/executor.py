@@ -262,8 +262,19 @@ if ! command -v ss >/dev/null 2>&1; then echo UDP_51820=unknown; elif ss -Hlun |
                 keys.load(str(path))
             except (OSError, ValueError, paramiko.SSHException) as exc:
                 raise SSHError("无法读取已有 SSH 主机密钥记录，请检查 data/known_hosts 文件") from exc
-            if keys.lookup(host_token) is not None:
-                raise SSHError("已有主机密钥记录，禁止从面板覆盖；若 VPS 重装，请先独立核对并手工修复 known_hosts")
+            pinned = keys.lookup(host_token)
+            if pinned is not None:
+                # Re-confirming an already pinned key is safe and must not
+                # append a duplicate. A different key (including another
+                # algorithm) is never silently accepted or replaced.
+                trusted_key = pinned.get(scanned["key_type"])
+                scanned_base64 = scanned["key"].split(None, 2)[2]
+                if trusted_key is not None and trusted_key.get_base64() == scanned_base64:
+                    return {"fingerprint": scanned["fingerprint"], "already_trusted": True}
+                raise SSHError(
+                    "已有主机密钥记录，但与当前服务器公钥不一致，禁止从面板覆盖。"
+                    "若 VPS 已重装，请在独立可信渠道核实后手工修复 data/known_hosts"
+                )
             with path.open("a", encoding="utf-8") as stream:
                 stream.write(scanned["key"] + "\n")
-        return {"fingerprint": scanned["fingerprint"]}
+        return {"fingerprint": scanned["fingerprint"], "already_trusted": False}

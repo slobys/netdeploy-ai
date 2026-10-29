@@ -203,11 +203,17 @@ def test_hostkey_trust_requires_matching_fingerprint_and_no_duplicate(monkeypatc
     key_type='ssh-ed25519'
     public=b'sample-public-key'
     fp='SHA256:'+base64.b64encode(hashlib.sha256(public).digest()).decode().rstrip('=')
+    class FakeKey:
+        def __init__(self, value):self.value=value
+        def get_base64(self):return self.value
     class FakeKeys:
         def __init__(self):self.current={}
         def load(self, filename):
             raw=Path(filename).read_text()
-            self.current={line.split()[0]:True for line in raw.splitlines() if line.strip()}
+            for line in raw.splitlines():
+                if not line.strip():continue
+                name, kind, value = line.split()[:3]
+                self.current.setdefault(name,{})[kind]=FakeKey(value)
         def lookup(self, name):return self.current.get(name)
     fake_paramiko_scan(monkeypatch,host_key_type=key_type,public=public)
     # fake_paramiko_scan swaps paramiko for handshake; attach an independent
@@ -219,10 +225,65 @@ def test_hostkey_trust_requires_matching_fingerprint_and_no_duplicate(monkeypatc
         ex.trust_hostkey(host,'SHA256:'+'B'*43)
     assert not (tmp_path/'known_hosts').exists()
     result=ex.trust_hostkey(host,fp)
-    assert result['fingerprint']==fp
-    assert (tmp_path/'known_hosts').read_text().startswith('example.com ssh-ed25519 ')
+    assert result == {'fingerprint':fp, 'already_trusted':False}
+    hosts_file=tmp_path/'known_hosts'
+    assert hosts_file.read_text().startswith('example.com ssh-ed25519 ')
+    original=hosts_file.read_bytes()
+    # Re-verification must be idempotent, with no new known_hosts line.
+    assert ex.trust_hostkey(host,fp) == {'fingerprint':fp,'already_trusted':True}
+    assert hosts_file.read_bytes()==original
+
+    # Even if the UI confirms the newly scanned fingerprint, replacement
+    # of an already pinned but changed key is forbidden.
+    new_public=b'changed-public-key'
+    changed_fp='SHA256:'+base64.b64encode(hashlib.sha256(new_public).digest()).decode().rstrip('=')
+    fake_paramiko_scan(monkeypatch,host_key_type=key_type,public=new_public)
+    sys.modules['paramiko'].HostKeys=FakeKeys
     with pytest.raises(SSHError,match='已有主机密钥记录'):
-        ex.trust_hostkey(host,fp)
+        ex.trust_hostkey(host,changed_fp)
+    assert hosts_file.read_bytes()==original
+
+    # A different host-key algorithm must not bypass the pinned key.
+    alternate_public=b'alternate-rsa-key'
+    alternate_fp='SHA256:'+base64.b64encode(hashlib.sha256(alternate_public).digest()).decode().rstrip('=')
+    fake_paramiko_scan(monkeypatch,host_key_type='ssh-rsa',public=alternate_public)
+    sys.modules['paramiko'].HostKeys=FakeKeys
+    with pytest.raises(SSHError,match='已有主机密钥记录'):
+        ex.trust_hostkey(host,alternate_fp)
+    assert hosts_file.read_bytes()==original
+
+
+def test_hostkey_trust_with_real_paramiko_and_custom_port(monkeypatch, tmp_path):
+    """A real HostKeys parser must accept the same key, never an altered one."""
+    import base64
+    import hashlib
+    import paramiko
+
+    original_key = paramiko.RSAKey.generate(1024)
+    different_key = paramiko.RSAKey.generate(1024)
+    ex = SSHExecutor(SSHConfig(str(tmp_path / 'key'), str(tmp_path / 'known_hosts')))
+    host = {'hostname': 'example.com', 'username': 'root', 'port': 2222}
+
+    def scan(key):
+        fingerprint = 'SHA256:' + base64.b64encode(
+            hashlib.sha256(key.asbytes()).digest()
+        ).decode().rstrip('=')
+        return {'key': f'[example.com]:2222 {key.get_name()} {key.get_base64()}',
+                'fingerprint': fingerprint, 'key_type': key.get_name()}
+
+    monkeypatch.setattr(ex, 'scan_hostkey', lambda _: scan(original_key))
+    first = ex.trust_hostkey(host, scan(original_key)['fingerprint'])
+    assert first['already_trusted'] is False
+    contents = (tmp_path / 'known_hosts').read_bytes()
+    assert contents.startswith(b'[example.com]:2222 ssh-rsa ')
+    second = ex.trust_hostkey(host, scan(original_key)['fingerprint'])
+    assert second['already_trusted'] is True
+    assert (tmp_path / 'known_hosts').read_bytes() == contents
+
+    monkeypatch.setattr(ex, 'scan_hostkey', lambda _: scan(different_key))
+    with pytest.raises(SSHError, match='已有主机密钥记录'):
+        ex.trust_hostkey(host, scan(different_key)['fingerprint'])
+    assert (tmp_path / 'known_hosts').read_bytes() == contents
 
 
 def test_db_migrates_legacy_hosts_schema(tmp_path):

@@ -1,4 +1,4 @@
-/* NetDeploy AI v0.1.2 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.1.3 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, section:'dashboard', activeJob:null, pendingFingerprint:null, loading:false};
@@ -158,7 +158,7 @@ document.addEventListener('click',async e=>{const t=e.target.closest('[data-acti
  else if(act==='diagnose')await diagnoseJob(id);
  else if(act==='trust'){
    if(!el('#verified-key')?.checked){toast('请先通过 VPS 云控制台独立核实指纹',true);return;}
-   try{await api(`/hosts/${id}/trust`,{method:'POST',body:JSON.stringify({fingerprint:t.dataset.fingerprint,confirmed_out_of_band:true})});closeDialog();toast('主机公钥已固定，现在可以进行环境检测');}catch(err){toast(err.message,true);}
+   try{const result=await api(`/hosts/${id}/trust`,{method:'POST',body:JSON.stringify({fingerprint:t.dataset.fingerprint,confirmed_out_of_band:true})});closeDialog();toast(result.already_trusted?'主机密钥与已保存记录一致，无需重复信任，可以继续环境检测':'主机公钥已固定，现在可以进行环境检测');}catch(err){toast(err.message,true);}
  }
 });
 el('#refresh').addEventListener('click',()=>loadAll());

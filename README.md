@@ -1,4 +1,4 @@
-# NetDeploy AI · v0.1.2 Alpha
+# NetDeploy AI · v0.1.3 Alpha
 
 > 一个以 VPS 为优先方向的 AI 辅助网络项目部署面板。2026-10-29 第一阶段原型（Windows SSH 主机指纹扫描修复）。 **不是生产稳定版，不要用重要 VPS 直接试错。**
 
@@ -195,3 +195,10 @@ tests/                    自动化测试
 - 校验/记录主机密钥改用 Paramiko 的 `HostKeys`，非 22 端口使用 `[host]:port` 格式；仍需在可信渠道对照 SHA256 指纹。
 - 连接失败时面板给出端口检测命令和明确的网络/握手诊断。
 - **更新时保留旧版 `data/` 目录和原管理员 `NETDEPLOY_ADMIN_TOKEN`，否则登录和 VPS 列表可能丢失。** 仍未经过真实 VPS 验收。
+
+## v0.1.3 修复说明
+
+- 修复重复确认 SSH 主机密钥时，即使与 `data/known_hosts` 中已固定的公钥完全相同，也错误提示“禁止从面板覆盖”的问题。现在相同公钥重复确认直接成功，且不重复写入；VPS 重装或主机密钥变化仍必须拒绝自动覆盖。
+- 前端区分“已信任且未变化”和“首次成功固定”；不需要删除旧版 `data/known_hosts` 或重新添加 VPS。
+- **本地升级：** 停止旧服务，在 Git 克隆目录执行 `git pull --ff-only origin main`，再运行 `Start-NetDeploy.bat`；不要使用 `git reset --hard` 或删除 `data/`。
+
