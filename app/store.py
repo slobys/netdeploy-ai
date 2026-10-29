@@ -25,6 +25,7 @@ class Store:
                   id INTEGER PRIMARY KEY AUTOINCREMENT,
                   name TEXT NOT NULL, hostname TEXT NOT NULL,
                   port INTEGER NOT NULL, username TEXT NOT NULL,
+                  tls_domain TEXT,
                   auth_mode TEXT NOT NULL DEFAULT 'key',
                   trust_epoch INTEGER NOT NULL DEFAULT 0,
                   facts_json TEXT, checked_at TEXT,
@@ -45,6 +46,8 @@ class Store:
                 c.execute("ALTER TABLE hosts ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'key'")
             if "trust_epoch" not in fields:
                 c.execute("ALTER TABLE hosts ADD COLUMN trust_epoch INTEGER NOT NULL DEFAULT 0")
+            if "tls_domain" not in fields:
+                c.execute("ALTER TABLE hosts ADD COLUMN tls_domain TEXT")
         # No automatic retry after restart: remote jobs may have partly executed.
         with self._db() as c:
             c.execute("UPDATE jobs SET status='interrupted', error=? , updated_at=? WHERE status IN ('queued','running')",
@@ -85,8 +88,9 @@ class Store:
 
     def add_host(self, data: dict):
         with self.lock, self._db() as c:
-            cursor = c.execute("INSERT INTO hosts(name,hostname,port,username,auth_mode,created_at) VALUES(?,?,?,?,?,?)",
-                               (data["name"], data["hostname"], data["port"], data["username"], data.get("auth_mode", "key"), now()))
+            cursor = c.execute("INSERT INTO hosts(name,hostname,port,username,tls_domain,auth_mode,created_at) VALUES(?,?,?,?,?,?,?)",
+                               (data["name"], data["hostname"], data["port"], data["username"],
+                                data.get("tls_domain"), data.get("auth_mode", "key"), now()))
             c.commit()
             return self.host(cursor.lastrowid)
 
@@ -112,13 +116,19 @@ class Store:
             ).fetchone())
 
     def update_host(self, host_id: int, name: str, hostname: str,
-                    port: int, username: str) -> dict:
+                    port: int, username: str, tls_domain: str | None = None) -> dict:
         with self.lock, self._db() as c:
             row = c.execute("SELECT * FROM hosts WHERE id=?", (host_id,)).fetchone()
             if row is None:
                 raise ValueError("服务器记录不存在")
             changed = (row["hostname"].lower() != hostname.lower()
                        or row["port"] != port or row["username"] != username)
+            tls_changed = (row["tls_domain"] or "") != (tls_domain or "")
+            if tls_changed and c.execute(
+                "SELECT 1 FROM jobs WHERE host_id=? AND status IN ('queued','running') LIMIT 1",
+                (host_id,),
+            ).fetchone():
+                raise ValueError("该 VPS 正在执行任务，请完成部署后再更换证书域名")
             if changed:
                 jobs = c.execute("SELECT COUNT(*) FROM jobs WHERE host_id=?",
                                  (host_id,)).fetchone()[0]
@@ -131,13 +141,25 @@ class Store:
                 if exists:
                     raise ValueError("另一个 VPS 记录已使用此地址和端口，请编辑已有条目或删除重复记录")
             c.execute(
-                """UPDATE hosts SET name=?, hostname=?, port=?, username=?,
+                """UPDATE hosts SET name=?, hostname=?, port=?, username=?, tls_domain=?,
                    facts_json=CASE WHEN ? THEN NULL ELSE facts_json END,
                    checked_at=CASE WHEN ? THEN NULL ELSE checked_at END,
                    trust_epoch=trust_epoch+?
                    WHERE id=?""",
-                (name, hostname, port, username, int(changed), int(changed), int(changed), host_id),
+                (name, hostname, port, username, tls_domain,
+                 int(changed), int(changed), int(changed), host_id),
             )
+            if tls_changed:
+                # A previously prepared HTTPS plan has a frozen identity.
+                # Do not silently retarget it to a newly entered domain.
+                c.execute(
+                    """UPDATE jobs SET status='invalidated',
+                       error='证书域名已更新，旧审批计划不可用于新的证书标识',
+                       updated_at=?
+                       WHERE host_id=? AND project IN ('3x-ui','3x-ui-https')
+                       AND status='planned'""",
+                    (now(), host_id),
+                )
         return self.host(host_id)
 
     def delete_host(self, host_id: int, purge_history: bool) -> dict:

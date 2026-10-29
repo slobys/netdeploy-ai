@@ -38,7 +38,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.10")
+app = FastAPI(title="NetDeploy AI", version="0.3.11")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -60,6 +60,7 @@ def authorized(x_admin_token: str | None = Header(default=None)):
 class HostCreate(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     hostname: str = Field(min_length=1, max_length=253)
+    tls_domain: str | None = Field(default=None, max_length=253)
     port: int = Field(default=22, ge=1, le=65535)
     username: str = Field(default="root", min_length=1, max_length=32)
     auth_mode: Literal["key", "password"] = "key"
@@ -76,6 +77,7 @@ class HostCredentials(BaseModel):
 class HostEdit(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     hostname: str = Field(min_length=1, max_length=253)
+    tls_domain: str | None = Field(default=None, max_length=253)
     port: StrictInt = Field(ge=1, le=65535)
     username: str = Field(min_length=1, max_length=32)
 
@@ -130,6 +132,36 @@ def require_password(password: str | None) -> str:
     return password
 
 
+def normalize_tls_domain(raw: str | None, ssh_hostname: str) -> str | None:
+    """TLS is optional and independent of the pinned SSH address.
+
+    A configured domain must point to a publicly reachable SSH IPv4 VPS;
+    the actual DNS A / public IP match is rechecked in the fixed remote
+    ACME preflight before requesting any certificate.
+    """
+    if raw is None or not raw.strip():
+        return None
+    mode, domain = identify(raw)
+    if mode != "domain":
+        raise ValueError("可选证书地址只能填写域名；不填域名时自动使用服务器 IPv4 申请 IP 证书")
+    ip_mode, _ = identify(ssh_hostname)
+    if ip_mode != "ip":
+        raise ValueError("填写证书域名时，SSH 服务器地址请使用公网 IPv4；域名只用于 HTTPS 证书")
+    return domain
+
+
+def tls_identity(host: dict) -> str:
+    return host.get("tls_domain") or host["hostname"]
+
+
+def tls_options(host: dict) -> dict:
+    """Freeze separately reviewed TLS identity and SSH IP into plan options."""
+    result = {"tls_identity": tls_identity(host)}
+    if host.get("tls_domain"):
+        result["ssh_ipv4"] = host["hostname"]
+    return result
+
+
 def public_host(host: dict) -> dict:
     # Never return the SSH password or any credential content through this API.
     remembered = getattr(executor, "password_remembered", lambda _id: False)
@@ -152,7 +184,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.10", "security": "local-only"}
+    return {"ok": True, "version": "0.3.11", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -204,12 +236,18 @@ def create_host(body: HostCreate):
         validate_host(body.hostname, body.username, body.port)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        domain = normalize_tls_domain(body.tls_domain, body.hostname)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if body.auth_mode == "password":
         require_password(body.password)
         if body.remember_password and not executor.vault.available:
             raise HTTPException(status_code=422, detail="此设备未启用 Windows 系统凭据保管库，请选择临时密码登录")
     # Do not pass credentials into the database, responses, plan or logs.
-    host = store.add_host(body.model_dump(exclude={"password"}))
+    data = body.model_dump(exclude={"password"})
+    data["tls_domain"] = domain
+    host = store.add_host(data)
     if body.auth_mode == "password":
         try:
             executor.set_password(host["id"], body.password, remember=body.remember_password)
@@ -225,6 +263,13 @@ def edit_host(id: int, body: HostEdit):
         raise HTTPException(status_code=422, detail="服务器名称不能为空")
     try:
         validate_host(body.hostname, body.username, body.port)
+        selected_domain = (
+            normalize_tls_domain(body.tls_domain, body.hostname)
+            if "tls_domain" in body.model_fields_set
+            else original.get("tls_domain")
+        )
+        if selected_domain is not None:
+            selected_domain = normalize_tls_domain(selected_domain, body.hostname)
         endpoint_changed = (
             original["hostname"].lower() != body.hostname.lower()
             or int(original["port"]) != body.port
@@ -236,7 +281,7 @@ def edit_host(id: int, body: HostEdit):
             if endpoint_changed:
                 executor.clear_password(id)
             host = store.update_host(id, body.name.strip(), body.hostname.strip(),
-                                     body.port, body.username.strip())
+                                     body.port, body.username.strip(), selected_domain)
     except (ValueError, VaultUnavailable) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return public_host(host)
@@ -353,7 +398,7 @@ def read_existing_xui(host: dict) -> dict:
     if not executor.credential_ready(host):
         raise HTTPException(status_code=409, detail="SSH 登录凭据不可用，请先检查本机凭据库")
     try:
-        raw = executor.run(host, status_script(host["hostname"]), timeout=26)
+        raw = executor.run(host, status_script(tls_identity(host)), timeout=26)
         return parse_status(raw)
     except (SSHError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"无法读取现有 3X-UI 状态：{exc}") from exc
@@ -383,7 +428,7 @@ def xui_existing_access(id: int):
     port = status["port"]
     try:
         if status["access_mode"] == "https":
-            script = public_access_script(host["hostname"], port)
+            script = public_access_script(tls_identity(host), port)
         elif status["access_mode"] == "local":
             script = ACCESS_SCRIPT
         else:
@@ -392,7 +437,7 @@ def xui_existing_access(id: int):
     except (SSHError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=f"无法安全读取安装时的面板信息：{exc}") from exc
     if status["access_mode"] == "https":
-        result["direct_url"] = direct_url(host["hostname"], port, result["web_path"])
+        result["direct_url"] = direct_url(tls_identity(host), port, result["web_path"])
         result["access_mode"] = "https"
     else:
         result["ssh_tunnel"] = (
@@ -545,7 +590,7 @@ def new_job(body: NewJob):
             raise HTTPException(status_code=409, detail="3X-UI 已安装，此处不再创建安装审批计划；请直接查看服务器上的现有面板信息")
         options = {"panel_port": body.panel_port if body.panel_port is not None else DEFAULT_PORT}
         if body.access_mode == "https":
-            options.update({"access_mode": "https", "tls_identity": host["hostname"]})
+            options.update({"access_mode": "https", **tls_options(host)})
         if options["panel_port"] == host["port"]:
             raise HTTPException(status_code=422, detail="面板端口不能与 VPS SSH 端口相同")
     elif body.project == "3x-ui-https":
@@ -562,7 +607,7 @@ def new_job(body: NewJob):
             if store.completed_https_upgrade(host["id"], source["id"]):
                 raise HTTPException(status_code=409, detail="已有完成的 HTTPS 升级任务，请查看面板")
             options = {"panel_port": source["plan"]["options"]["panel_port"],
-                       "tls_identity": host["hostname"], "source_job_id": source["id"]}
+                       **tls_options(host), "source_job_id": source["id"]}
         else:
             # A task history cleanup must not force a reinstall. Only an
             # independently verified, managed, localhost-bound live service
@@ -571,7 +616,7 @@ def new_job(body: NewJob):
             if (not existing["installed"] or not existing["managed"] or
                     existing["service"] != "active" or existing["access_mode"] != "local"):
                 raise HTTPException(status_code=409, detail="只有已运行、安装记录可验证且仍本机监听的 3X-UI 才能直接继续 HTTPS；不会覆盖未知配置")
-            options = {"panel_port": existing["port"], "tls_identity": host["hostname"]}
+            options = {"panel_port": existing["port"], **tls_options(host)}
     elif body.panel_port is not None or body.access_mode or body.source_job_id:
         raise HTTPException(status_code=422, detail="此项目不支持 HTTPS 部署参数")
     try:

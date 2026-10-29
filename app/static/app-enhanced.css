@@ -381,6 +381,29 @@ details>summary:hover{color:#d2e6ff}
 .firewall-toggle-actions .btn{font-size:12px}
 @media(max-width:550px){.firewall-toggle-actions .btn{flex:1 1 100%}}
 
+
+/* v0.3.11 — guided VPS onboarding and optional domain certificates */
+.setup-progress{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:15px 0 23px;padding:0;list-style:none}
+.setup-progress li{display:flex;align-items:center;justify-content:center;gap:8px;color:#8da8c8;font-size:11px;padding:10px 7px;background:#0c1729;border:1px solid #2b3c59;border-radius:10px;min-width:0;text-align:center}
+.setup-progress li.current{color:#e8f3ff;border-color:#659ae7;background:#1d3557;font-weight:760}
+.setup-progress li.finished{color:#9ce5d0;border-color:#2e776b;background:#12302e}
+.setup-step-number{display:grid;place-items:center;flex:0 0 23px;width:23px;height:23px;border-radius:50%;background:#254265;color:#e1efff;font-size:11px;font-weight:800}
+.setup-progress li.finished .setup-step-number{background:#24675b}
+.setup-progress li.current .setup-step-number{background:#4b85ec}
+.setup-loading{display:flex;align-items:center;gap:12px;padding:26px 10px;color:#b3cdeb;font-size:13px;line-height:1.8}
+.setup-result{border:1px solid #386c78;background:linear-gradient(140deg,#153a3e,#152c3b);border-radius:14px;padding:19px 21px;margin:14px 0 19px}
+.setup-result h3{font-size:18px;color:#e9f7ff;margin:10px 0}
+.setup-result p{font-size:12px;color:#aed0e1;line-height:1.7;margin:6px 0}
+.form-group input[name="tls_domain"]{font-variant-ligatures:none}
+.host-cert-detail{color:#8bc4f4;font-size:11px;font-weight:600}
+@media(max-width:700px){
+  .setup-progress{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .setup-progress li{justify-content:flex-start;font-size:10px;padding:8px}
+}
+@media(max-width:380px){
+  .setup-progress{grid-template-columns:1fr 1fr}
+}
+
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
   .host-item:hover,.project:hover,.stat:hover,.job-item:hover,.btn:hover,.nav-item:hover{transform:none!important}

@@ -28,6 +28,9 @@ function makeElement() {
       toggle: (name,yes) => {if(yes)classes.add(name);else classes.delete(name);},
     },
     addEventListener: (kind, fn) => handlers.set(kind, fn),
+    async dispatch(kind,event) {return handlers.get(kind)?.(event);},
+    formValues: {},
+    isConnected:true,
     setAttribute() {},
     removeAttribute() {},
     querySelector() { return makeElement(); },
@@ -55,18 +58,28 @@ const document = {
       return made.get(selector);
     }
     if(selector==='#task-log'&&!modal.innerHTML.includes('id="task-log"'))return null;
-    if (selector === '#verified-key') return null;
+    if (selector === '#verified-key') return trustCheck?{checked:true}:null;
     if (!made.has(selector)) made.set(selector, makeElement());
     return made.get(selector);
   },
   querySelectorAll() { return []; },
-  addEventListener() {},
+  addEventListener(kind,fn) {domHandlers.set(kind,fn);},
 };
 const host = {
   id: 1, name:'Test VPS', hostname:'45.32.35.195', port:22,username:'root',
   auth_mode:'password',password_remembered:true,credential_ready:true,trust_epoch:0,
   job_count:1,facts:{OS_ID:'ubuntu',ARCH:'x86_64'},
 };
+const domHandlers=new Map();
+let trustCheck=false;
+let preflightRequests=0;
+let trustRequests=0;
+let storedHosts=[host];
+class FakeFormData{
+  constructor(form){this.values=form.formValues||{};}
+  get(k){return this.values[k]??null;}
+  [Symbol.iterator](){return Object.entries(this.values)[Symbol.iterator]();}
+}
 const freshJob = {
   id:'a1b2c3d4e5f6a7b8',host_id:1,project:'3x-ui',status:'planned',
   created_at:new Date().toISOString(),
@@ -80,7 +93,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.10';
+let runtimeVersion='0.3.11';
 let xuiReadRequests=0;
 const context = vm.createContext({
   console,
@@ -89,13 +102,28 @@ const context = vm.createContext({
   sessionStorage:{getItem:()=>null,setItem(){},removeItem(){}},
   navigator:{clipboard:{writeText:async()=>{}}},
   setInterval(){},
+  FormData:FakeFormData,
   clearTimeout(){},
   setTimeout(){return 1;},
-  fetch:async url=>{
+  fetch:async (url,opts={})=>{
     if (url==='/api/local-session') return {ok:false,status:403,json:async()=>({})};
-    if (url==='/api/hosts/1/fingerprint') {
+    if (/^\/api\/hosts\/\d+\/fingerprint$/.test(url)) {
       fingerprintRequests++;
       return {ok:true,status:200,json:async()=>mockFingerprint};
+    }
+    if(/^\/api\/hosts\/\d+\/trust$/.test(url)){
+      const request=JSON.parse(opts.body||'{}');
+      assert.equal(request.confirmed_out_of_band,true);
+      assert.equal(request.fingerprint,mockFingerprint.fingerprint);
+      trustRequests++;
+      return {ok:true,status:200,json:async()=>({already_trusted:false})};
+    }
+    if(/^\/api\/hosts\/\d+\/preflight$/.test(url)){
+      preflightRequests++;
+      return {ok:true,status:200,json:async()=>({
+        id:2,name:'VIP1',hostname:'45.32.35.196',
+        facts:{OS_ID:'ubuntu',OS_VERSION:'26.10',ARCH:'x86_64'}
+      })};
     }
     if(url==='/api/hosts/1/3x-ui'){
       return {ok:true,status:200,json:async()=>xuiStatus};
@@ -110,7 +138,14 @@ const context = vm.createContext({
       })};
     }
     if(url==='/api/health')return {ok:true,status:200,json:async()=>({ok:true,version:runtimeVersion})};
-    if(url==='/api/hosts')return {ok:true,status:200,json:async()=>[host]};
+    if(url==='/api/hosts'&&opts.method==='POST'){
+      const data=JSON.parse(opts.body);
+      const created={...data,id:2,hostname:data.hostname,tls_domain:data.tls_domain,
+        credential_ready:true,job_count:0,trust_epoch:0,auth_mode:data.auth_mode};
+      storedHosts=[created,host];
+      return {ok:true,status:200,json:async()=>created};
+    }
+    if(url==='/api/hosts')return {ok:true,status:200,json:async()=>storedHosts};
     if(url==='/api/catalog')return {ok:true,status:200,json:async()=>({
       '3x-ui':{name:'3X-UI',subtitle:'Xray 管理面板',deployment:'install',category:'面板'}
     })};
@@ -166,9 +201,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.10';
+  runtimeVersion='0.3.11';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.10');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.11');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -254,6 +289,63 @@ function fingerprintFor(label) {
   assert(modal.innerHTML.includes('data-current-status="completed"'));
   returnedJobs=null;
   evaluate("state.token='';");
+
+
+  // A new VPS must stay inside one 4-step flow, using the IP for SSH and
+  // an independent optional domain for ACME. Only the FIRST host-key trust
+  // requires explicit out-of-band verification.
+  fill();
+  evaluate("state.token='test';state.activeJob=null;");
+  evaluate('addHost()');
+  assert(modal.innerHTML.includes('服务器公网 IPv4'));
+  assert(modal.innerHTML.includes('name="tls_domain"'));
+  assert(modal.innerHTML.includes('服务器信息'));
+  assert.equal(evaluate("isIpv4Input('panel.example.com')"),false);
+  assert.equal(evaluate("isIpv4Input('45.32.35.196')"),true);
+  const addForm=made.get('#add-host-form');
+  addForm.formValues={
+    name:'VIP1',hostname:'45.32.35.196',port:'22',username:'root',
+    auth_mode:'key',tls_domain:'panel.example.com'
+  };
+  const createdRequestsBefore=fingerprintRequests;
+  mockFingerprint={
+    fingerprint:'SHA256:FreshTestHostKeyXYZ',
+    key_type:'ssh-ed25519',previous_fingerprints:[],
+    changed:false,shared_host_count:1
+  };
+  await addForm.dispatch('submit',{preventDefault(){},currentTarget:addForm});
+  assert.equal(evaluate('state.setupFlowId'),2);
+  assert.equal(fingerprintRequests,createdRequestsBefore+1);
+  assert(modal.innerHTML.includes('第 2 步 · SSH 主机指纹'));
+  assert(fingerprintTarget.innerHTML.includes('确认指纹，下一步检测连接'));
+  assert.equal(preflightRequests,0,'first-use host key cannot auto-trust or connect');
+  trustCheck=true;
+  const trustButton=makeElement();
+  trustButton.dataset={action:'trust',id:'2',fingerprint:mockFingerprint.fingerprint};
+  trustButton.closest=()=>trustButton;
+  await domHandlers.get('click')({target:trustButton});
+  assert.equal(trustRequests,1,'new SSH host must be independently approved once');
+  assert.equal(preflightRequests,1);
+  assert(modal.innerHTML.includes('第 3 步 · 连接检测通过'));
+  assert(modal.innerHTML.includes('下一步：选择软件'));
+  assert(modal.innerHTML.includes('域名证书'));
+  evaluate('setupProjects(2)');
+  assert(modal.innerHTML.includes('第 4 步 · 选择要安装的软件'));
+  assert(modal.innerHTML.includes('panel.example.com'));
+  assert(modal.innerHTML.includes('data-action="server-install"'));
+
+  // A known, unchanged pinned fingerprint can proceed straight to SSH
+  // detection, without making the user tick the same checkbox twice.
+  mockFingerprint={
+    fingerprint:'SHA256:FreshTestHostKeyXYZ',key_type:'ssh-ed25519',
+    previous_fingerprints:[{key_type:'ssh-ed25519',fingerprint:'SHA256:FreshTestHostKeyXYZ'}],
+    changed:false,shared_host_count:1
+  };
+  await evaluate('beginServerSetup(2)');
+  assert.equal(trustRequests,1);
+  assert.equal(preflightRequests,2);
+  assert(modal.innerHTML.includes('连接检测通过'));
+  evaluate("state.setupFlowId=null;state.token='';");
 
   assert(css.includes('.fingerprint-result{display:flex;flex-direction:column'),
     'Fingerprint results must stack vertically');

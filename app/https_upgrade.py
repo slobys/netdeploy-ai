@@ -31,9 +31,15 @@ def identify(hostname: str) -> tuple[str, str]:
     return "ip", str(address)
 
 
-def https_steps(identity: str, port: int) -> list[dict]:
+def https_steps(identity: str, port: int, ssh_ipv4: str | None = None) -> list[dict]:
     mode, identity = identify(identity)
     validate_port(port)
+    if ssh_ipv4 is not None:
+        if mode != "domain":
+            raise ValueError("SSH IPv4 绑定仅适用于域名证书")
+        expected_mode, ssh_ipv4 = identify(ssh_ipv4)
+        if expected_mode != "ip":
+            raise ValueError("SSH 地址必须是公网 IPv4")
     preflight = r"""set -eu
 test "$(id -u)" = 0
 test -x /usr/local/x-ui/x-ui || {
@@ -57,6 +63,11 @@ command -v getent >/dev/null
 # Validate the requested hostname points to the actual public IPv4 egress.
 public_ip="$(curl --proto '=https' --tlsv1.2 -4 -fsS --max-time 12 https://api.ipify.org)"
 case "$public_ip" in ""|*[!0-9.]* ) echo 'Could not identify public IPv4'; exit 27;; esac
+if [ -n "__SSH_IP__" ]; then
+    test "$public_ip" = "__SSH_IP__" || {
+        echo 'VPS public egress IP differs from the SSH IPv4; verify the actual VPS and its routing before issuing a domain certificate'; exit 28;
+    }
+fi
 if [ "__MODE__" = "ip" ]; then
     test "$public_ip" = "__IDENTITY__" || {
         echo 'VPS public egress IP differs from certificate IP; abort'; exit 28;
@@ -297,6 +308,7 @@ echo 'Public HTTPS is active; cloud security group must separately permit the se
     # Expand nested placeholders inside the installer command, too.
     values = {"__ISSUE_CMD__": issue_cmd.strip(), "__MODE__": mode,
               "__IDENTITY__": identity, "__PORT__": str(port),
+              "__SSH_IP__": ssh_ipv4 or "",
               "__PUBLIC_SOCKET_CHECK__": PUBLIC_SOCKET_CHECK,
               "__CHECK__": "checkip" if mode == "ip" else "checkhost"}
     result = []

@@ -1,8 +1,8 @@
-/* NetDeploy AI v0.3.10 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.11 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.10';
+const CLIENT_VERSION = '0.3.11';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false};
+const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null};
 
 async function api(path, opts={}) {
   const resp = await fetch('/api'+path,{...opts,headers:{'X-Admin-Token':state.token,...(opts.body?{'Content-Type':'application/json'}:{}),...(opts.headers||{})},cache:'no-store'});
@@ -93,7 +93,7 @@ function render(){
    return `<article class="host-item interactive-card" role="button" tabindex="0" data-action="host-console" data-id="${h.id}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台">
       <div class="host-card-top"><div class="host-icon">▤</div><div class="host-title"><b>${escapeHtml(h.name)}</b><span class="chip ${statusClass}">${status}</span></div><span class="host-card-open">管理服务器 →</span></div>
       <div class="host-card-address">${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port}</div>
-      <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}</div>
+      <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span><span class="host-cert-detail">${h.tls_domain?'域名证书 '+escapeHtml(h.tls_domain):'IP 证书（未填域名）'}</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}</div>
       ${duplicate>1?`<span class="host-card-hint">${duplicate} 条记录共用此 SSH 地址</span>`:''}
       <button class="host-card-delete" type="button" data-action="delete-host" data-id="${h.id}" aria-label="删除 ${escapeHtml(h.name)} 的本地服务器记录">删除服务器</button>
     </article>`;
@@ -309,6 +309,7 @@ async function checkHostInConsole(id){
 }
 async function createHostPlan(id,project,panelPort=null,absenceVerified=false){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ if(state.setupFlowId===id){state.setupFlowId=null;state.hostPanel={id,tab:'deploy'};}
  // Always inspect the *live* VPS before an installation, not old task records.
  if(project==='3x-ui'&&!absenceVerified){
    toast('正在只读检查现有 3X-UI 安装…');
@@ -322,11 +323,11 @@ async function createHostPlan(id,project,panelPort=null,absenceVerified=false){
    j.plan?.steps?.length>0&&['planned','queued','running'].includes(j.status)&&!planNeedsUpdate(j));
  if(existing){showJob(existing.id);toast(existing.status==='planned'?'已有审批方案，直接继续即可':'已有执行中的任务，无需重复创建');return;}
  if(project==='3x-ui'&&panelPort===null){
-   const detectedHost=host.hostname;
-   const ip=/^\d{1,3}(?:\.\d{1,3}){3}$/.test(detectedHost);
+   const detectedHost=certHost(host);
+   const ip=!host.tls_domain&&isIpv4Input(host.hostname);
    dialog(modalHead('安装 3X-UI · 自定义面板端口')+`
      <div class="xui-port-config"><span class="chip">${ip?'公网 IP · 自动申请 IP 证书':'域名 · 自动申请域名证书'}</span>
-       <p>服务器：${escapeHtml(detectedHost)}。证书类型将自动识别，不需要额外选择或再执行一次 HTTPS 安装。</p>
+       <p>SSH 服务器：${escapeHtml(host.hostname)}；HTTPS 证书：${escapeHtml(detectedHost)}。证书类型将自动识别，不需要再次选择或单独安装 HTTPS。</p>
        <form id="xui-custom-port-form"><div class="form-group">
          <label>3X-UI 管理端口（可自行修改）</label>
          <input name="port" type="number" min="1024" max="65535" value="24443" required/>
@@ -445,29 +446,122 @@ function enableAuthToggle(){
  function toggle(){field.hidden=select.value!=='password';password.required=select.value==='password';if(select.value!=='password')password.value='';}
  select.addEventListener('change',toggle);toggle();
 }
+function isIpv4Input(value){const parts=String(value||'').split('.');return parts.length===4&&parts.every(v=>/^\d{1,3}$/.test(v)&&String(Number(v))===v&&Number(v)<=255);}
+function certHost(host){return host.tls_domain||host.hostname;}
+function certLabel(host){return host.tls_domain||!isIpv4Input(host.hostname)?`域名证书 · ${escapeHtml(certHost(host))}`:`IP 证书 · ${escapeHtml(host.hostname)}`;}
+function setupProgress(step){
+ const steps=['服务器信息','SSH 指纹','连接检测','选择软件'];
+ return `<ol class="setup-progress" aria-label="服务器添加进度">${steps.map((text,i)=>`<li class="${i+1===step?'current':i+1<step?'finished':''}" ${i+1===step?'aria-current="step"':''}>
+   <span class="setup-step-number">${i+1<step?'✓':i+1}</span><span>${text}</span></li>`).join('')}</ol>`;
+}
+async function beginServerSetup(id){
+ state.setupFlowId=id;
+ state.hostPanel={id,tab:'overview'};
+ await fingerprint(id);
+}
+async function setupPreflight(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ state.setupFlowId=id;
+ dialog(modalHead('第 3 步 · 检查 SSH 与系统')+setupProgress(3)+
+  '<div class="setup-loading"><span class="inline-spinner" aria-hidden="true"></span>正在使用已验证的 SSH 指纹登录并检测系统…</div>');
+ try{
+   const checked=await api(`/hosts/${id}/preflight`,{method:'POST'});
+   await loadAll(true);
+   if(state.setupFlowId!==id)return;
+   const facts=checked.facts||{};
+   dialog(modalHead('第 3 步 · 连接检测通过')+setupProgress(3)+
+    `<section class="setup-result"><span class="chip success">SSH 已验证 · 连接成功</span>
+      <h3>${escapeHtml(checked.name)} 已准备好</h3>
+      <p>${escapeHtml(facts.OS_ID||'Linux')} · ${escapeHtml(facts.OS_VERSION||'')} · ${escapeHtml(facts.ARCH||'未知架构')}</p>
+      <p>${certLabel(state.hosts.find(h=>h.id===id)||checked)}；创建部署方案时仍会自动进行安全复核。</p></section>
+    <div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="${id}">稍后操作</button>
+      <button class="btn primary" data-action="setup-projects" data-id="${id}">下一步：选择软件 →</button></div>`);
+   toast('SSH 连接及服务器环境检测通过');
+ }catch(err){
+   dialog(modalHead('连接检测未通过')+setupProgress(3)+
+     `<div class="modal-tip warning">${escapeHtml(err.message)}</div>
+      <div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="${id}">返回服务器</button>
+       <button class="btn subtle" data-action="credentials" data-id="${id}">修改 SSH 密码</button>
+       <button class="btn primary" data-action="setup-retry" data-id="${id}">重试连接检测</button></div>`);
+   toast(err.message,true);
+ }
+}
+function setupProjects(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ state.setupFlowId=id;
+ state.hostPanel={id,tab:'deploy'};
+ const visible=Object.entries(state.catalog).filter(([key,p])=>!p.internal);
+ dialog(modalHead('第 4 步 · 选择要安装的软件')+setupProgress(4)+
+  `<div class="setup-result"><span class="chip success">服务器 ${escapeHtml(host.name)} 已连接</span>
+    <h3>接下来想在 VPS 上安装什么？</h3><p>${certLabel(host)}。系统会自动识别已有软件、检查环境并生成安装方案；真正安装前只需要批准一次。</p></div>
+    <div class="server-project-grid">${visible.map(([key,project])=>`<button class="server-project-choice" data-action="server-install" data-id="${id}" data-project="${escapeHtml(key)}">
+      <span class="project-choice-icon">${symbol[key]||'▣'}</span><strong>${escapeHtml(project.name)}</strong>
+      <small>${escapeHtml(project.subtitle)}</small><span class="project-choice-link">${project.deployment==='install'?'选择并继续':'查看方案'} →</span>
+     </button>`).join('')}</div>
+    <div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="${id}">完成，稍后部署</button></div>`);
+}
 function addHost(){
- dialog(modalHead('添加 Linux VPS 服务器')+`<p class="helptext">SSH 密码可以选择保存到 Windows 系统凭据库，更新和重启后自动恢复；新机器仍需要首次确认 SSH 主机指纹。</p>
- <form id="add-host-form"><div class="form-group"><label>服务器名称</label><input name="name" placeholder="例如：香港 VPS 01" required maxlength="60"/></div>
- <div class="form-group"><label>服务器公网 IP 或域名</label><input name="hostname" placeholder="203.0.113.10" required/></div>
- <div class="form-2"><div class="form-group"><label>SSH 用户名</label><input name="username" value="root" required/></div><div class="form-group"><label>SSH 端口</label><input name="port" type="number" min="1" max="65535" value="22" required/></div></div>
- ${authSelect()}
- <div class="modal-tip">首次连接仍需通过云厂商控制台核对 SSH 主机指纹。密码认证需要 VPS 允许 SSH PasswordAuthentication；root 登录还受 PermitRootLogin 配置约束。请通过本机访问或 HTTPS 安全连接面板。</div>
- <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary" type="submit">添加服务器</button></div></form>`);
+ state.setupFlowId=null;
+ state.hostPanel=null;
+ dialog(modalHead('第 1 步 · 添加 Linux VPS')+setupProgress(1)+
+  `<p class="helptext">SSH 用服务器公网 IPv4 连接；域名是可选的 HTTPS 证书地址，不能代替 SSH IP。保存后直接进入指纹验证，不再返回首页。</p>
+  <form id="add-host-form"><div class="form-group"><label>服务器名称</label><input name="name" placeholder="例如：日本 VPS 01" required maxlength="60"/></div>
+  <div class="form-group"><label>服务器公网 IPv4（用于 SSH 连接）</label><input name="hostname" placeholder="例如：45.32.35.195" required inputmode="decimal"/></div>
+  <div class="form-group"><label>HTTPS 证书域名（可选，不填就申请 IP 证书）</label>
+    <input name="tls_domain" placeholder="例如：ts.example.com" autocomplete="off"/>
+    <p class="helptext">如果填写域名，请先将其 DNS A 记录指向上面的 VPS IPv4。部署时自动验证，无需再选择证书类型。</p></div>
+  <div class="form-2"><div class="form-group"><label>SSH 用户名</label><input name="username" value="root" required/></div>
+    <div class="form-group"><label>SSH 端口</label><input name="port" type="number" min="1" max="65535" value="22" required/></div></div>
+  ${authSelect()}
+  <div class="modal-tip">首次连接仍需通过 VPS 云控制台独立核对一次 SSH 指纹。密码可保存到 Windows 系统凭据库；以后不必反复输入。</div>
+  <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button>
+    <button class="btn primary" type="submit">添加并验证服务器 →</button></div></form>`);
  enableAuthToggle();
- el('#add-host-form').addEventListener('submit',async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.currentTarget));d.port=Number(d.port);d.remember_password=d.remember_password==='on';if(d.auth_mode!=='password')delete d.password;const existing=state.hosts.find(h=>h.hostname.toLowerCase()===String(d.hostname).toLowerCase()&&h.port===d.port);if(existing){closeDialog();editHost(existing.id);toast('此 IP/端口已经添加过，请直接使用已有 VPS；重装可在“指纹 / 重装”中重新验证。');return;}const btn=e.currentTarget.querySelector('button[type="submit"]');if(btn){btn.disabled=true;btn.classList.add('is-loading');}try{toast('正在添加服务器…');await api('/hosts',{method:'POST',body:JSON.stringify(d)});closeDialog();await loadAll(true);toast('服务器已添加。请先核对 SSH 主机指纹，再进行环境检测。');}catch(err){toast(err.message,true);}finally{if(btn?.isConnected){btn.disabled=false;btn.classList.remove('is-loading');}}});
+ el('#add-host-form').addEventListener('submit',async e=>{
+   e.preventDefault();const form=e.currentTarget;
+   const d=Object.fromEntries(new FormData(form));
+   d.port=Number(d.port);d.tls_domain=String(d.tls_domain||'').trim()||null;
+   d.remember_password=d.remember_password==='on';
+   if(d.auth_mode!=='password')delete d.password;
+   if(!isIpv4Input(String(d.hostname).trim())){toast('SSH 地址请填写 VPS 公网 IPv4；如果有域名，请填写下方的可选 HTTPS 证书域名框',true);return;}
+   const existing=state.hosts.find(h=>h.hostname.toLowerCase()===String(d.hostname).toLowerCase()&&h.port===d.port);
+   if(existing){
+     if((existing.tls_domain||'')!==(d.tls_domain||'')){
+       editHost(existing.id);toast('该 IP 已添加，请在服务器编辑中修改可选证书域名，不会重置 SSH 信任');
+     }else{await beginServerSetup(existing.id);}
+     return;
+   }
+   const btn=form.querySelector('button[type="submit"]');if(btn){btn.disabled=true;btn.classList.add('is-loading');}
+   try{
+     toast('正在保存 VPS 和本机 SSH 凭据…');
+     const created=await api('/hosts',{method:'POST',body:JSON.stringify(d)});
+     // Server response is authoritative. Reconcile it immediately so a
+     // concurrent 5-second dashboard refresh cannot hide the new VPS before
+     // the next SSH fingerprint step begins.
+     state.hosts=[created,...state.hosts.filter(h=>h.id!==created.id)];
+     await loadAll(true);
+     if(!state.hosts.some(h=>h.id===created.id))state.hosts.unshift(created);
+     toast('服务器已添加，下一步核对 SSH 指纹');
+     await beginServerSetup(created.id);
+   }catch(err){toast(err.message,true);}
+   finally{if(btn?.isConnected){btn.disabled=false;btn.classList.remove('is-loading');}}
+ });
 }
 function editHost(id){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
  const locked=Boolean(host.job_count);
- dialog(modalHead('编辑 VPS 服务器')+`<p class="helptext">编辑服务器信息；有部署历史的 VPS 为保护旧任务，只允许修改名称。</p>
+ dialog(modalHead('编辑 VPS 服务器')+`<p class="helptext">SSH 地址建议填写公网 IPv4；HTTPS 域名可以单独编辑，不会影响 SSH 连接与已信任的主机指纹。</p>
  <form id="edit-host-form"><div class="form-group"><label>显示名称</label><input name="name" maxlength="60" required value="${escapeHtml(host.name)}"/></div>
- <div class="form-group"><label>服务器公网 IP 或域名</label><input name="hostname" required value="${escapeHtml(host.hostname)}" ${locked?'readonly':''}/></div>
+ <div class="form-group"><label>服务器公网 IPv4（SSH 地址）</label><input name="hostname" required value="${escapeHtml(host.hostname)}" ${locked?'readonly':''}/></div>
+ <div class="form-group"><label>HTTPS 证书域名（可选，不填使用服务器 IP）</label>
+   <input name="tls_domain" value="${escapeHtml(host.tls_domain||'')}" placeholder="例如：ts.example.com"/>
+   <p class="helptext">此项可单独修改；有待审批的 HTTPS 计划时会使旧计划失效，避免用旧域名部署。</p></div>
  <div class="form-2"><div class="form-group"><label>SSH 用户名</label><input name="username" required value="${escapeHtml(host.username)}" ${locked?'readonly':''}/></div>
  <div class="form-group"><label>SSH 端口</label><input name="port" type="number" min="1" max="65535" required value="${host.port}" ${locked?'readonly':''}/></div></div>
- <div class="modal-tip">${locked?`已有 ${host.job_count} 条部署历史；连接地址保持锁定。如 VPS 仅重装，使用“指纹 / 重装”，无需修改 IP 或重新添加。`:'修改 IP、SSH 端口或用户名将清除旧环境检测状态及本机缓存密码。再次连接需要重新验证新地址的 SSH 主机指纹。'}</div>
+ <div class="modal-tip">${locked?`已有 ${host.job_count} 条部署历史，因此 SSH IP、端口和用户名保持锁定；但可修改显示名称和 HTTPS 证书域名。`:'修改 SSH IP、端口或用户名将清除旧环境检测状态及本机缓存密码，并需要重新验证 SSH 指纹。'}</div>
  <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary" type="submit">保存修改</button></div></form>`);
  el('#edit-host-form').addEventListener('submit',async e=>{
-   e.preventDefault();const form=e.currentTarget;const d=Object.fromEntries(new FormData(form));d.port=Number(d.port);
+   e.preventDefault();const form=e.currentTarget;const d=Object.fromEntries(new FormData(form));d.port=Number(d.port);d.tls_domain=String(d.tls_domain||'').trim()||null;
    const submit=form.querySelector('button[type="submit"]');if(submit){submit.disabled=true;submit.classList.add('is-loading');}
    toast('正在保存服务器信息…');
    try{await api(`/hosts/${id}`,{method:'PUT',body:JSON.stringify(d)});closeDialog();await loadAll(true);toast('服务器信息已更新');}
@@ -499,11 +593,11 @@ function credentials(id){
  <div class="modal-tip">${host.credential_ready?'目前已有可用凭据':'当前无可用登录凭据'}。仅更换 SSH 登录方式才会清空旧检测结果；同方式重填密码不会清空。创建部署计划时会自动进行只读检测。</div>
  <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary" type="submit">保存登录方式</button></div></form>`);
  enableAuthToggle();
- el('#credentials-form').addEventListener('submit',async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.currentTarget));d.remember_password=d.remember_password==='on';if(d.auth_mode!=='password')delete d.password;const btn=e.currentTarget.querySelector('button[type="submit"]');if(btn){btn.disabled=true;btn.classList.add('is-loading');}try{toast('正在安全更新登录凭据…');await api(`/hosts/${id}/credentials`,{method:'PUT',body:JSON.stringify(d)});closeDialog();await loadAll(true);toast('登录凭据已更新；生成部署方案时会自动检测环境');}catch(err){toast(err.message,true);}finally{if(btn?.isConnected){btn.disabled=false;btn.classList.remove('is-loading');}}});
+ el('#credentials-form').addEventListener('submit',async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.currentTarget));d.remember_password=d.remember_password==='on';if(d.auth_mode!=='password')delete d.password;const btn=e.currentTarget.querySelector('button[type="submit"]');if(btn){btn.disabled=true;btn.classList.add('is-loading');}try{toast('正在安全更新登录凭据…');await api(`/hosts/${id}/credentials`,{method:'PUT',body:JSON.stringify(d)});closeDialog();await loadAll(true);toast('登录凭据已更新；生成部署方案时会自动检测环境');if(state.setupFlowId===id)await setupPreflight(id);}catch(err){toast(err.message,true);}finally{if(btn?.isConnected){btn.disabled=false;btn.classList.remove('is-loading');}}});
 }
 async function fingerprint(id){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
- dialog(modalHead('SSH 主机身份验证')+`<div class="fingerprint-workflow">
+ dialog(modalHead('第 2 步 · SSH 主机指纹')+(state.setupFlowId===id?setupProgress(2):'')+`<div class="fingerprint-workflow">
    <p class="helptext">${escapeHtml(host.name)} · ${escapeHtml(host.hostname)}:${host.port}</p>
    <div id="fingerprint-data" class="fingerprint-loading" role="status"><span class="inline-spinner" aria-hidden="true"></span><span>正在读取主机公钥并比对本机信任记录…</span></div>
  </div>`);
@@ -528,6 +622,7 @@ async function fingerprint(id){
          <p>仅在首次连接、怀疑服务器被替换或重装时需要独立核对：</p>
          <code class="fingerprint-command">ssh-keygen -lf /etc/ssh/ssh_host_${keyFile}_key.pub -E sha256</code>
        </details><div class="fingerprint-actions">${closeAction}</div>`;
+     if(state.setupFlowId===id){toast('SSH 指纹已验证，自动进入连接检测');await setupPreflight(id);}
      return;
    }
    const status=changed
@@ -538,7 +633,7 @@ async function fingerprint(id){
    const shared=changed&&res.shared_host_count>1?`<p class="fingerprint-shared">提示：${res.shared_host_count} 条 VPS 记录共用此 IP 和 SSH 端口，确认更新会使这些记录的旧部署计划失效。</p>`:'';
    const button=changed
       ?`<button class="btn danger" data-action="prepare-rekey" data-id="${id}">已核实 VPS 重装，更新信任</button>`
-      :`<button class="btn primary" data-action="trust" data-id="${id}" data-fingerprint="${escapeHtml(res.fingerprint)}">核对一致，首次信任</button>`;
+      :`<button class="btn primary" data-action="trust" data-id="${id}" data-fingerprint="${escapeHtml(res.fingerprint)}">${state.setupFlowId===id?'确认指纹，下一步检测连接 →':'核对一致，首次信任'}</button>`;
    target.innerHTML=`${status}<div class="fingerprint-key-stack">${currentCard}${oldCard}</div>
      <div class="fingerprint-guide always"><strong>核对方式</strong><p>进入 VPS 云厂商的网页控制台，执行下面的命令。核对结果必须与当前指纹一致。</p>
        <code class="fingerprint-command">ssh-keygen -lf /etc/ssh/ssh_host_${keyFile}_key.pub -E sha256</code></div>
@@ -550,7 +645,7 @@ async function fingerprint(id){
       <div><strong>无法获取 SSH 主机公钥</strong><p>${escapeHtml(err.message)}</p></div></div>
       <details class="fingerprint-guide"><summary>查看网络排查命令</summary>
         <code class="fingerprint-command">Test-NetConnection -ComputerName ${escapeHtml(host.hostname)} -Port ${Number(host.port)}</code>
-      </details><div class="fingerprint-actions"><button class="btn primary" data-action="back-host" data-id="${id}">返回服务器</button></div>`;}
+      </details><div class="fingerprint-actions"><button class="btn primary" data-action="fingerprint" data-id="${id}">重新扫描</button><button class="btn subtle" data-action="back-host" data-id="${id}">返回服务器</button></div>`;}
    toast(err.message,true);
  }
 }
@@ -576,6 +671,7 @@ function prepareRekey(id){
       confirmed_out_of_band:true,confirmation
    })});state.pendingFingerprint=null;closeDialog();await loadAll(true);
       toast(`新指纹已安全信任，影响 ${result.affected_host_records} 条记录；请重新检测系统并核对 SSH 登录密码`);
+      if(state.setupFlowId===id)await setupPreflight(id);
    }catch(err){toast(err.message,true);}finally{if(submit?.isConnected){submit.disabled=false;submit.classList.remove('is-loading');}}
  });
 }
@@ -592,7 +688,7 @@ function chooseHost(project){
  dialog(modalHead(`${p.deployment==='install'?'部署':'部署规划'} ${p.name}`)+`<form id="plan-form"><p class="helptext">选择目标 VPS，点击生成方案时会自动进行最新的只读环境检测，无需提前手动扫描。</p>
  <div class="form-group"><label>目标服务器</label><select name="host_id" id="plan-host-id" required>${state.hosts.map(h=>`<option value="${h.id}">${escapeHtml(h.name)} (${escapeHtml(h.hostname)})</option>`).join('')}</select></div>
  ${project==='3x-ui'?`<details><summary class="mini">高级设置（可选）：面板端口，默认 24443</summary><div class="form-group"><label>3X-UI 管理端口</label><input name="panel_port" type="number" min="1024" max="65535" value="24443" required/></div></details>
- <div class="modal-tip"><b id="cert-type-preview">证书类型自动识别中</b> —  填公网 IPv4 自动申请 IP 短期证书（160 小时），填域名自动申请域名证书。已有 3X-UI 时只升级 HTTPS、不重装。公网 TCP 80 必须允许 Let’s Encrypt 验证；失败时会显示具体原因，并保持原本的本机安全监听。</div>`:''}
+ <div class="modal-tip"><b id="cert-type-preview">证书类型自动识别中</b> —  SSH 使用 VPS IP；证书按“服务器设置”中可选的 HTTPS 域名决定：不填域名就申请 IP 短期证书，填写域名则申请域名证书。已有 3X-UI 只升级 HTTPS，不重装。公网 TCP 80 必须允许 Let’s Encrypt 验证；失败时会显示具体原因，并保持原本的本机安全监听。</div>`:''}
  <div class="modal-tip">仅生成可审查的部署计划；确认所有步骤和风险后仍需单独审批执行。</div>
  <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">自动检测并生成方案 →</button></div></form>`);
  if(project==='3x-ui'){
@@ -600,10 +696,9 @@ function chooseHost(project){
    const preview=()=>{
      const host=state.hosts.find(h=>h.id===Number(target?.value));
      if(!host)return;
-     const parts=host.hostname.split('.');
-     const ip=parts.length===4&&parts.every(x=>/^\d{1,3}$/.test(x)&&Number(x)<=255);
+     const ip=!host.tls_domain&&isIpv4Input(host.hostname);
      const indicator=el('#cert-type-preview');
-     if(indicator)indicator.textContent=ip?'识别为公网 IPv4：自动申请短期 IP 证书':'识别为域名：自动申请域名证书';
+     if(indicator)indicator.textContent=ip?`不填域名：使用 ${host.hostname} 申请 IP 证书`:`已设置 ${host.tls_domain}：自动申请域名证书`;
    };
    target?.addEventListener('change',preview);
    preview();
@@ -816,9 +911,11 @@ document.addEventListener('click',async e=>{
  const busy=asyncActions.has(act)||act==='apply-ufw-toggle';
  if(busy){t.dataset.busy='1';t.disabled=true;t.classList.add('is-loading');t.setAttribute('aria-busy','true');}
  try{
-  if(act==='close-modal'){closeDialog();state.activeJob=null;state.hostPanel=null;state.pendingFingerprint=null;}
+  if(act==='close-modal'){closeDialog();state.activeJob=null;state.hostPanel=null;state.pendingFingerprint=null;state.setupFlowId=null;}
+  else if(act==='setup-projects')setupProjects(Number(id));
+  else if(act==='setup-retry')await setupPreflight(Number(id));
   else if(act==='host-console')openHostConsole(Number(id));
-  else if(act==='back-host')openHostConsole(Number(id),state.hostPanel?.tab||'overview');
+  else if(act==='back-host'){state.setupFlowId=null;openHostConsole(Number(id),state.hostPanel?.tab||'overview');}
   else if(act==='host-tab')openHostConsole(Number(id),t.dataset.tab||'overview');
   else if(act==='toggle-ufw')confirmUfwToggle(Number(id),t.dataset.mode);
   else if(act==='apply-ufw-toggle')await applyUfwToggle(Number(id),t.dataset.mode);
@@ -851,7 +948,8 @@ document.addEventListener('click',async e=>{
     if(!el('#verified-key')?.checked){toast('必须通过 VPS 云控制台独立核对指纹',true);return;}
     try{const result=await api(`/hosts/${id}/trust`,{method:'POST',body:JSON.stringify({fingerprint:t.dataset.fingerprint,confirmed_out_of_band:true})});
        state.pendingFingerprint=null;closeDialog();await loadAll(true);
-       toast(result.already_trusted?'主机指纹与已信任记录一致':'已信任新的服务器指纹，可以继续检测环境');}
+       toast(result.already_trusted?'主机指纹与已信任记录一致':'已信任新的服务器指纹，可以继续检测环境');
+       if(state.setupFlowId===Number(id))await setupPreflight(Number(id));}
     catch(err){toast(err.message,true);}
   }
  }catch(err){toast(err.message||'操作失败，请重试',true);}finally{
