@@ -24,6 +24,8 @@ jobs:
         run: python -m pytest -q
       - name: Compile application code
         run: python -m compileall -q app
+      - name: Validate frontend JavaScript syntax
+        run: node --check app/static/app.js
 
       - name: Validate Windows PowerShell 5.1 launcher and updater
         if: runner.os == 'Windows'

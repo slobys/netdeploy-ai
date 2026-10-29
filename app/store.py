@@ -26,6 +26,7 @@ class Store:
                   name TEXT NOT NULL, hostname TEXT NOT NULL,
                   port INTEGER NOT NULL, username TEXT NOT NULL,
                   auth_mode TEXT NOT NULL DEFAULT 'key',
+                  trust_epoch INTEGER NOT NULL DEFAULT 0,
                   facts_json TEXT, checked_at TEXT,
                   created_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS jobs (
@@ -42,6 +43,8 @@ class Store:
             fields = {row[1] for row in c.execute("PRAGMA table_info(hosts)")}
             if "auth_mode" not in fields:
                 c.execute("ALTER TABLE hosts ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'key'")
+            if "trust_epoch" not in fields:
+                c.execute("ALTER TABLE hosts ADD COLUMN trust_epoch INTEGER NOT NULL DEFAULT 0")
         # No automatic retry after restart: remote jobs may have partly executed.
         with self._db() as c:
             c.execute("UPDATE jobs SET status='interrupted', error=? , updated_at=? WHERE status IN ('queued','running')",
@@ -86,6 +89,101 @@ class Store:
                                (data["name"], data["hostname"], data["port"], data["username"], data.get("auth_mode", "key"), now()))
             c.commit()
             return self.host(cursor.lastrowid)
+
+    def host_job_count(self, host_id: int) -> int:
+        with self._db() as c:
+            return c.execute("SELECT COUNT(*) FROM jobs WHERE host_id=?", (host_id,)).fetchone()[0]
+
+    def endpoint_hosts(self, hostname: str, port: int) -> list[dict]:
+        with self._db() as c:
+            rows = c.execute(
+                "SELECT * FROM hosts WHERE lower(hostname)=lower(?) AND port=? ORDER BY id",
+                (hostname, port),
+            ).fetchall()
+            return [self._row(row) for row in rows]
+
+    def has_active_endpoint_jobs(self, hostname: str, port: int) -> bool:
+        with self._db() as c:
+            return bool(c.execute(
+                """SELECT 1 FROM jobs j JOIN hosts h ON j.host_id=h.id
+                   WHERE lower(h.hostname)=lower(?) AND h.port=?
+                   AND j.status IN ('queued','running') LIMIT 1""",
+                (hostname, port),
+            ).fetchone())
+
+    def update_host(self, host_id: int, name: str, hostname: str,
+                    port: int, username: str) -> dict:
+        with self.lock, self._db() as c:
+            row = c.execute("SELECT * FROM hosts WHERE id=?", (host_id,)).fetchone()
+            if row is None:
+                raise ValueError("服务器记录不存在")
+            changed = (row["hostname"].lower() != hostname.lower()
+                       or row["port"] != port or row["username"] != username)
+            if changed:
+                jobs = c.execute("SELECT COUNT(*) FROM jobs WHERE host_id=?",
+                                 (host_id,)).fetchone()[0]
+                if jobs:
+                    raise ValueError("该 VPS 有部署历史，请只编辑名称；如需切换 IP、端口或账号，请新建一台服务器以保留旧任务记录")
+                exists = c.execute(
+                    "SELECT id FROM hosts WHERE lower(hostname)=lower(?) AND port=? AND id<>? LIMIT 1",
+                    (hostname, port, host_id),
+                ).fetchone()
+                if exists:
+                    raise ValueError("另一个 VPS 记录已使用此地址和端口，请编辑已有条目或删除重复记录")
+            c.execute(
+                """UPDATE hosts SET name=?, hostname=?, port=?, username=?,
+                   facts_json=CASE WHEN ? THEN NULL ELSE facts_json END,
+                   checked_at=CASE WHEN ? THEN NULL ELSE checked_at END,
+                   trust_epoch=trust_epoch+?
+                   WHERE id=?""",
+                (name, hostname, port, username, int(changed), int(changed), int(changed), host_id),
+            )
+        return self.host(host_id)
+
+    def delete_host(self, host_id: int, purge_history: bool) -> dict:
+        """Local-only deletion; never remote-uninstall or touch shared known_hosts."""
+        with self.lock, self._db() as c:
+            host = c.execute("SELECT * FROM hosts WHERE id=?", (host_id,)).fetchone()
+            if host is None:
+                raise ValueError("服务器不存在")
+            active = c.execute(
+                "SELECT COUNT(*) FROM jobs WHERE host_id=? AND status IN ('queued','running')",
+                (host_id,),
+            ).fetchone()[0]
+            if active:
+                raise ValueError("该服务器有排队或执行中的部署任务，禁止删除")
+            count = c.execute("SELECT COUNT(*) FROM jobs WHERE host_id=?", (host_id,)).fetchone()[0]
+            if count and not purge_history:
+                raise ValueError(f"该服务器有 {count} 条本地部署历史，请确认一并删除；不会卸载 VPS 软件")
+            c.execute("DELETE FROM jobs WHERE host_id=?", (host_id,))
+            c.execute("DELETE FROM hosts WHERE id=?", (host_id,))
+            return {"deleted_id": host_id, "deleted_jobs": count, "remote_unmodified": True}
+
+    def invalidate_endpoint_trust(self, hostname: str, port: int) -> int:
+        """VPS reinstall: invalidate all aliases sharing this SSH endpoint."""
+        with self.lock, self._db() as c:
+            active = c.execute(
+                """SELECT 1 FROM jobs j JOIN hosts h ON j.host_id=h.id
+                   WHERE lower(h.hostname)=lower(?) AND h.port=?
+                   AND j.status IN ('queued','running') LIMIT 1""",
+                (hostname, port),
+            ).fetchone()
+            if active:
+                raise ValueError("该地址仍有正在执行的任务，禁止更换信任指纹")
+            ids = [row[0] for row in c.execute(
+                "SELECT id FROM hosts WHERE lower(hostname)=lower(?) AND port=?",
+                (hostname, port))]
+            for host_id in ids:
+                c.execute(
+                    """UPDATE hosts SET trust_epoch=trust_epoch+1,
+                       facts_json=NULL, checked_at=NULL WHERE id=?""", (host_id,))
+                c.execute(
+                    """UPDATE jobs SET status='invalidated',
+                       error='服务器重装或 SSH 信任密钥变化；旧审批方案已失效，请重新检测并生成计划',
+                       updated_at=? WHERE host_id=? AND status='planned'""",
+                    (now(), host_id),
+                )
+            return len(ids)
 
     def update_auth(self, host_id: int, auth_mode: str) -> dict:
         if auth_mode not in {"key", "password"}:

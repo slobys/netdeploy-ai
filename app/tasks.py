@@ -53,6 +53,8 @@ class JobRunner:
             # Rebuild each command from source-controlled recipes, NOT mutable job data.
             # No user/AI/DB-origin script is ever passed to SSH.
             current_host = self.store.host(host["id"])
+            if current_host is None or job["plan"].get("trust_epoch", 0) != current_host.get("trust_epoch", 0):
+                raise SSHError("SSH 信任记录已更新，旧方案不能用于新服务器，请重新扫描并生成部署计划")
             expected = build_plan(job["project"], current_host["facts"] or {}, job["plan"].get("options"))
             if not expected["executable"] or expected["steps"] != job["plan"]["steps"]:
                 raise SSHError("拒绝执行：计划脚本与当前已审查的内置模板不一致，请重新生成")
@@ -60,6 +62,9 @@ class JobRunner:
             self.store.log(job_id, "审批通过，开始执行经审查的固定部署步骤")
             for idx, step in enumerate(expected["steps"], 1):
                 self.store.log(job_id, f'步骤 {idx}/{len(expected["steps"])}：{step["label"]}')
+                verified_host = self.store.host(host["id"])
+                if verified_host is None or job["plan"].get("trust_epoch", 0) != verified_host.get("trust_epoch", 0):
+                    raise SSHError("执行过程中 VPS 身份发生变化，已停止后续部署步骤")
                 out = self.executor.run(host, step["script"], timeout=step["timeout"])
                 self.store.log(job_id, f'通过：{sanitize(out[-900:]) or "已完成"}')
                 completed_steps = idx

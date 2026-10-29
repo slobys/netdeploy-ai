@@ -6,6 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"/>
 <title>NetDeploy AI · VPS 智能部署平台</title>
 <link rel="stylesheet" href="/static/app.css"/>
+<link rel="stylesheet" href="/static/app-enhanced.css"/>
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
@@ -39,24 +40,24 @@
   <div class="main">
     <header class="topbar">
       <div class="crumb">工作空间 <span>/</span> <b id="crumb-current">总览面板</b></div>
-      <div class="top-actions"><span class="tag alpha">ALPHA v0.3.2</span><button id="refresh" class="icon-button" aria-label="刷新">⟳</button><div class="avatar">ND</div></div>
+      <div class="top-actions"><button class="btn primary topbar-add" data-action="add-host"><span aria-hidden="true">＋</span> 添加 VPS</button><span class="tag alpha">ALPHA v0.3.3</span><button id="refresh" class="icon-button" aria-label="刷新">⟳</button><div class="avatar">ND</div></div>
     </header>
     <main class="content">
       <section class="hero" id="hero">
         <div class="hero-glow"></div>
         <div class="hero-content"><div class="eyebrow"><span class="live-dot"></span> NETDEPLOY AI CONTROL CENTER</div>
-          <h1>你的 VPS，<br/><em>由 AI 协助部署。</em></h1>
-          <p>连接服务器，选择项目，审阅安装计划。让复杂的环境检测、依赖配置与部署记录变得清晰可控。</p>
+          <h1>服务器管理 <em>更简单、更直观。</em></h1>
+          <p>添加或编辑 VPS、核对 SSH 指纹、验证连接与部署项目，都能在首页直接完成。</p>
           <div class="hero-actions"><button class="btn primary" data-action="add-host">＋ 添加 VPS 服务器</button><button class="btn ghost" data-nav="projects">探索项目 →</button></div>
         </div>
         <div class="hero-art"><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="center-cube">⌘</div><div class="orbit-node node-1">⌁</div><div class="orbit-node node-2">▣</div><div class="orbit-node node-3">◈</div></div>
       </section>
+      <section class="section" id="hosts-section"><div class="section-heading smaller"><div><h2>我的 VPS 服务器</h2><p>连接、编辑、重装后重新核对指纹、环境检测，均可在此操作</p></div><button class="text-action" data-action="add-host">＋ 添加 VPS</button></div><div class="host-list" id="host-list"></div></section>
       <div class="section-heading"><div><h2 id="section-title">运行概览</h2><p id="section-subtitle">集中管理服务器与自动化部署任务</p></div><button class="btn subtle" data-action="add-host" id="main-cta">＋ 添加服务器</button></div>
       <div class="stats" id="stats"></div>
       <section class="section" id="projects-section"><div class="section-heading smaller"><div><h2>精选部署项目</h2><p>选择经过审核的安装模板，AI 仅提供只读诊断建议</p></div><button class="text-action" data-nav="projects">查看全部项目 →</button></div><div class="project-grid" id="project-grid"></div></section>
-      <section class="section" id="hosts-section"><div class="section-heading smaller"><div><h2>我的 VPS 服务器</h2><p>SSH 严格校验主机密钥，避免误连未知服务器</p></div><button class="text-action" data-action="add-host">＋ 添加 VPS</button></div><div class="host-list" id="host-list"></div></section>
-      <section class="section" id="jobs-section"><div class="section-heading smaller"><div><h2>最近部署任务</h2><p>每一步都可追踪，并保留执行日志</p></div><button class="text-action" data-nav="jobs">查看任务 →</button></div><div class="job-list" id="job-list"></div></section>
-      <footer>NetDeploy AI v0.3.2 · 第一阶段 Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
+      <section class="section" id="jobs-section"><div class="section-heading smaller"><div><h2>最近部署任务</h2><p>审批、状态和日志都清楚可见</p></div><button class="text-action" data-nav="jobs">查看任务 →</button></div><div class="job-list" id="job-list"></div></section>
+      <footer>NetDeploy AI v0.3.3 · Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
     </main>
   </div>
 </div>

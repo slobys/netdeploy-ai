@@ -36,7 +36,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.2")
+app = FastAPI(title="NetDeploy AI", version="0.3.3")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -69,6 +69,26 @@ class HostCredentials(BaseModel):
     auth_mode: Literal["key", "password"]
     password: str | None = None
     remember_password: bool = False
+
+
+class HostEdit(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    hostname: str = Field(min_length=1, max_length=253)
+    port: StrictInt = Field(ge=1, le=65535)
+    username: str = Field(min_length=1, max_length=32)
+
+
+class DeleteHostConfirmation(BaseModel):
+    confirmation: str
+    delete_local_history: bool = False
+
+
+class HostRekeyConfirmation(BaseModel):
+    fingerprint: str
+    previous_fingerprints: list[str] = Field(min_length=1, max_length=6)
+    confirmed_out_of_band: bool = False
+    confirmation: str
+
 
 
 class TrustKey(BaseModel):
@@ -111,6 +131,7 @@ def public_host(host: dict) -> dict:
     # Never return the SSH password or any credential content through this API.
     remembered = getattr(executor, "password_remembered", lambda _id: False)
     return {**host, "credential_ready": executor.credential_ready(host),
+            "job_count": store.host_job_count(host["id"]),
             "password_remembered": bool(remembered(host["id"])) if host.get("auth_mode") == "password" else False}
 
 
@@ -128,7 +149,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.2", "security": "local-only"}
+    return {"ok": True, "version": "0.3.3", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -194,6 +215,50 @@ def create_host(body: HostCreate):
     return public_host(host)
 
 
+@app.put("/api/hosts/{id}", dependencies=[Depends(authorized)])
+def edit_host(id: int, body: HostEdit):
+    original = find_host(id)
+    if not body.name.strip():
+        raise HTTPException(status_code=422, detail="服务器名称不能为空")
+    try:
+        validate_host(body.hostname, body.username, body.port)
+        endpoint_changed = (
+            original["hostname"].lower() != body.hostname.lower()
+            or int(original["port"]) != body.port
+            or original["username"] != body.username
+        )
+        with store.lock:
+            if endpoint_changed and store.host_job_count(id):
+                raise ValueError("该 VPS 有部署历史，只能修改名称。若改 IP / 端口 / 账号，请新建服务器以保留旧任务安全记录")
+            if endpoint_changed:
+                executor.clear_password(id)
+            host = store.update_host(id, body.name.strip(), body.hostname.strip(),
+                                     body.port, body.username.strip())
+    except (ValueError, VaultUnavailable) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return public_host(host)
+
+
+@app.delete("/api/hosts/{id}", dependencies=[Depends(authorized)])
+def delete_host(id: int, body: DeleteHostConfirmation):
+    host = find_host(id)
+    if body.confirmation != f"DELETE VPS {id}":
+        raise HTTPException(status_code=409, detail="确认语句错误；删除只清理本地 VPS 记录，不会卸载远端软件")
+    try:
+        with store.lock:
+            if store.has_active_endpoint_jobs(host["hostname"], host["port"]):
+                # All records at a shared endpoint have a common trust pin.
+                raise ValueError("该 SSH 地址还有执行中或排队任务，禁止删除服务器")
+            count = store.host_job_count(id)
+            if count and not body.delete_local_history:
+                raise ValueError(f"此 VPS 有 {count} 条部署历史，请明确同意删除历史记录与日志")
+            executor.clear_password(id)
+            result = store.delete_host(id, body.delete_local_history)
+    except (ValueError, VaultUnavailable) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {**result, "hostkey_retained": True}
+
+
 @app.put("/api/hosts/{id}/credentials", dependencies=[Depends(authorized)])
 def update_credentials(id: int, body: HostCredentials):
     find_host(id)
@@ -219,8 +284,16 @@ def fingerprint(id: int):
     host = find_host(id)
     try:
         data = executor.scan_hostkey(host)
-        return {"fingerprint": data["fingerprint"], "key_type": data.get("key_type", "ssh-ed25519"),
-                "warning": "SSH 握手获取的主机密钥未经身份验证，必须先在 VPS 云控制台独立核对指纹。"}
+        saved = getattr(executor, "pinned_hostkeys", lambda _host: [])(host)
+        return {
+            "fingerprint": data["fingerprint"],
+            "key_type": data.get("key_type", "ssh-ed25519"),
+            "previous_fingerprints": saved,
+            "changed": bool(saved and data["fingerprint"] not in
+                            [entry["fingerprint"] for entry in saved]),
+            "shared_host_count": len(store.endpoint_hosts(host["hostname"], host["port"])),
+            "warning": "扫描值未经身份认证，VPS 重装后必须在云厂商独立控制台重新核对新指纹；无法自动接受变更。",
+        }
     except SSHError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -236,6 +309,30 @@ def trust(id: int, body: TrustKey):
         return executor.trust_hostkey(host, body.fingerprint)
     except SSHError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/hosts/{id}/rekey", dependencies=[Depends(authorized)])
+def rekey_host(id: int, body: HostRekeyConfirmation):
+    host = find_host(id)
+    if not body.confirmed_out_of_band:
+        raise HTTPException(status_code=409, detail="必须独立登录 VPS 云控制台核对新的 SHA256 主机指纹")
+    if not re.fullmatch(r"SHA256:[A-Za-z0-9+/=]{24,80}", body.fingerprint):
+        raise HTTPException(status_code=422, detail="新指纹格式不合法")
+    if body.confirmation != f"REKEY {host['hostname']}:{host['port']}":
+        raise HTTPException(status_code=409, detail="必须输入对应的 VPS 地址及端口确认语句")
+    try:
+        with store.lock:
+            if store.has_active_endpoint_jobs(host["hostname"], host["port"]):
+                raise ValueError("此 IP/端口还有执行中的部署任务，禁止重置 SSH 信任")
+            result = executor.rekey_host(
+                host, body.fingerprint, body.previous_fingerprints,
+                on_verified=lambda: store.invalidate_endpoint_trust(
+                    host["hostname"], int(host["port"])
+                ),
+            )
+    except (SSHError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {**result, "old_plans_invalidated": True}
 
 
 @app.post("/api/hosts/{id}/preflight", dependencies=[Depends(authorized)])
@@ -290,6 +387,8 @@ def new_job(body: NewJob):
         if not body.source_job_id or body.access_mode or body.panel_port is not None:
             raise HTTPException(status_code=422, detail="HTTPS 升级必须引用已完成的 3X-UI 安装任务")
         source = find_job(body.source_job_id)
+        if source["plan"].get("trust_epoch", 0) != host.get("trust_epoch", 0):
+            raise HTTPException(status_code=409, detail="原 3X-UI 部署任务属于重装前的系统，请先在新 VPS 上重新部署")
         if source["project"] != "3x-ui" or source["host_id"] != host["id"] or source["status"] not in {"completed", "partial"}:
             raise HTTPException(status_code=409, detail="无法核实对应的原 3X-UI 安装任务")
         if (source["status"] == "completed" and
@@ -307,6 +406,7 @@ def new_job(body: NewJob):
         raise HTTPException(status_code=422, detail="证书标识、端口或部署参数不合法") from exc
     plan["hostname"] = host["hostname"]
     plan["host_id"] = host["id"]
+    plan["trust_epoch"] = host.get("trust_epoch", 0)
     plan["preflight_baseline"] = approval_baseline(host["facts"])
     return store.new_job(host["id"], body.project, plan)
 
@@ -334,6 +434,9 @@ def delete_job(id: str, body: DeleteJobConfirmation):
 def approve_job(id: str, body: Approval):
     job = find_job(id)
     host = find_host(job["host_id"])
+    # Host identity is part of the immutable approval context.
+    if job["plan"].get("trust_epoch", 0) != host.get("trust_epoch", 0):
+        raise HTTPException(status_code=409, detail="服务器已重装或 SSH 信任已更新，旧部署方案已失效，请重新生成")
     if not host["facts"]:
         raise HTTPException(status_code=409, detail="缺少环境预检结果")
     # Recheck preflight before approving: changing host may invalidate the plan.
@@ -393,6 +496,8 @@ def job_access(id: str):
         raise HTTPException(status_code=409, detail="只有已完成安装或 HTTPS 部分失败的 3X-UI 任务可核验登录信息")
     host = find_host(job["host_id"])
     port = (job["plan"].get("options") or {}).get("panel_port")
+    if job["plan"].get("trust_epoch", 0) != host.get("trust_epoch", 0):
+        raise HTTPException(status_code=409, detail="此部署记录属于服务器重装前的系统，不能再读取原登录信息")
     if not executor.credential_ready(host):
         raise HTTPException(status_code=409, detail="SSH 凭据不可用，请在服务器管理中重新设置")
     upgrade = store.completed_https_upgrade(host["id"], job["id"])

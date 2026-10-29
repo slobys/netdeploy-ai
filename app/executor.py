@@ -9,6 +9,7 @@ import base64
 import hashlib
 import os
 import re
+import secrets
 import socket
 import subprocess
 import threading
@@ -283,6 +284,125 @@ if ! command -v ss >/dev/null 2>&1; then echo UDP_51820=unknown; elif ss -Hlun |
                 transport.close()
             if sock is not None:
                 sock.close()
+
+
+    @staticmethod
+    def _host_token(host: dict) -> str:
+        port = int(host["port"])
+        return host["hostname"] if port == 22 else f'[{host["hostname"]}]:{port}'
+
+    def pinned_hostkeys(self, host: dict) -> list[dict[str, str]]:
+        """Read saved fingerprints only; does not connect or authenticate."""
+        try:
+            import paramiko
+        except ImportError as exc:
+            raise SSHError("缺少 Paramiko，无法解析已保存 SSH 指纹") from exc
+        path = Path(self.config.known_hosts)
+        if not path.is_file():
+            return []
+        with self._known_hosts_lock:
+            keys = paramiko.HostKeys()
+            try:
+                keys.load(str(path))
+            except (OSError, ValueError, paramiko.SSHException) as exc:
+                raise SSHError("已保存主机密钥文件无法解析；请先检查 data/known_hosts") from exc
+            found = keys.lookup(self._host_token(host))
+            if found is None:
+                return []
+            result = []
+            for algorithm, key in sorted(found.items()):
+                digest = base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode("ascii").rstrip("=")
+                result.append({"key_type": algorithm, "fingerprint": "SHA256:" + digest})
+            return result
+
+    def rekey_host(self, host: dict, verified_fingerprint: str,
+                   expected_old_fingerprints: list[str], on_verified=None) -> dict:
+        """Rotate one host:port pin ONLY after out-of-band independent verification.
+
+        Host key pins are shared by all UI host records with the same endpoint.
+        An optional guarded callback invalidates old plans before atomic replace.
+        """
+        validate_host(host["hostname"], host["username"], int(host["port"]))
+        scanned = self.scan_hostkey(host)
+        if not secrets.compare_digest(scanned["fingerprint"], verified_fingerprint):
+            raise SSHError("新指纹与服务器当前实际返回的密钥不一致，已拒绝替换")
+        path = Path(self.config.known_hosts)
+        token = self._host_token(host)
+        with self._known_hosts_lock:
+            current = self.pinned_hostkeys(host)
+            if not current:
+                raise SSHError("此地址没有旧 SSH 主机密钥记录；首次连接请使用普通指纹信任流程")
+            actual_old = sorted(x["fingerprint"] for x in current)
+            if actual_old != sorted(expected_old_fingerprints):
+                raise SSHError("旧指纹已发生变化，请刷新后重新独立核对")
+            if verified_fingerprint in actual_old:
+                raise SSHError("新指纹与已保存记录一致，无需执行重装后的替换")
+            original = path.read_text(encoding="utf-8")
+            if len(original) > 1_000_000:
+                raise SSHError("known_hosts 记录超出安全修改范围，请管理员检查")
+            kept = []
+            removed = 0
+            for raw_line in original.splitlines(keepends=True):
+                stripped = raw_line.strip()
+                if not stripped or stripped.startswith("#"):
+                    kept.append(raw_line)
+                    continue
+                fields = stripped.split()
+                if len(fields) < 3 or fields[0].startswith("@"):
+                    # Fail closed rather than alter unusual markers or unknown formats.
+                    if token in stripped:
+                        raise SSHError("SSH 信任文件存在复杂标记，请手动审查而不是自动覆盖")
+                    kept.append(raw_line)
+                    continue
+                aliases = fields[0].split(",")
+                if token not in aliases:
+                    kept.append(raw_line)
+                    continue
+                removed += 1
+                remaining = [alias for alias in aliases if alias != token]
+                if remaining:
+                    kept.append(raw_line.replace(fields[0], ",".join(remaining), 1))
+            if not removed:
+                raise SSHError("旧指纹存储格式不支持安全定向替换，请人工审查，不会自动清空 known_hosts")
+
+            # Preserve every unrelated host/port, with backup and atomic replace.
+            import shutil
+            import tempfile
+            from datetime import datetime, timezone
+            backup = path.with_name(path.name + ".backup-" +
+                                    datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
+            shutil.copy2(path, backup)
+            os.chmod(backup, 0o600)
+            temp_path = None
+            try:
+                fd, temp_path = tempfile.mkstemp(prefix=".known_hosts.", dir=str(path.parent))
+                with os.fdopen(fd, "w", encoding="utf-8", newline="") as output:
+                    content = "".join(kept)
+                    if content and not content.endswith("\n"):
+                        output.write(content + "\n")
+                    else:
+                        output.write(content)
+                    output.write(scanned["key"] + "\n")
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.chmod(temp_path, 0o600)
+                # This callback must invalidate old approvals atomically before
+                # new key becomes trusted; failure leaves original file intact.
+                affected = on_verified() if on_verified is not None else 0
+                try:
+                    os.replace(temp_path, path)
+                except OSError as exc:
+                    raise SSHError("无法安全写入新 SSH 指纹；原 known_hosts 文件保持不变，请检查文件权限") from exc
+                temp_path = None
+                return {
+                    "fingerprint": scanned["fingerprint"],
+                    "key_type": scanned["key_type"],
+                    "replaced": True,
+                    "affected_host_records": affected,
+                }
+            finally:
+                if temp_path is not None and os.path.exists(temp_path):
+                    os.unlink(temp_path)
 
     def trust_hostkey(self, host: dict, confirmed_fingerprint: str) -> dict:
         """Pin only an out-of-band verified host key; never replace an old key."""
