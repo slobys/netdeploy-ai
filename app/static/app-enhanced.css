@@ -257,6 +257,88 @@ details>summary:hover{color:#d2e6ff}
   .server-tab:last-child{grid-column:span 2}
   .server-tab-content{padding-top:12px}
 }
+
+/* v0.3.5: fingerprint verification is a vertical workflow, never a loading flex row. */
+.modal:has(.fingerprint-workflow){width:min(720px,100%);overflow-x:hidden}
+.modal:has(.fingerprint-workflow) .modal-header{align-items:flex-start;gap:18px}
+.modal:has(.fingerprint-workflow) .modal-header > div{flex:1;min-width:0}
+.fingerprint-workflow{display:block;width:100%;min-width:0}
+.fingerprint-loading{display:flex;align-items:center;gap:12px;padding:24px 12px;color:#b4c9e6;font-size:13px;min-height:95px}
+.fingerprint-loading span:last-child{min-width:0;overflow-wrap:anywhere}
+.fingerprint-result{display:flex;flex-direction:column;align-items:stretch;gap:14px;width:100%;min-width:0;max-width:100%}
+.fingerprint-result > *{min-width:0;max-width:100%;margin:0}
+.fingerprint-verdict{display:flex;align-items:flex-start;gap:13px;border-radius:13px;padding:18px 19px;border:1px solid #38688c;background:#123250;color:#d9e8ff}
+.fingerprint-verdict.verified{border-color:#287963;background:#12352e;color:#a5efcf}
+.fingerprint-verdict.changed{border-color:#84624c;background:#332a29;color:#f7d0a6}
+.fingerprint-verdict.first{border-color:#5177af;background:#182d4c}
+.fingerprint-verdict-icon{display:grid;place-items:center;width:28px;height:28px;border:1px solid currentColor;border-radius:50%;font-size:16px;font-weight:800;flex:0 0 28px;opacity:.85}
+.fingerprint-verdict>div{min-width:0;flex:1}
+.fingerprint-verdict strong{display:block;font-size:14px;line-height:1.45}
+.fingerprint-verdict p{font-size:12px;line-height:1.65;margin-top:5px;overflow-wrap:anywhere}
+.fingerprint-key-stack{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;min-width:0}
+.fingerprint-key-card{border:1px solid #304d70;border-radius:12px;padding:15px 17px;background:#0a1729;min-width:0}
+.fingerprint-key-card.previous{background:#0f1d31;border-color:#2d435e}
+.fingerprint-label{display:block;color:#93b3d6;font-weight:650;font-size:12px;margin-bottom:9px}
+.fingerprint-value{display:block;color:#e4f0ff;white-space:normal;overflow-wrap:anywhere;word-break:break-all;font-size:13px;line-height:1.7;font-variant-numeric:tabular-nums}
+.fingerprint-key-card.previous .fingerprint-value{font-size:12px;color:#a8c0e1;margin-top:8px}
+.fingerprint-guide{border:1px solid #2b4664;border-radius:12px;background:#112238;padding:13px 16px;color:#aec8e7;min-width:0}
+.fingerprint-guide:not(.always)>summary{cursor:pointer;font-size:12px;font-weight:650}
+.fingerprint-guide>p{font-size:12px;line-height:1.7;margin:9px 0;overflow-wrap:anywhere}
+.fingerprint-guide strong{font-size:12px;color:#deebff}
+.fingerprint-command{display:block;padding:12px 13px;border-radius:9px;border:1px solid #354f73;background:#061324;color:#d4e8ff;font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;user-select:all;margin-top:8px}
+.fingerprint-shared{font-size:12px;line-height:1.7;color:#e0c28c}
+.fingerprint-confirm{display:flex;align-items:flex-start;gap:10px;border:1px solid #375471;border-radius:12px;padding:14px 15px;color:#c3d7f0;font-size:12px;line-height:1.6;cursor:pointer;overflow-wrap:anywhere}
+.fingerprint-confirm input{width:16px;height:16px;flex:0 0 16px;accent-color:#5a9cff;margin-top:2px}
+.fingerprint-actions{display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:10px;width:100%;padding-top:6px}
+.fingerprint-actions .btn{white-space:normal;min-width:130px}
+.fingerprint-result .pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+
+/* Dashboard: next action and task navigation come before technical options. */
+.server-next-action{border-radius:15px;border:1px solid #36577c;padding:19px 21px;background:linear-gradient(135deg,#162e4e,#12223b);margin:0 0 18px}
+.server-next-action.pending{border-color:#5c83ce;background:linear-gradient(125deg,#213b67,#142b4d);box-shadow:0 8px 28px #071a3880}
+.server-next-action.is-ready{border-color:#2c6f68;background:linear-gradient(135deg,#17383b,#132d38)}
+.server-next-kicker{display:block;font-size:11px;font-weight:750;color:#9dc9ff;letter-spacing:.4px}
+.server-next-action.is-ready .server-next-kicker{color:#8be1c7}
+.server-next-action h3{font-size:17px;margin:8px 0 8px;line-height:1.35;color:#f1f6ff}
+.server-next-action p{font-size:12px;line-height:1.7;color:#adcae7;max-width:690px}
+.server-next-action .btn{margin-top:15px;font-size:13px;padding:11px 17px;min-height:43px}
+.server-simple-status{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 15px}
+.server-simple-status>div{border:1px solid #294463;border-radius:11px;padding:13px 15px;min-width:0;background:#111f34}
+.server-simple-status span{display:block;font-size:11px;color:#91aecb;margin-bottom:7px}
+.server-simple-status strong{display:block;color:#e0efff;font-size:12px;overflow-wrap:anywhere;line-height:1.55}
+.server-subheading{display:flex;align-items:baseline;gap:15px;flex-wrap:wrap;margin:8px 0 12px}
+.server-subheading h3{margin:0;font-size:14px}
+.server-subheading p{font-size:11px;color:#8da8c9;line-height:1.55}
+.server-history-item{gap:12px;min-height:65px;transition:background .2s,border-color .2s}
+.server-history-item.is-pending{border-color:#426cad;background:#182c4b}
+.server-history-item .server-task-icon{display:grid;place-items:center;width:34px;height:34px;flex:0 0 34px;border-radius:9px;background:#233d65;color:#b8d8ff;font-size:17px}
+.server-history-item > .server-task-icon:first-child{flex:0 0 34px;min-width:34px}
+.server-history-item .server-task-title{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}
+.server-history-item .server-task-title strong{color:#e3f0ff;font-size:13px}
+.server-history-item .server-task-title small{color:#91a9c7;font-size:11px;line-height:1.5}
+.server-history-item .server-task-next{color:#a8d0ff;font-size:12px;font-weight:750;white-space:nowrap}
+.server-history-item:hover .server-task-next{color:#e6f2ff}
+.server-advanced-actions{border-top:1px solid #27405d;padding-top:13px;margin-top:19px}
+.server-advanced-actions summary{font-size:12px;color:#99b8e4;cursor:pointer}
+.server-advanced-actions .server-action-grid{margin-top:12px}
+.server-tab-intro{margin:4px 0 16px;max-width:750px}
+.server-tab-intro h3{font-size:17px;color:#e4f1ff;margin:0 0 7px}
+.server-tab-intro p{font-size:12px;color:#a6bfdc;line-height:1.75}
+.server-pending-shortcut{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #4d78b7;border-radius:12px;background:#1a3357;padding:13px 16px;margin-bottom:14px}
+.server-pending-shortcut strong{font-size:12px;color:#ddecff}
+.server-pending-shortcut .btn{font-size:12px;min-height:37px}
+@media(max-width:630px){
+  .fingerprint-actions{flex-direction:column-reverse;align-items:stretch}
+  .fingerprint-actions .btn{width:100%}
+  .fingerprint-verdict{padding:14px}
+  .fingerprint-key-card{padding:13px 14px}
+  .server-simple-status{grid-template-columns:1fr}
+  .server-history-item{flex-wrap:wrap}
+  .server-task-next{margin-left:auto}
+  .server-pending-shortcut{flex-direction:column;align-items:stretch}
+  .server-pending-shortcut .btn{width:100%}
+}
+
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
   .host-item:hover,.project:hover,.stat:hover,.job-item:hover,.btn:hover,.nav-item:hover{transform:none!important}

@@ -196,7 +196,7 @@ def test_two_column_server_console_and_simple_plan_review():
     js=(root/"app"/"static"/"app.js").read_text(encoding="utf-8")
     css=(root/"app"/"static"/"app-enhanced.css").read_text(encoding="utf-8")
     assert "grid-template-columns:repeat(2,minmax(0,1fr))" in css
-    for label in ("项目部署","端口 / 防火墙","连接安全","编辑 / 删除"):
+    for label in ("安装软件","网络端口","SSH 安全","服务器设置"):
         assert label in js
     assert "function openHostConsole" in js
     assert "data-action=\"host-console\"" in js
@@ -207,4 +207,4 @@ def test_two_column_server_console_and_simple_plan_review():
     assert "请完整输入以下确认语句" not in js
     assert "plan-technical" in js
     assert "prefers-reduced-motion" in css
-    assert 'ALPHA v0.3.4' in html
+    assert 'ALPHA v0.3.5' in html
