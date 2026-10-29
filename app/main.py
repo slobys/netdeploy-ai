@@ -22,7 +22,9 @@ from .tasks import JobRunner
 from .ai import diagnose
 from .os_keyring import VaultUnavailable
 from .https_upgrade import identify, https_access_script, https_url
-from .firewall import PortRule, STATUS_SCRIPT, allow_port_script, FirewallToggle, firewall_toggle_script
+from .firewall import (PortRule, FirewallBatch, STATUS_SCRIPT, allow_port_script,
+                       allow_ports_script, parse_firewall_batch_output,
+                       FirewallToggle, firewall_toggle_script)
 from .xui_existing import status_script, parse_status, public_access_script, direct_url
 
 BASE = Path(__file__).resolve().parent
@@ -38,7 +40,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.12")
+app = FastAPI(title="NetDeploy AI", version="0.3.13")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -184,7 +186,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.12", "security": "local-only"}
+    return {"ok": True, "version": "0.3.13", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -489,6 +491,40 @@ def firewall_allow(id: int, body: PortRule):
     return {"ok": True, "port": body.port, "protocol": body.protocol,
             "mode": mode, "message": result.strip()[:800],
             "cloud_notice": "本机规则已处理，但云服务器安全组仍需另行允许对应入站端口"}
+
+
+@app.post("/api/hosts/{id}/firewall/allow-batch", dependencies=[Depends(authorized)])
+def firewall_allow_batch(id: int, body: FirewallBatch):
+    """Apply up to 20 fully validated UFW rules in one trusted SSH session."""
+    host = find_host(id)
+    if not body.confirmation:
+        raise HTTPException(status_code=409, detail="请确认批量放行所列出的端口")
+    if not executor.credential_ready(host):
+        raise HTTPException(status_code=409, detail="SSH 登录凭据不可用；请先验证可信 VPS")
+    # Every rule and duplicate is rejected *before* connecting to the VPS.
+    try:
+        script = allow_ports_script(body.rules)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with store.lock:
+        if store.has_active_endpoint_jobs(host["hostname"], host["port"]):
+            raise HTTPException(status_code=409, detail="服务器存在执行中的部署任务，请先完成再修改端口")
+        try:
+            raw = executor.run(host, script, timeout=min(300, 30 + 12 * len(body.rules)))
+        except (SSHError, ValueError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"批量端口操作未能完整验证，可能有部分端口已生效；请先检查 VPS 的 UFW 规则：{exc}",
+            ) from exc
+    try:
+        outcome = parse_firewall_batch_output(raw, body.rules)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "ok": outcome["failed"] == 0,
+        **outcome,
+        "cloud_notice": "仅更改 VPS 本机 UFW；云厂商安全组仍需分别允许对应入站端口",
+    }
 
 
 @app.post("/api/hosts/{id}/firewall/toggle", dependencies=[Depends(authorized)])

@@ -405,6 +405,34 @@ details>summary:hover{color:#d2e6ff}
   .setup-progress{grid-template-columns:1fr 1fr}
 }
 
+
+/* v0.3.13: multiple UFW ports, responsive batch status */
+.setup-port-form-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:16px 0 9px}
+.setup-port-form-heading strong{font-size:13px;color:#d4e6ff}
+.setup-port-form-heading span{font-size:11px;color:#8eadd0;font-variant-numeric:tabular-nums}
+.setup-port-rows{display:flex;flex-direction:column;gap:9px}
+.setup-port-row{display:grid;grid-template-columns:minmax(140px,1fr) minmax(130px,.75fr) auto;gap:12px;align-items:end;padding:11px 12px;border:1px solid #304a69;border-radius:12px;background:#0e1a2c}
+.setup-port-row .form-group{min-width:0;margin:0}
+.setup-port-row input,.setup-port-row select{width:100%;font-variant-numeric:tabular-nums}
+.setup-port-row .setup-remove-port{min-height:44px;padding:8px 14px;white-space:nowrap}
+.setup-port-actions{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;margin:13px 0 8px}
+.setup-port-actions .btn{min-height:40px}
+.setup-port-error:not(:empty){color:#ffb4b4;font-size:12px;margin:10px 0;line-height:1.7}
+.setup-port-results{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:0;margin:16px 0 0;list-style:none}
+.setup-port-result{display:flex;justify-content:space-between;align-items:center;gap:9px;padding:10px 14px;border:1px solid #30445f;border-radius:10px;background:#102039;font-size:12px}
+.setup-port-result strong{font-variant-numeric:tabular-nums;color:#e7f0ff}
+.setup-port-result.allowed span{color:#80ddbd}
+.setup-port-result.failed{border-color:#805057;background:#30202d}
+.setup-port-result.failed span{color:#ffb7bb}
+.setup-port-result.skipped span{color:#c9b48b}
+.setup-batch-warning{margin-top:15px;font-size:12px;color:#ffc1c5;line-height:1.65}
+@media(max-width:620px){
+ .setup-port-row{grid-template-columns:minmax(0,1fr) minmax(0,.85fr);gap:9px}
+ .setup-port-row .setup-remove-port{grid-column:span 2}
+ .setup-port-actions .btn{flex:1 1 150px}
+ .setup-port-results{grid-template-columns:1fr}
+}
+
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
   .host-item:hover,.project:hover,.stat:hover,.job-item:hover,.btn:hover,.nav-item:hover{transform:none!important}

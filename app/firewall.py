@@ -5,6 +5,7 @@ authorized API; local UFW rules are not a substitute for cloud firewall ACLs.
 """
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field, StrictInt
@@ -108,6 +109,114 @@ else
     echo 'UFW_ALLOWED: {port}/{protocol} (cloud security group must be checked separately)'
 fi
 """
+
+# Batch operations are capped to bound SSH execution time and accidental
+# exposure. Every field is strictly typed; arbitrary shell is never accepted.
+class FirewallPort(BaseModel):
+    port: StrictInt = Field(ge=1, le=65535)
+    protocol: Literal["tcp", "udp"] = "tcp"
+
+
+class FirewallBatch(BaseModel):
+    rules: list[FirewallPort] = Field(min_length=1, max_length=20)
+    confirmation: bool = False
+
+
+def allow_ports_script(rules: list[FirewallPort]) -> str:
+    """Generate a single audited SSH command with per-rule result markers.
+
+    Validate the *whole* request before changing anything. A failure to
+    allow one rule does not hide the outcome of other rules; no unsafe
+    attempt is made to roll back successfully applied firewall rules.
+    """
+    if not rules or len(rules) > 20:
+        raise ValueError("每次只能放行 1–20 个端口")
+    seen: set[tuple[int, str]] = set()
+    ordered: list[tuple[int, str]] = []
+    for item in rules:
+        if not isinstance(item, FirewallPort):
+            raise ValueError("端口规则必须包含已校验的端口和协议")
+        key = (item.port, item.protocol)
+        if key in seen:
+            raise ValueError(f"重复规则：{item.port}/{item.protocol}，请移除重复端口")
+        seen.add(key)
+        ordered.append(key)
+        # Defense-in-depth (Pydantic StrictInt and Literal also validate).
+        allow_port_script(item.port, item.protocol)
+    body = [
+        "set -eu",
+        'test "$(id -u)" = 0',
+        'if ! command -v ufw >/dev/null 2>&1; then',
+        "    echo 'ND_FIREWALL=unavailable'",
+    ]
+    for port, protocol in ordered:
+        body.append(f"    echo 'ND_RULE {port}/{protocol} skipped'")
+    body.extend([
+        "elif LC_ALL=C ufw status | grep -Fxq 'Status: inactive'; then",
+        "    echo 'ND_FIREWALL=inactive'",
+    ])
+    for port, protocol in ordered:
+        body.append(f"    echo 'ND_RULE {port}/{protocol} skipped'")
+    body.extend([
+        "elif LC_ALL=C ufw status | grep -Fxq 'Status: active'; then",
+        "    echo 'ND_FIREWALL=active'",
+    ])
+    for item in rules:
+        port, protocol = item.port, item.protocol
+        body.extend([
+            f"    if ufw allow {port}/{protocol} comment 'NetDeploy approved port' >/dev/null 2>&1; then",
+            f"        echo 'ND_RULE {port}/{protocol} allowed'",
+            "    else",
+            f"        echo 'ND_RULE {port}/{protocol} failed'",
+            "    fi",
+        ])
+    body.extend([
+        "else",
+        "    echo 'UFW_STATUS_UNKNOWN: refusing to modify unknown firewall state' >&2",
+        "    exit 71",
+        "fi",
+    ])
+    return "\n".join(body) + "\n"
+
+
+def parse_firewall_batch_output(raw: str, rules: list[FirewallPort]) -> dict:
+    """Refuse to treat unverified/partial remote responses as full success."""
+    lines = raw.splitlines()
+    if not lines or lines[0] not in {
+        "ND_FIREWALL=active", "ND_FIREWALL=inactive", "ND_FIREWALL=unavailable"
+    }:
+        raise ValueError("远端防火墙状态无法核验，部分端口可能已经修改，请检查 VPS")
+    mode = lines[0].split("=", 1)[1]
+    results = []
+    expected = [f"{item.port}/{item.protocol}" for item in rules]
+    seen = {}
+    for line in lines[1:]:
+        match = re.fullmatch(r"ND_RULE (\d{1,5})/(tcp|udp) (allowed|failed|skipped)", line)
+        if not match:
+            raise ValueError("远端放行结果无法完整核对，请检查 VPS 实际 UFW 规则")
+        key, status = f"{int(match[1])}/{match[2]}", match[3]
+        if key in seen or key not in expected:
+            raise ValueError("远端放行结果与已批准端口不一致，请检查 VPS")
+        seen[key] = status
+    if set(seen) != set(expected):
+        raise ValueError("远端未返回全部端口结果，请人工核对实际 UFW 规则")
+    if (mode == "active" and any(x == "skipped" for x in seen.values())) or (
+        mode != "active" and any(x != "skipped" for x in seen.values())
+    ):
+        raise ValueError("远端 UFW 状态与返回的端口结果不一致，请人工核对")
+    for item in rules:
+        results.append({
+            "port": item.port, "protocol": item.protocol,
+            "status": seen[f"{item.port}/{item.protocol}"],
+        })
+    allowed = sum(x["status"] == "allowed" for x in results)
+    failed = sum(x["status"] == "failed" for x in results)
+    skipped = len(results) - allowed - failed
+    return {
+        "mode": mode, "results": results,
+        "allowed": allowed, "failed": failed,
+        "skipped": skipped, "partial": failed > 0,
+    }
 
 
 def acme_ufw_script() -> str:

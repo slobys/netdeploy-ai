@@ -57,6 +57,7 @@ const document = {
       made.get(selector).dataset.currentStatus=match[1];
       return made.get(selector);
     }
+    if(selector==='#setup-port-rows')return modal.innerHTML.includes('id="setup-port-rows"')?setupRowContainer:null;
     if(selector==='#task-log'&&!modal.innerHTML.includes('id="task-log"'))return null;
     if (selector === '#verified-key') return trustCheck?{checked:true}:null;
     if (!made.has(selector)) made.set(selector, makeElement());
@@ -80,9 +81,17 @@ let firewallAllowCount=0;
 let firewallDisableCount=0;
 let rekeyCount=0;
 let firewallMode='active';
+let batchRequests=[];
+let failBatchPortOnce=false;
+let setupRows=[];
+const setupRowContainer=makeElement();
+setupRowContainer.insertAdjacentHTML=()=>{setupRows.push({remove(){setupRows.splice(setupRows.indexOf(this),1);}});};
+setupRowContainer.querySelectorAll=()=>setupRows;
+setupRowContainer.querySelector=()=>({focus(){}});
 class FakeFormData{
   constructor(form){this.values=form.formValues||{};}
-  get(k){return this.values[k]??null;}
+  get(k){return Array.isArray(this.values[k])?this.values[k][0]??null:this.values[k]??null;}
+  getAll(k){const value=this.values[k];return value===undefined?[]:Array.isArray(value)?value:[value];}
   [Symbol.iterator](){return Object.entries(this.values)[Symbol.iterator]();}
 }
 const freshJob = {
@@ -98,7 +107,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.12';
+let runtimeVersion='0.3.13';
 let xuiReadRequests=0;
 const context = vm.createContext({
   console,
@@ -129,6 +138,21 @@ const context = vm.createContext({
     if(/^\/api\/hosts\/\d+\/firewall$/.test(url)){
       firewallReadCount++;
       return {ok:true,status:200,json:async()=>({status:firewallMode,cloud_notice:'cloud security group separate',details:'Status: active'})};
+    }
+    if(/^\/api\/hosts\/\d+\/firewall\/allow-batch$/.test(url)){
+      const body=JSON.parse(opts.body||'{}');
+      assert.equal(body.confirmation,true);
+      assert.equal(opts.method,'POST');
+      batchRequests.push(body.rules);
+      const results=body.rules.map(x=>({...x,status:firewallMode==='active'?
+        failBatchPortOnce&&x.port===8443&&x.protocol==='tcp'?'failed':'allowed':'skipped'}));
+      failBatchPortOnce=false;
+      const allowed=results.filter(x=>x.status==='allowed').length;
+      const failed=results.filter(x=>x.status==='failed').length;
+      return {ok:true,status:200,json:async()=>({
+        ok:failed===0,mode:firewallMode,results,allowed,failed,skipped:results.length-allowed-failed,
+        cloud_notice:'Cloud inbound rules are separate'
+      })};
     }
     if(/^\/api\/hosts\/\d+\/firewall\/allow$/.test(url)){
       const body=JSON.parse(opts.body||'{}');
@@ -236,9 +260,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.12';
+  runtimeVersion='0.3.13';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.12');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.13');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -384,7 +408,7 @@ function fingerprintFor(label) {
   assert.equal(firewallDisableCount,0);
   await evaluate('setupFirewall(2)');
   assert(modal.innerHTML.includes('第 4 步 · 端口与防火墙'));
-  assert(modal.innerHTML.includes('放行所填端口'));
+  assert(modal.innerHTML.includes('一次放行全部端口'));
   assert(modal.innerHTML.includes('关闭 UFW（需确认风险）'));
   assert(modal.innerHTML.includes('跳过此步，下一步：选择软件'));
   assert.equal(firewallReadCount,1);
@@ -394,12 +418,54 @@ function fingerprintFor(label) {
   assert.equal(firewallAllowCount,0,'Skipping the optional step cannot create any rule');
   assert.equal(firewallDisableCount,0,'Skipping the optional step cannot disable UFW');
   await evaluate('setupFirewall(2)');
+  setupRows=[{remove(){setupRows.splice(setupRows.indexOf(this),1);}}];
+  assert(modal.innerHTML.includes('一次放行全部端口'));
+  assert(modal.innerHTML.includes('＋ 添加端口'));
   const allowForm=made.get('#setup-allow-form');
-  allowForm.formValues={port:'8443',protocol:'tcp'};
+  context.fixtures.allowForm=allowForm;
+  assert.equal(evaluate('setupPortCount()'),1);
+  evaluate('addSetupPort()');
+  evaluate('addSetupPort()');
+  assert.equal(setupRows.length,3,'Clicking add should append real port rows');
+  const deleteRow={dataset:{action:'setup-remove-port'},isConnected:true};
+  deleteRow.closest=selector=>selector==='[data-setup-port-row]'?setupRows[1]:deleteRow;
+  await domHandlers.get('click')({target:deleteRow});
+  assert.equal(setupRows.length,2,'Delete must remove only the selected row');
+  const initialBatches=batchRequests.length;
+  allowForm.formValues={port:['80','80'],protocol:['tcp','tcp']};
+  assert.throws(()=>evaluate('collectSetupPorts(fixtures.allowForm)'),/重复/);
+  allowForm.formValues={port:['0','8443'],protocol:['tcp','udp']};
+  assert.throws(()=>evaluate('collectSetupPorts(fixtures.allowForm)'),/不合法/);
+  allowForm.formValues={port:['80','8443','8443'],protocol:['tcp','tcp','udp']};
+  const normalized=evaluate('collectSetupPorts(fixtures.allowForm)');
+  assert.equal(normalized.length,3);
+  assert.equal(normalized[1].port,8443);
+  assert.equal(normalized[2].protocol,'udp');
+  assert.equal(batchRequests.length,initialBatches,'Validation is local and cannot modify VPS rules');
+  failBatchPortOnce=true;
   await allowForm.dispatch('submit',{preventDefault(){},currentTarget:allowForm});
-  assert.equal(firewallAllowCount,1,'Explicit allow action should use the fixed backend API once');
-  assert(modal.innerHTML.includes('UFW 已放行 8443/tcp'));
+  assert.equal(batchRequests.length,initialBatches+1);
+  assert.equal(batchRequests.at(-1).length,3,'One click must send one batch for all rules');
+  assert(modal.innerHTML.includes('已放行 2 项，失败 1 项'));
+  assert(modal.innerHTML.includes('仅重试失败的 1 项'));
+  assert.equal(evaluate('state.setupFailedFirewallRules.length'),1);
+  await evaluate('retryFailedSetupPorts(2)');
+  assert.equal(batchRequests.length,initialBatches+2);
+  assert.equal(batchRequests.at(-1).length,1,'Retry must not repeat already allowed ports');
+  assert.equal(batchRequests.at(-1)[0].port,8443);
+  assert(modal.innerHTML.includes('已放行 1 个端口'));
   assert(modal.innerHTML.includes('下一步：选择软件'));
+
+  // When UFW is inactive, none of the requested ports may be called "allowed".
+  firewallMode='inactive';
+  await evaluate('setupFirewall(2)');
+  allowForm.formValues={port:['80','51820'],protocol:['tcp','udp']};
+  await allowForm.dispatch('submit',{preventDefault(){},currentTarget:allowForm});
+  assert(modal.innerHTML.includes('UFW 未启用'));
+  assert(modal.innerHTML.includes('未修改'));
+  assert(!modal.innerHTML.includes('已放行 2 个端口'));
+  firewallMode='active';
+
   evaluate('setupProjects(2)');
   assert(modal.innerHTML.includes('第 5 步 · 选择要安装的软件'));
   assert(modal.innerHTML.includes('panel.example.com'));

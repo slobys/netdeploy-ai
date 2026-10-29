@@ -1,8 +1,8 @@
-/* NetDeploy AI v0.3.12 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.13 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.12';
+const CLIENT_VERSION = '0.3.13';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown'};
+const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
 async function api(path, opts={}) {
   const resp = await fetch('/api'+path,{...opts,headers:{'X-Admin-Token':state.token,...(opts.body?{'Content-Type':'application/json'}:{}),...(opts.headers||{})},cache:'no-store'});
@@ -493,8 +493,121 @@ async function setupPreflight(id){
    toast(err.message,true);
  }
 }
+
+function setupPortRow(port='',protocol='tcp'){
+ return `<div class="setup-port-row" data-setup-port-row>
+   <div class="form-group"><label>端口</label>
+     <input name="port" type="number" inputmode="numeric" min="1" max="65535" required
+       placeholder="例如：8443" value="${escapeHtml(port)}"/></div>
+   <div class="form-group"><label>协议</label>
+     <select name="protocol"><option value="tcp" ${protocol==='tcp'?'selected':''}>TCP</option>
+       <option value="udp" ${protocol==='udp'?'selected':''}>UDP</option></select></div>
+   <button class="btn ghost setup-remove-port" type="button" data-action="setup-remove-port" aria-label="删除这一行端口">删除</button>
+ </div>`;
+}
+function setupPortCount(){
+ const rows=el('#setup-port-rows');
+ const count=rows?.querySelectorAll('[data-setup-port-row]').length||0;
+ const indicator=el('#setup-port-count');
+ if(indicator)indicator.textContent=`已添加 ${count} / 20 个端口`;
+ return count;
+}
+function addSetupPort(){
+ const rows=el('#setup-port-rows');if(!rows)return;
+ if(setupPortCount()>=20){toast('每次最多添加 20 个端口，请分批操作',true);return;}
+ rows.insertAdjacentHTML('beforeend',setupPortRow());
+ setupPortCount();
+ rows.querySelector('[data-setup-port-row]:last-child input[name="port"]')?.focus();
+}
+function removeSetupPort(button){
+ const row=button.closest('[data-setup-port-row]');
+ if(!row)return;
+ if(setupPortCount()<=1){toast('请至少保留一个端口输入框，或直接跳过此步',true);return;}
+ row.remove();setupPortCount();
+}
+function collectSetupPorts(form){
+ const data=new FormData(form),ports=data.getAll('port'),protocols=data.getAll('protocol');
+ if(!ports.length||ports.length>20||protocols.length!==ports.length)
+   throw Error('请添加 1–20 条完整端口规则');
+ const seen=new Set();
+ return ports.map((raw,i)=>{
+   const value=String(raw).trim(),protocol=String(protocols[i]).toLowerCase();
+   const port=Number(value);
+   if(!/^\d+$/.test(value)||!Number.isInteger(port)||port<1||port>65535)
+     throw Error(`第 ${i+1} 行端口不合法，请填写 1–65535 的整数`);
+   if(!['tcp','udp'].includes(protocol))
+     throw Error(`第 ${i+1} 行协议不合法，只能选择 TCP 或 UDP`);
+   const key=port+'/'+protocol;
+   if(seen.has(key))throw Error(`第 ${i+1} 行端口 ${key} 已重复；同一个端口可以分别选择 TCP 和 UDP`);
+   seen.add(key);
+   return {port,protocol};
+ });
+}
+async function submitSetupPorts(id,rules,submit=null){
+ if(state.setupFirewallBusy){toast('端口操作正在执行，请勿重复提交',true);return;}
+ if(state.setupFlowId!==id)return;
+ state.setupFirewallBusy=true;
+ if(submit){submit.disabled=true;submit.classList.add('is-loading');}
+ const next=el('[data-action="setup-projects"]');if(next)next.disabled=true;
+ toast(`正在依次放行 ${rules.length} 个端口…`);
+ try{
+   const result=await api(`/hosts/${id}/firewall/allow-batch`,{
+     method:'POST',body:JSON.stringify({rules,confirmation:true})
+   });
+   if(state.setupFlowId===id){
+     setupFirewallResult(id,result);
+     toast(result.failed?
+       `${result.allowed} 个端口已放行，${result.failed} 个失败；可仅重试失败项`:
+       result.mode==='active'?`已成功放行 ${result.allowed} 个端口`:
+       'UFW 未启用或不可用：没有更改本机防火墙规则',result.failed>0);
+   }
+ }catch(err){
+   const box=el('#setup-port-error');
+   if(box)box.textContent='⚠ '+err.message+'；如网络连接中断，请先检查 VPS 现有规则，不要盲目重复提交';
+   toast(err.message,true);
+ }finally{
+   state.setupFirewallBusy=false;
+   if(submit?.isConnected){submit.disabled=false;submit.classList.remove('is-loading');}
+   if(next?.isConnected)next.disabled=false;
+ }
+}
+async function retryFailedSetupPorts(id){
+ const rules=state.setupFailedFirewallRules||[];
+ if(state.setupFlowId!==id||!rules.length)return;
+ await submitSetupPorts(id,rules);
+}
+
 function setupFirewallResult(id,message){
  const host=state.hosts.find(h=>h.id===id);if(!host||state.setupFlowId!==id)return;
+
+ if(message&&typeof message==='object'&&Array.isArray(message.results)){
+   const result=message;
+   state.setupFailedFirewallRules=result.results.filter(x=>x.status==='failed')
+     .map(x=>({port:x.port,protocol:x.protocol}));
+   const headline=result.failed?
+     `已放行 ${result.allowed} 项，失败 ${result.failed} 项`:
+     result.mode==='active'?`已放行 ${result.allowed} 个端口`:
+     'UFW 未启用或未安装，端口规则未修改';
+   const statusText={allowed:'已放行',failed:'失败',skipped:'未修改'};
+   const rows=result.results.map(x=>
+      `<li class="setup-port-result ${x.status==='allowed'?'allowed':x.status==='failed'?'failed':'skipped'}">
+       <strong>${escapeHtml(x.port)}/${escapeHtml(x.protocol.toUpperCase())}</strong>
+       <span>${statusText[x.status]||'未验证'}</span></li>`).join('');
+   dialog(modalHead('第 4 步 · 批量端口放行结果')+setupProgress(4)+
+     `<section class="setup-result">
+        <span class="chip ${result.failed?'warn':'success'}">${result.failed?'部分端口未放行':'网络步骤已完成'}</span>
+        <h3>${escapeHtml(headline)}</h3>
+        <p>${escapeHtml(result.cloud_notice||'仅修改本机 UFW；云厂商安全组需要另外设置')}</p>
+        <ul class="setup-port-results">${rows}</ul>
+        ${result.failed?'<p class="setup-batch-warning">失败的端口没有被视为成功。仅重试失败项，不会重复提交已放行端口。</p>':''}
+      </section>
+      <div class="modal-actions">
+       <button type="button" class="btn subtle" data-action="setup-firewall" data-id="${id}">返回网络设置</button>
+       ${result.failed?`<button type="button" class="btn primary-soft" data-action="setup-retry-failed" data-id="${id}">仅重试失败的 ${result.failed} 项</button>`:''}
+       <button type="button" class="btn primary" data-action="setup-projects" data-id="${id}">下一步：选择软件 →</button>
+      </div>`);
+   return;
+ }
  dialog(modalHead('第 4 步 · 网络设置完成')+setupProgress(4)+
   `<section class="setup-result"><span class="chip success">网络步骤已完成</span>
     <h3>${escapeHtml(message)}</h3>
@@ -511,10 +624,16 @@ async function setupFirewall(id){
     <p>推荐只放行需要的 TCP/UDP 端口，例如 HTTPS 验证使用 TCP 80。无需安装前关闭防火墙；也可以直接跳过。下方只修改 VPS 本机 UFW，云厂商安全组仍需单独设置。</p></div>
     <div class="server-status-panel" id="setup-firewall-status" role="status">
       <span class="inline-spinner" aria-hidden="true"></span> 正在只读检查 VPS 的 UFW 状态…</div>
-    <form id="setup-allow-form"><div class="form-2">
-      <div class="form-group"><label>需要放行的端口</label><input name="port" inputmode="numeric" type="number" min="1" max="65535" value="80" required/></div>
-      <div class="form-group"><label>协议</label><select name="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div>
-    </div><div class="modal-actions"><button class="btn primary-soft" type="submit">放行所填端口</button></div></form>
+    <form id="setup-allow-form"><div class="setup-port-form-heading"><strong>需要放行的端口</strong>
+      <span id="setup-port-count">已添加 1 / 20 个端口</span></div>
+      <div id="setup-port-rows" class="setup-port-rows">${setupPortRow('80','tcp')}</div>
+      <p id="setup-port-error" class="setup-port-error" role="alert" aria-live="assertive"></p>
+      <div class="setup-port-actions">
+        <button type="button" class="btn subtle" data-action="setup-add-port">＋ 添加端口</button>
+        <button class="btn primary-soft" type="submit">一次放行全部端口</button>
+      </div>
+      <p class="helptext">可添加最多 20 项。每项单独选择 TCP/UDP；相同端口与协议自动检查重复。</p>
+    </form>
     <div class="firewall-toggle-panel"><h4>高级操作：关闭整台 VPS 的本机防火墙</h4>
       <p>此操作会停止 UFW 对所有端口的过滤，可能让管理服务暴露公网；仅在你明确需要时操作。关闭前还会再次确认风险。</p>
       <div class="firewall-toggle-actions"><button type="button" class="btn danger" data-action="toggle-ufw" data-mode="disable" data-id="${id}" disabled>关闭 UFW（需确认风险）</button></div></div>
@@ -524,21 +643,15 @@ async function setupFirewall(id){
  form?.addEventListener('submit',async e=>{
    e.preventDefault();
    if(state.setupFlowId!==id){toast('当前引导步骤已经变化，请重新打开网络设置',true);return;}
-   const raw=new FormData(form),rawPort=String(raw.get('port')||'');
-   const port=Number(rawPort),protocol=String(raw.get('protocol')||'');
-   if(!/^\d+$/.test(rawPort)||!Number.isInteger(port)||port<1||port>65535||!['tcp','udp'].includes(protocol)){
-      toast('请填写 1–65535 的有效端口，并选择 TCP 或 UDP',true);return;
-   }
-   const submit=form.querySelector('button[type="submit"]');
-   if(submit){submit.disabled=true;submit.classList.add('is-loading');}
-   toast(`正在放行 VPS 本机 UFW 的 ${port}/${protocol}…`);
+   let rules;
    try{
-     const result=await api(`/hosts/${id}/firewall/allow`,{method:'POST',
-       body:JSON.stringify({port,protocol,confirmation:true})});
-     const info=result.mode==='active'?`UFW 已放行 ${port}/${protocol}`:'UFW 未启用或不可用，无需新增本机规则';
-     setupFirewallResult(id,info);toast(info+'；云服务商安全组仍需单独核对');
-   }catch(err){toast(err.message,true);}
-   finally{if(submit?.isConnected){submit.disabled=false;submit.classList.remove('is-loading');}}
+     rules=collectSetupPorts(form);
+     const error=el('#setup-port-error');if(error)error.textContent='';
+   }catch(err){
+     const error=el('#setup-port-error');if(error)error.textContent=err.message;
+     toast(err.message,true);return;
+   }
+   await submitSetupPorts(id,rules,form.querySelector('button[type="submit"]'));
  });
  try{
    const status=await api(`/hosts/${id}/firewall`);
@@ -983,6 +1096,9 @@ document.addEventListener('click',async e=>{
  if(busy){t.dataset.busy='1';t.disabled=true;t.classList.add('is-loading');t.setAttribute('aria-busy','true');}
  try{
   if(act==='close-modal'){closeDialog();state.activeJob=null;state.hostPanel=null;state.pendingFingerprint=null;state.setupFlowId=null;}
+  else if(act==='setup-add-port')addSetupPort();
+  else if(act==='setup-remove-port')removeSetupPort(t);
+  else if(act==='setup-retry-failed')await retryFailedSetupPorts(Number(id));
   else if(act==='setup-firewall')await setupFirewall(Number(id));
   else if(act==='setup-projects')setupProjects(Number(id));
   else if(act==='setup-retry')await setupPreflight(Number(id));
