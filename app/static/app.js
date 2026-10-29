@@ -1,4 +1,4 @@
-/* NetDeploy AI v0.2.0 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.2.1 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, section:'dashboard', activeJob:null, pendingFingerprint:null, loading:false};
@@ -134,12 +134,32 @@ function showJob(id){
  if(p.issues.length)html+=`<h3>兼容性 / 支持限制</h3><div class="checks">${p.issues.map(i=>`<div class="check fail">${escapeHtml(i)}</div>`).join('')}</div>`;
  if(p.steps.length)html+=`<h3>受控执行步骤（${p.steps.length} 项）</h3>${p.steps.map((s,i)=>`<div class="step"><span class="num">${i+1}</span><div><b>${escapeHtml(s.label)}</b><small>最长 ${s.timeout} 秒</small><details><summary class="mini" class="smalllink">查看实际 SSH 脚本</summary><pre class="pre">${escapeHtml(s.script)}</pre></details></div></div>`).join('')}`;
  html+=`<a class="external" target="_blank" rel="noopener noreferrer" href="${escapeHtml(p.docs)}">查看官方安装文档 ↗</a>`;
- if(job.status==='planned'&&p.executable)html+=`<form id="approve-form"><div class="modal-tip warning"><b>高权限操作确认</b>：SSH 执行器会运行上方固定脚本，可能修改远端软件包或创建容器。自动回滚暂不可用。请先核对风险和命令。</div>
+ if(job.status==='planned'&&p.executable)html+=`<form id="approve-form"><div class="modal-tip warning"><b>高权限操作确认</b>：SSH 执行器会运行上方固定脚本，可能修改远端软件包或创建容器。自动回滚暂不可用。请先核对风险和命令。部署计划仅在创建后 10 分钟内可以审批；若过期或服务器关键环境改变，请重新生成计划。</div>
  <div class="form-group"><label>请完整输入以下确认语句</label><div class="pre">${escapeHtml(approval)}</div><input name="confirmation" required autocomplete="off" placeholder="输入上方确认语句"/></div>
- <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">审批并开始部署</button></div></form>`;
+ <div class="modal-actions"><button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检查并生成新方案</button><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">审批并开始部署</button></div></form>`;
  else html+=`<h3>执行日志</h3><div id="job-state" class="log-status">${escapeHtml(stateText(job.status))}</div><pre class="pre" id="task-log">${escapeHtml(job.logs||'等待日志...')}</pre><div class="modal-actions"><button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读诊断</button>${job.project==='3x-ui'&&job.status==='completed'?`<button class="btn primary" data-action="xui-access" data-id="${escapeHtml(job.id)}">查看面板登录信息</button>`:''}<button class="btn primary" data-action="close-modal">关闭</button></div><div id="ai-response"></div>`;
  dialog(html);
  const form=el('#approve-form');if(form)form.addEventListener('submit',async e=>{e.preventDefault();const confirmation=new FormData(form).get('confirmation');try{await api(`/jobs/${job.id}/approve`,{method:'POST',body:JSON.stringify({confirmation})});await loadAll(true);showJob(id);toast('任务已获批准并启动执行');}catch(err){toast(err.message,true);}});
+}
+async function regeneratePlan(id){
+ const oldJob=state.jobs.find(j=>j.id===id);
+ if(!oldJob){toast('原部署任务不存在，请刷新',true);return;}
+ const host=state.hosts.find(h=>h.id===oldJob.host_id);
+ if(!host){toast('原服务器不存在，请刷新',true);return;}
+ const button=el('[data-action="regenerate-plan"]');
+ if(button)button.disabled=true;
+ try{
+   await api(`/hosts/${host.id}/preflight`,{method:'POST'});
+   const payload={host_id:host.id,project:oldJob.project};
+   if(oldJob.project==='3x-ui')payload.panel_port=oldJob.plan.options?.panel_port||24443;
+   const newJob=await api('/jobs',{method:'POST',body:JSON.stringify(payload)});
+   state.activeJob=null;
+   await loadAll(true);
+   if(!state.jobs.some(j=>j.id===newJob.id))state.jobs.unshift(newJob);
+   showJob(newJob.id);
+   toast('已重新检测并生成新部署计划；请检查步骤并再次审批');
+ }catch(err){toast(err.message,true);}
+ finally{if(button?.isConnected)button.disabled=false;}
 }
 async function diagnoseJob(id){
  const target=el('#ai-response');if(!target)return;
@@ -173,6 +193,7 @@ document.addEventListener('click',async e=>{const t=e.target.closest('[data-acti
  else if(act==='plan')chooseHost(t.dataset.project);
  else if(act==='job')showJob(id);
  else if(act==='diagnose')await diagnoseJob(id);
+ else if(act==='regenerate-plan')await regeneratePlan(id);
  else if(act==='xui-access')await xuiAccess(id);
  else if(act==='toggle-xui-password'){const field=el('#xui-password');if(field)field.type=field.type==='password'?'text':'password';}
  else if(act==='copy-xui-password'){const field=el('#xui-password');try{if(field){await navigator.clipboard.writeText(field.value);toast('密码已复制，请勿转发');}}catch{toast('复制失败：请手动显示并复制密码',true);}}

@@ -34,7 +34,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.2.0")
+app = FastAPI(title="NetDeploy AI", version="0.2.1")
 
 @app.middleware("http")
 async def security_headers(request, call_next):
@@ -115,7 +115,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.2.0", "security": "local-only"}
+    return {"ok": True, "version": "0.2.1", "security": "local-only"}
 
 
 @app.get("/api/auth", dependencies=[Depends(authorized)])
@@ -202,6 +202,16 @@ def list_jobs():
     return store.jobs()
 
 
+def approval_baseline(facts: dict) -> dict:
+    """Freeze safety-relevant facts, excluding free space's volatile exact value.
+
+    Free space is still checked against the project's minimum when approving.
+    All other observed fields are retained (including newly introduced flags),
+    so they cannot silently change without a fresh deployment plan.
+    """
+    return {key: value for key, value in facts.items() if key != "FREE_KB"}
+
+
 @app.post("/api/jobs", dependencies=[Depends(authorized)])
 def new_job(body: NewJob):
     host = find_host(body.host_id)
@@ -220,6 +230,7 @@ def new_job(body: NewJob):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     plan["hostname"] = host["hostname"]
     plan["host_id"] = host["id"]
+    plan["preflight_baseline"] = approval_baseline(host["facts"])
     return store.new_job(host["id"], body.project, plan)
 
 
@@ -239,10 +250,39 @@ def approve_job(id: str, body: Approval):
         current = executor.preflight(host)
     except (ValueError, SSHError) as exc:
         raise HTTPException(status_code=409, detail=f"二次预检失败：{exc}") from exc
-    # Conservative: any relevant change requires a fresh plan.
+    # A deployment's original safety snapshot must survive any later refresh
+    # of the host record. Legacy plans without this snapshot must be recreated.
+    baseline = job["plan"].get("preflight_baseline")
+    if not isinstance(baseline, dict):
+        raise HTTPException(status_code=409, detail="旧版部署计划缺少安全快照，请重新生成部署计划")
+    latest_safety = approval_baseline(current)
+    changed_keys = sorted(
+        key for key in set(baseline) | set(latest_safety)
+        if key not in baseline or key not in latest_safety or baseline[key] != latest_safety[key]
+    )
+    if changed_keys:
+        store.save_facts(host["id"], current)
+        raise HTTPException(
+            status_code=409,
+            detail=f"服务器关键环境已变化（{', '.join(changed_keys)}），请重新生成部署计划",
+        )
+    # Recheck minimum free space and all project-specific gates against the
+    # *new* values. A changing FREE_KB value is safe only above the threshold.
+    try:
+        fresh_plan = build_plan(job["project"], current, job["plan"].get("options"))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=f"部署方案参数不再有效：{exc}") from exc
+    if not fresh_plan["executable"]:
+        store.save_facts(host["id"], current)
+        reasons = "；".join(fresh_plan["issues"])
+        raise HTTPException(status_code=409, detail=f"二次环境检测未通过：{reasons}。请解决后重新生成部署计划")
+    if fresh_plan["steps"] != job["plan"].get("steps"):
+        raise HTTPException(status_code=409, detail="执行模板与已审批计划不一致，请重新生成部署计划")
+    # Store the latest non-secret free-space reading, so the runner's second
+    # deterministic plan build uses the same checked facts.
     if current != host["facts"]:
         store.save_facts(host["id"], current)
-        raise HTTPException(status_code=409, detail="服务器环境已变化，请重新生成部署计划")
+        host["facts"] = current
     try:
         runner.enqueue(job, host, body.confirmation)
         return {"ok": True, "job_id": id, "status": "queued"}
