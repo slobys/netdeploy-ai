@@ -1,4 +1,4 @@
-# Fast-forward-only updater. Local runtime data is never overwritten by Git updates.
+﻿# Fast-forward-only updater. Local runtime data is never overwritten by Git updates.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
