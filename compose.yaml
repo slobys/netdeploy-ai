@@ -1,0 +1,42 @@
+services:
+  netdeploy:
+    build: .
+    container_name: netdeploy-ai
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:8787:8787'
+    environment:
+      NETDEPLOY_ADMIN_TOKEN: ${NETDEPLOY_ADMIN_TOKEN:?Set NETDEPLOY_ADMIN_TOKEN in .env}
+      NETDEPLOY_DATA: /srv/netdeploy/data
+      NETDEPLOY_CODEX_WORKER_URL: http://codex-worker:8788
+      NETDEPLOY_WORKER_TOKEN: ${NETDEPLOY_WORKER_TOKEN:?Set NETDEPLOY_WORKER_TOKEN in .env}
+      NETDEPLOY_SSH_KEY_FILE: /run/secrets/ssh_key
+    volumes:
+      - ./data:/srv/netdeploy/data
+      # Directory exists even when using password-only authentication.
+      # Optional dedicated private key at ./secrets/ssh_key for key login.
+      - ./secrets:/run/secrets:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+
+  codex-worker:
+    profiles: ["ai"]
+    build:
+      context: .
+      dockerfile: Dockerfile.ai
+    environment:
+      NETDEPLOY_WORKER_TOKEN: ${NETDEPLOY_WORKER_TOKEN:?Set NETDEPLOY_WORKER_TOKEN in .env}
+      CODEX_API_KEY: ${CODEX_API_KEY:-}
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m
+    # No external port, no SSH key mount, no database, no Docker socket.

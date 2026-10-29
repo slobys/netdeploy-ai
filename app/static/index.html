@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="referrer" content="no-referrer"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"/>
+<title>NetDeploy AI · VPS 智能部署平台</title>
+<link rel="stylesheet" href="/static/app.css"/>
+</head>
+<body>
+<div id="login" class="login-overlay hidden">
+  <div class="login-box">
+    <div class="brand-logo large">◇</div>
+    <h1>欢迎使用 NetDeploy AI</h1>
+    <p>输入部署服务启动时配置的管理员令牌</p>
+    <form id="login-form">
+      <label for="admin-token">管理员令牌</label>
+      <input type="password" required minlength="24" id="admin-token" placeholder="NETDEPLOY_ADMIN_TOKEN" autocomplete="off"/>
+      <button class="btn primary wide" type="submit">进入控制台 →</button>
+    </form>
+    <div class="login-tip">当前 Alpha 版本仅适合可信单管理员环境。请通过本地端口或 SSH 隧道访问，不要直接暴露公网。</div>
+  </div>
+</div>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-logo">◇</div><div><strong>NetDeploy <span>AI</span></strong><small>智能网络部署平台</small></div></div>
+    <div class="sidebar-caption">工作空间</div>
+    <nav class="nav">
+      <button class="nav-item active" data-nav="dashboard"><span class="nav-symbol">▦</span> 总览面板</button>
+      <button class="nav-item" data-nav="projects"><span class="nav-symbol">⬡</span> 项目中心 <span class="nav-count">4</span></button>
+      <button class="nav-item" data-nav="hosts"><span class="nav-symbol">▤</span> 服务器管理</button>
+      <button class="nav-item" data-nav="jobs"><span class="nav-symbol">≡</span> 部署任务</button>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="agent-info"><span class="pulse"></span><div><b>安全执行模式</b><small>经审核的固定部署步骤</small></div></div>
+      <button class="logout" id="logout">退出登录 ↗</button>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="crumb">工作空间 <span>/</span> <b id="crumb-current">总览面板</b></div>
+      <div class="top-actions"><span class="tag alpha">ALPHA v0.1.2</span><button id="refresh" class="icon-button" aria-label="刷新">⟳</button><div class="avatar">ND</div></div>
+    </header>
+    <main class="content">
+      <section class="hero" id="hero">
+        <div class="hero-glow"></div>
+        <div class="hero-content"><div class="eyebrow"><span class="live-dot"></span> NETDEPLOY AI CONTROL CENTER</div>
+          <h1>你的 VPS，<br/><em>由 AI 协助部署。</em></h1>
+          <p>连接服务器，选择项目，审阅安装计划。让复杂的环境检测、依赖配置与部署记录变得清晰可控。</p>
+          <div class="hero-actions"><button class="btn primary" data-action="add-host">＋ 添加 VPS 服务器</button><button class="btn ghost" data-nav="projects">探索项目 →</button></div>
+        </div>
+        <div class="hero-art"><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="center-cube">⌘</div><div class="orbit-node node-1">⌁</div><div class="orbit-node node-2">▣</div><div class="orbit-node node-3">◈</div></div>
+      </section>
+      <div class="section-heading"><div><h2 id="section-title">运行概览</h2><p id="section-subtitle">集中管理服务器与自动化部署任务</p></div><button class="btn subtle" data-action="add-host" id="main-cta">＋ 添加服务器</button></div>
+      <div class="stats" id="stats"></div>
+      <section class="section" id="projects-section"><div class="section-heading smaller"><div><h2>精选部署项目</h2><p>选择经过审核的安装模板，AI 仅提供只读诊断建议</p></div><button class="text-action" data-nav="projects">查看全部项目 →</button></div><div class="project-grid" id="project-grid"></div></section>
+      <section class="section" id="hosts-section"><div class="section-heading smaller"><div><h2>我的 VPS 服务器</h2><p>SSH 严格校验主机密钥，避免误连未知服务器</p></div><button class="text-action" data-action="add-host">＋ 添加 VPS</button></div><div class="host-list" id="host-list"></div></section>
+      <section class="section" id="jobs-section"><div class="section-heading smaller"><div><h2>最近部署任务</h2><p>每一步都可追踪，并保留执行日志</p></div><button class="text-action" data-nav="jobs">查看任务 →</button></div><div class="job-list" id="job-list"></div></section>
+      <footer>NetDeploy AI v0.1.2 · 第一阶段 Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
+    </main>
+  </div>
+</div>
+<div id="modal" class="modal-wrap hidden" role="dialog" aria-modal="true" aria-label="操作窗口"><div class="modal-backdrop" data-action="close-modal"></div><div class="modal" id="modal-content"></div></div>
+<div id="toast" class="toast hidden" role="status"></div>
+<script src="/static/app.js" defer></script>
+</body>
+</html>
