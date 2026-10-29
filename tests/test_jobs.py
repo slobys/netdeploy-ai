@@ -2,6 +2,7 @@ from app.tasks import JobRunner, sanitize
 from app.store import Store
 from app.catalog import build_plan
 from tempfile import TemporaryDirectory
+from contextlib import closing
 from pathlib import Path
 from time import sleep
 
@@ -46,7 +47,7 @@ def test_modified_database_plan_cannot_execute_commands():
         j=s.new_job(h['id'],'sing-box',plan)
         # Simulate malformed/tampered stored recipe (attacker having write access to DB).
         import sqlite3,json
-        with sqlite3.connect(s.path) as db:
+        with closing(sqlite3.connect(s.path)) as db, db:
             job=s.job(j['id'])
             job['plan']['steps'][0]['script']='echo MALICIOUS'
             db.execute('UPDATE jobs SET plan_json=? WHERE id=?',(json.dumps(job['plan']),j['id']))
