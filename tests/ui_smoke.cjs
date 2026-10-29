@@ -75,6 +75,11 @@ let trustCheck=false;
 let preflightRequests=0;
 let trustRequests=0;
 let storedHosts=[host];
+let firewallReadCount=0;
+let firewallAllowCount=0;
+let firewallDisableCount=0;
+let rekeyCount=0;
+let firewallMode='active';
 class FakeFormData{
   constructor(form){this.values=form.formValues||{};}
   get(k){return this.values[k]??null;}
@@ -93,7 +98,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.11';
+let runtimeVersion='0.3.12';
 let xuiReadRequests=0;
 const context = vm.createContext({
   console,
@@ -110,6 +115,36 @@ const context = vm.createContext({
     if (/^\/api\/hosts\/\d+\/fingerprint$/.test(url)) {
       fingerprintRequests++;
       return {ok:true,status:200,json:async()=>mockFingerprint};
+    }
+    if(/^\/api\/hosts\/\d+\/rekey$/.test(url)){
+      const body=JSON.parse(opts.body||'{}');
+      assert.equal(opts.method,'POST');
+      assert.equal(body.confirmed_out_of_band,true);
+      assert.equal(body.fingerprint,mockFingerprint.fingerprint);
+      assert.deepEqual(body.previous_fingerprints,mockFingerprint.previous_fingerprints.map(x=>x.fingerprint));
+      assert.equal(body.confirmation,'REKEY 45.32.35.195:22');
+      rekeyCount++;
+      return {ok:true,status:200,json:async()=>({affected_host_records:1,old_plans_invalidated:true})};
+    }
+    if(/^\/api\/hosts\/\d+\/firewall$/.test(url)){
+      firewallReadCount++;
+      return {ok:true,status:200,json:async()=>({status:firewallMode,cloud_notice:'cloud security group separate',details:'Status: active'})};
+    }
+    if(/^\/api\/hosts\/\d+\/firewall\/allow$/.test(url)){
+      const body=JSON.parse(opts.body||'{}');
+      assert.equal(opts.method,'POST');
+      assert.equal(body.confirmation,true);
+      assert.equal(body.port,8443);
+      assert.equal(body.protocol,'tcp');
+      firewallAllowCount++;
+      return {ok:true,status:200,json:async()=>({mode:'active',port:8443,protocol:'tcp',ok:true})};
+    }
+    if(/^\/api\/hosts\/\d+\/firewall\/toggle$/.test(url)){
+      const body=JSON.parse(opts.body||'{}');
+      assert.equal(body.mode,'disable');
+      assert.equal(body.confirmed_risk,true);
+      firewallDisableCount++;firewallMode='inactive';
+      return {ok:true,status:200,json:async()=>({ok:true,mode:'inactive'})};
     }
     if(/^\/api\/hosts\/\d+\/trust$/.test(url)){
       const request=JSON.parse(opts.body||'{}');
@@ -201,9 +236,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.11';
+  runtimeVersion='0.3.12';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.11');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.12');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -260,6 +295,22 @@ function fingerprintFor(label) {
   assert(fingerprintTarget.innerHTML.includes('独立控制台'));
   assert.equal(fingerprintRequests,2);
 
+  // Confirming a VPS reinstallation no longer requires typing REKEY words.
+  // First the new host key must still be checked via an independent channel.
+  trustCheck=false;
+  evaluate('prepareRekey(1)');
+  assert(!modal.innerHTML.includes('id="rekey-form"'));
+  assert.equal(rekeyCount,0);
+  trustCheck=true;
+  evaluate('prepareRekey(1)');
+  assert(modal.innerHTML.includes('id="rekey-form"'));
+  assert(modal.innerHTML.includes('无需再复制或输入确认语句'));
+  assert(!modal.innerHTML.includes('name="confirmation"'));
+  const rekeyForm=made.get('#rekey-form');
+  await rekeyForm.dispatch('submit',{preventDefault(){},currentTarget:rekeyForm});
+  assert.equal(rekeyCount,1,'Explicit confirmation after independent verification should update trust once');
+  trustCheck=false;
+
   // An existing 3X-UI must open read-only information without a new plan.
   fill({...freshJob,status:'planned',plan:{...freshJob.plan,executable:false,steps:[],
     issues:['已存在 x-ui 安装，禁止覆盖'],preflight_baseline:{XUI_PRESENT:'yes'}}});
@@ -291,7 +342,7 @@ function fingerprintFor(label) {
   evaluate("state.token='';");
 
 
-  // A new VPS must stay inside one 4-step flow, using the IP for SSH and
+  // A new VPS must stay inside one 5-step flow, using the IP for SSH and
   // an independent optional domain for ACME. Only the FIRST host-key trust
   // requires explicit out-of-band verification.
   fill();
@@ -327,12 +378,50 @@ function fingerprintFor(label) {
   assert.equal(trustRequests,1,'new SSH host must be independently approved once');
   assert.equal(preflightRequests,1);
   assert(modal.innerHTML.includes('第 3 步 · 连接检测通过'));
-  assert(modal.innerHTML.includes('下一步：选择软件'));
+  assert(modal.innerHTML.includes('下一步：端口与防火墙'));
   assert(modal.innerHTML.includes('域名证书'));
+  assert.equal(firewallAllowCount,0);
+  assert.equal(firewallDisableCount,0);
+  await evaluate('setupFirewall(2)');
+  assert(modal.innerHTML.includes('第 4 步 · 端口与防火墙'));
+  assert(modal.innerHTML.includes('放行所填端口'));
+  assert(modal.innerHTML.includes('关闭 UFW（需确认风险）'));
+  assert(modal.innerHTML.includes('跳过此步，下一步：选择软件'));
+  assert.equal(firewallReadCount,1);
+  assert.equal(firewallAllowCount,0,'Showing the optional firewall step must not modify rules');
   evaluate('setupProjects(2)');
-  assert(modal.innerHTML.includes('第 4 步 · 选择要安装的软件'));
+  assert(modal.innerHTML.includes('第 5 步 · 选择要安装的软件'));
+  assert.equal(firewallAllowCount,0,'Skipping the optional step cannot create any rule');
+  assert.equal(firewallDisableCount,0,'Skipping the optional step cannot disable UFW');
+  await evaluate('setupFirewall(2)');
+  const allowForm=made.get('#setup-allow-form');
+  allowForm.formValues={port:'8443',protocol:'tcp'};
+  await allowForm.dispatch('submit',{preventDefault(){},currentTarget:allowForm});
+  assert.equal(firewallAllowCount,1,'Explicit allow action should use the fixed backend API once');
+  assert(modal.innerHTML.includes('UFW 已放行 8443/tcp'));
+  assert(modal.innerHTML.includes('下一步：选择软件'));
+  evaluate('setupProjects(2)');
+  assert(modal.innerHTML.includes('第 5 步 · 选择要安装的软件'));
   assert(modal.innerHTML.includes('panel.example.com'));
   assert(modal.innerHTML.includes('data-action="server-install"'));
+
+  // Global UFW disable remains a separate HIGH-RISK opt-in action, never an
+  // automatic onboarding step or side effect of viewing the status.
+  await evaluate('setupFirewall(2)');
+  assert.equal(firewallDisableCount,0);
+  evaluate("confirmUfwToggle(2,'disable')");
+  assert(modal.innerHTML.includes('关闭整台 VPS'));
+  assert.equal(firewallDisableCount,0,'Opening the risk confirmation does not disable UFW');
+  await evaluate("applyUfwToggle(2,'disable')");
+  assert.equal(firewallDisableCount,1);
+  assert(modal.innerHTML.includes('UFW 已手动关闭'));
+  assert(modal.innerHTML.includes('下一步：选择软件'));
+  await evaluate('setupFirewall(2)');
+  assert(made.get('[data-action="toggle-ufw"][data-mode="disable"]').disabled,
+    'Already-inactive UFW must not advertise another disable operation');
+  evaluate('setupProjects(2)');
+  assert(modal.innerHTML.includes('第 5 步 · 选择要安装的软件'));
+  assert.equal(firewallDisableCount,1,'Skip next step must not disable UFW a second time');
 
   // A known, unchanged pinned fingerprint can proceed straight to SSH
   // detection, without making the user tick the same checkbox twice.

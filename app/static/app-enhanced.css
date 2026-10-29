@@ -383,7 +383,7 @@ details>summary:hover{color:#d2e6ff}
 
 
 /* v0.3.11 — guided VPS onboarding and optional domain certificates */
-.setup-progress{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:15px 0 23px;padding:0;list-style:none}
+.setup-progress{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:15px 0 23px;padding:0;list-style:none}
 .setup-progress li{display:flex;align-items:center;justify-content:center;gap:8px;color:#8da8c8;font-size:11px;padding:10px 7px;background:#0c1729;border:1px solid #2b3c59;border-radius:10px;min-width:0;text-align:center}
 .setup-progress li.current{color:#e8f3ff;border-color:#659ae7;background:#1d3557;font-weight:760}
 .setup-progress li.finished{color:#9ce5d0;border-color:#2e776b;background:#12302e}
@@ -399,6 +399,7 @@ details>summary:hover{color:#d2e6ff}
 @media(max-width:700px){
   .setup-progress{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
   .setup-progress li{justify-content:flex-start;font-size:10px;padding:8px}
+  .setup-progress li:last-child{grid-column:span 2}
 }
 @media(max-width:380px){
   .setup-progress{grid-template-columns:1fr 1fr}

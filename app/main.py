@@ -38,7 +38,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.11")
+app = FastAPI(title="NetDeploy AI", version="0.3.12")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -184,7 +184,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.11", "security": "local-only"}
+    return {"ok": True, "version": "0.3.12", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -367,7 +367,7 @@ def rekey_host(id: int, body: HostRekeyConfirmation):
     if not re.fullmatch(r"SHA256:[A-Za-z0-9+/=]{24,80}", body.fingerprint):
         raise HTTPException(status_code=422, detail="新指纹格式不合法")
     if body.confirmation != f"REKEY {host['hostname']}:{host['port']}":
-        raise HTTPException(status_code=409, detail="必须输入对应的 VPS 地址及端口确认语句")
+        raise HTTPException(status_code=409, detail="SSH 信任确认信息与当前 VPS 地址及端口不匹配")
     try:
         with store.lock:
             if store.has_active_endpoint_jobs(host["hostname"], host["port"]):

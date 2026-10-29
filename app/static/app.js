@@ -1,8 +1,8 @@
-/* NetDeploy AI v0.3.11 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.12 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.11';
+const CLIENT_VERSION = '0.3.12';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null};
+const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown'};
 
 async function api(path, opts={}) {
   const resp = await fetch('/api'+path,{...opts,headers:{'X-Admin-Token':state.token,...(opts.body?{'Content-Type':'application/json'}:{}),...(opts.headers||{})},cache:'no-store'});
@@ -285,11 +285,16 @@ async function refreshFirewallUI(id){
 function confirmUfwToggle(id,mode){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
  const disabling=mode==='disable';
+ const guided=state.setupFlowId===id;
+ if(guided&&disabling&&state.setupFirewallStatus!=='active'){
+   toast('当前 UFW 未处于已启用状态，不需要执行关闭操作；可跳过本步',true);return;
+ }
  dialog(modalHead(disabling?'关闭 VPS 本机防火墙':'重新启用 VPS 本机防火墙')+`
    <div class="modal-tip warning"><b>${disabling?'此操作会关闭整台 VPS 的 UFW 本机防火墙。':'重新启用 UFW 前会先放行当前 SSH 端口。'}</b>
    ${disabling?'所有端口将不再受到 UFW 过滤，可能暴露管理接口或其他服务。云安全组依旧独立生效。':'已有的 UFW 规则和默认拒绝策略将重新生效；某些端口可能再次被拦截。'}
    请确认正在管理的是 ${escapeHtml(host.name)}（${escapeHtml(host.hostname)}）。</div>
-   <div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="${id}">取消</button>
+   ${guided?setupProgress(4):''}
+   <div class="modal-actions"><button class="btn ghost" data-action="${guided?'setup-firewall':'back-host'}" data-id="${id}">取消</button>
    <button class="btn ${disabling?'danger':'primary'}" data-action="apply-ufw-toggle" data-id="${id}" data-mode="${mode}">
      ${disabling?'确认关闭 UFW':'确认重新启用 UFW'}</button></div>`);
 }
@@ -298,8 +303,10 @@ async function applyUfwToggle(id,mode){
  try{
    const result=await api(`/hosts/${id}/firewall/toggle`,{method:'POST',
      body:JSON.stringify({mode,confirmed_risk:true})});
-   openHostConsole(id,'network');
-   toast(result.mode==='inactive'?'UFW 已关闭，VPS 本机端口不再由 UFW 过滤':'UFW 已重新启用，SSH 端口已预先放行');
+   const message=result.mode==='inactive'?'UFW 已手动关闭，VPS 本机端口不再受其过滤':'UFW 已重新启用，SSH TCP 端口已预先放行';
+   if(state.setupFlowId===id)setupFirewallResult(id,message);
+   else openHostConsole(id,'network');
+   toast(message+'；云服务商安全组不受影响');
  }catch(err){toast(err.message,true);}
 }
 async function checkHostInConsole(id){
@@ -450,7 +457,7 @@ function isIpv4Input(value){const parts=String(value||'').split('.');return part
 function certHost(host){return host.tls_domain||host.hostname;}
 function certLabel(host){return host.tls_domain||!isIpv4Input(host.hostname)?`域名证书 · ${escapeHtml(certHost(host))}`:`IP 证书 · ${escapeHtml(host.hostname)}`;}
 function setupProgress(step){
- const steps=['服务器信息','SSH 指纹','连接检测','选择软件'];
+ const steps=['服务器信息','SSH 指纹','连接检测','网络端口','选择软件'];
  return `<ol class="setup-progress" aria-label="服务器添加进度">${steps.map((text,i)=>`<li class="${i+1===step?'current':i+1<step?'finished':''}" ${i+1===step?'aria-current="step"':''}>
    <span class="setup-step-number">${i+1<step?'✓':i+1}</span><span>${text}</span></li>`).join('')}</ol>`;
 }
@@ -475,7 +482,7 @@ async function setupPreflight(id){
       <p>${escapeHtml(facts.OS_ID||'Linux')} · ${escapeHtml(facts.OS_VERSION||'')} · ${escapeHtml(facts.ARCH||'未知架构')}</p>
       <p>${certLabel(state.hosts.find(h=>h.id===id)||checked)}；创建部署方案时仍会自动进行安全复核。</p></section>
     <div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="${id}">稍后操作</button>
-      <button class="btn primary" data-action="setup-projects" data-id="${id}">下一步：选择软件 →</button></div>`);
+      <button class="btn primary" data-action="setup-firewall" data-id="${id}">下一步：端口与防火墙（可跳过） →</button></div>`);
    toast('SSH 连接及服务器环境检测通过');
  }catch(err){
    dialog(modalHead('连接检测未通过')+setupProgress(3)+
@@ -486,12 +493,74 @@ async function setupPreflight(id){
    toast(err.message,true);
  }
 }
+function setupFirewallResult(id,message){
+ const host=state.hosts.find(h=>h.id===id);if(!host||state.setupFlowId!==id)return;
+ dialog(modalHead('第 4 步 · 网络设置完成')+setupProgress(4)+
+  `<section class="setup-result"><span class="chip success">网络步骤已完成</span>
+    <h3>${escapeHtml(message)}</h3>
+    <p>仅操作 VPS 自身的 UFW；云服务商安全组仍需另行允许相应入站端口。</p></section>
+    <div class="modal-actions"><button type="button" class="btn subtle" data-action="setup-firewall" data-id="${id}">返回网络设置</button>
+    <button type="button" class="btn primary" data-action="setup-projects" data-id="${id}">下一步：选择软件 →</button></div>`);
+}
+async function setupFirewall(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ state.setupFlowId=id;state.setupFirewallStatus='unknown';
+ state.hostPanel={id,tab:'network'};
+ dialog(modalHead('第 4 步 · 端口与防火墙（可跳过）')+setupProgress(4)+
+  `<div class="server-tab-intro"><h3>按需放行端口，或选择跳过</h3>
+    <p>推荐只放行需要的 TCP/UDP 端口，例如 HTTPS 验证使用 TCP 80。无需安装前关闭防火墙；也可以直接跳过。下方只修改 VPS 本机 UFW，云厂商安全组仍需单独设置。</p></div>
+    <div class="server-status-panel" id="setup-firewall-status" role="status">
+      <span class="inline-spinner" aria-hidden="true"></span> 正在只读检查 VPS 的 UFW 状态…</div>
+    <form id="setup-allow-form"><div class="form-2">
+      <div class="form-group"><label>需要放行的端口</label><input name="port" inputmode="numeric" type="number" min="1" max="65535" value="80" required/></div>
+      <div class="form-group"><label>协议</label><select name="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div>
+    </div><div class="modal-actions"><button class="btn primary-soft" type="submit">放行所填端口</button></div></form>
+    <div class="firewall-toggle-panel"><h4>高级操作：关闭整台 VPS 的本机防火墙</h4>
+      <p>此操作会停止 UFW 对所有端口的过滤，可能让管理服务暴露公网；仅在你明确需要时操作。关闭前还会再次确认风险。</p>
+      <div class="firewall-toggle-actions"><button type="button" class="btn danger" data-action="toggle-ufw" data-mode="disable" data-id="${id}" disabled>关闭 UFW（需确认风险）</button></div></div>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-action="back-host" data-id="${id}">稍后操作</button>
+      <button type="button" class="btn primary" data-action="setup-projects" data-id="${id}">跳过此步，下一步：选择软件 →</button></div>`);
+ const form=el('#setup-allow-form');
+ form?.addEventListener('submit',async e=>{
+   e.preventDefault();
+   if(state.setupFlowId!==id){toast('当前引导步骤已经变化，请重新打开网络设置',true);return;}
+   const raw=new FormData(form),rawPort=String(raw.get('port')||'');
+   const port=Number(rawPort),protocol=String(raw.get('protocol')||'');
+   if(!/^\d+$/.test(rawPort)||!Number.isInteger(port)||port<1||port>65535||!['tcp','udp'].includes(protocol)){
+      toast('请填写 1–65535 的有效端口，并选择 TCP 或 UDP',true);return;
+   }
+   const submit=form.querySelector('button[type="submit"]');
+   if(submit){submit.disabled=true;submit.classList.add('is-loading');}
+   toast(`正在放行 VPS 本机 UFW 的 ${port}/${protocol}…`);
+   try{
+     const result=await api(`/hosts/${id}/firewall/allow`,{method:'POST',
+       body:JSON.stringify({port,protocol,confirmation:true})});
+     const info=result.mode==='active'?`UFW 已放行 ${port}/${protocol}`:'UFW 未启用或不可用，无需新增本机规则';
+     setupFirewallResult(id,info);toast(info+'；云服务商安全组仍需单独核对');
+   }catch(err){toast(err.message,true);}
+   finally{if(submit?.isConnected){submit.disabled=false;submit.classList.remove('is-loading');}}
+ });
+ try{
+   const status=await api(`/hosts/${id}/firewall`);
+   const target=el('#setup-firewall-status');
+   if(state.setupFlowId!==id||!target)return;
+   state.setupFirewallStatus=status.status;
+   const statusText={active:'UFW 正在运行',inactive:'UFW 未启用，当前无需放行本机端口',unavailable:'未安装 UFW，无本机 UFW 规则需修改',unknown:'当前 UFW 状态不明确'}[status.status]||'无法识别状态';
+   target.innerHTML=`<strong>${escapeHtml(statusText)}</strong><p class="helptext">${escapeHtml(status.cloud_notice||'云服务商安全组需要单独设置')}</p>`;
+   const disable=el('[data-action="toggle-ufw"][data-mode="disable"]');
+   if(disable)disable.disabled=status.status!=='active';
+ }catch(err){
+   const target=el('#setup-firewall-status');
+   if(state.setupFlowId===id&&target)target.innerHTML=`<div class="modal-tip warning">UFW 状态检查失败：${escapeHtml(err.message)}。你可以跳过本步，或稍后重试。出于安全考虑不提供关闭操作。</div>`;
+   state.setupFirewallStatus='unknown';
+ }
+}
 function setupProjects(id){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
  state.setupFlowId=id;
  state.hostPanel={id,tab:'deploy'};
  const visible=Object.entries(state.catalog).filter(([key,p])=>!p.internal);
- dialog(modalHead('第 4 步 · 选择要安装的软件')+setupProgress(4)+
+ dialog(modalHead('第 5 步 · 选择要安装的软件')+setupProgress(5)+
   `<div class="setup-result"><span class="chip success">服务器 ${escapeHtml(host.name)} 已连接</span>
     <h3>接下来想在 VPS 上安装什么？</h3><p>${certLabel(host)}。系统会自动识别已有软件、检查环境并生成安装方案；真正安装前只需要批准一次。</p></div>
     <div class="server-project-grid">${visible.map(([key,project])=>`<button class="server-project-choice" data-action="server-install" data-id="${id}" data-project="${escapeHtml(key)}">
@@ -658,20 +727,22 @@ function prepareRekey(id){
  dialog(modalHead('确认 VPS 重装后的新身份')+`<div class="modal-tip warning"><b>将替换这一 IP/端口旧的 SSH 信任记录。</b>
  不会删除其他服务器的密钥；同一 SSH 地址的 ${pending.shared_host_count} 条 VPS 记录都会更新，旧审批计划会失效。</div>
  <div class="form-group"><label>新指纹（必须与云控制台一致）</label><div class="pre">${escapeHtml(pending.fingerprint)}</div></div>
- <form id="rekey-form"><div class="form-group"><label>输入确认语句：${escapeHtml(phrase)}</label>
- <input name="confirmation" required autocomplete="off" placeholder="${escapeHtml(phrase)}"/></div>
- <div class="modal-actions"><button class="btn ghost" type="button" data-action="close-modal">取消</button>
- <button class="btn danger" type="submit">已独立确认，更新此 VPS 的 SSH 信任</button></div></form>`);
+ <p class="helptext">你已勾选独立核对指纹，无需再复制或输入确认语句。点击按钮后还会重新验证服务器公钥，确认一致才会更新。</p>
+ <form id="rekey-form">
+ <div class="modal-actions"><button class="btn ghost" type="button" data-action="fingerprint" data-id="${id}">返回核对指纹</button>
+ <button class="btn danger" type="submit">确认更新 SSH 信任</button></div></form>`);
  el('#rekey-form').addEventListener('submit',async e=>{
    e.preventDefault();const form=e.currentTarget;const submit=form.querySelector('button[type="submit"]');
+   if(state.pendingFingerprint!==pending||state.pendingFingerprint.hostId!==id){toast('主机指纹信息已变化，请重新扫描并独立核对',true);return;}
    if(submit){submit.disabled=true;submit.classList.add('is-loading');}
-   const confirmation=String(new FormData(form).get('confirmation'));toast('正在确认新指纹并安全更新信任记录…');
+   const confirmation=phrase;toast('正在确认新指纹并安全更新信任记录…');
    try{const result=await api(`/hosts/${id}/rekey`,{method:'POST',body:JSON.stringify({
       fingerprint:pending.fingerprint,previous_fingerprints:pending.previous_fingerprints.map(x=>x.fingerprint),
       confirmed_out_of_band:true,confirmation
    })});state.pendingFingerprint=null;closeDialog();await loadAll(true);
       toast(`新指纹已安全信任，影响 ${result.affected_host_records} 条记录；请重新检测系统并核对 SSH 登录密码`);
       if(state.setupFlowId===id)await setupPreflight(id);
+      else openHostConsole(id,'security');
    }catch(err){toast(err.message,true);}finally{if(submit?.isConnected){submit.disabled=false;submit.classList.remove('is-loading');}}
  });
 }
@@ -906,12 +977,13 @@ document.addEventListener('click',async e=>{
  const t=e.target.closest('[data-action],[data-nav]');if(!t)return;
  if(t.dataset.nav){go(t.dataset.nav);return;}
  const id=t.dataset.id,act=t.dataset.action;
- const asyncActions=new Set(['installed-xui','existing-xui-https','install-new-xui','fingerprint','trust','preflight','host-check','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel']);
+ const asyncActions=new Set(['installed-xui','existing-xui-https','install-new-xui','fingerprint','trust','preflight','host-check','setup-firewall','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel']);
  if(t.dataset.busy==='1')return;
  const busy=asyncActions.has(act)||act==='apply-ufw-toggle';
  if(busy){t.dataset.busy='1';t.disabled=true;t.classList.add('is-loading');t.setAttribute('aria-busy','true');}
  try{
   if(act==='close-modal'){closeDialog();state.activeJob=null;state.hostPanel=null;state.pendingFingerprint=null;state.setupFlowId=null;}
+  else if(act==='setup-firewall')await setupFirewall(Number(id));
   else if(act==='setup-projects')setupProjects(Number(id));
   else if(act==='setup-retry')await setupPreflight(Number(id));
   else if(act==='host-console')openHostConsole(Number(id));

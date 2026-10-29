@@ -92,6 +92,15 @@ def test_safe_host_reinstall_rotates_only_matching_endpoint_and_invalidates_plan
         assert (tmp_path / "known_hosts").read_text(encoding="utf-8") == old_file
         assert store.host(host["id"])["trust_epoch"] == 0
 
+    # The browser generates the confirmation phrase after a verified click;
+    # direct API clients must still supply the exact phrase. Nothing about
+    # removing the textbox weakens the server's endpoint identity checks.
+    without_phrase = {k: v for k, v in body.items() if k != "confirmation"}
+    missing = client.post(f'/api/hosts/{host["id"]}/rekey',
+                          headers=HEAD, json=without_phrase)
+    assert missing.status_code == 422
+    assert store.host(host["id"])["trust_epoch"] == 0
+
     changed = client.post(f'/api/hosts/{host["id"]}/rekey', headers=HEAD, json=body)
     assert changed.status_code == 200, changed.text
     assert changed.json()["affected_host_records"] == 2
