@@ -26,6 +26,8 @@ from .firewall import (PortRule, FirewallBatch, STATUS_SCRIPT, allow_port_script
                        allow_ports_script, parse_firewall_batch_output,
                        FirewallToggle, firewall_toggle_script)
 from .xui_existing import status_script, parse_status, public_access_script, direct_url
+from .s_ui import (STATUS as SUI_STATUS_SCRIPT, ACCESS as SUI_ACCESS_SCRIPT,
+                   parse_status as parse_sui_status, parse_access as parse_sui_access)
 
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("NETDEPLOY_DATA", str(BASE.parent / "data")))
@@ -40,7 +42,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.13")
+app = FastAPI(title="NetDeploy AI", version="0.3.14")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -186,7 +188,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.13", "security": "local-only"}
+    return {"ok": True, "version": "0.3.14", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -451,6 +453,37 @@ def xui_existing_access(id: int):
     return result
 
 
+def read_existing_sui(host: dict) -> dict:
+    """Status-only; the admin password is never retrieved by this action."""
+    if not executor.credential_ready(host):
+        raise HTTPException(status_code=409, detail="SSH 登录凭据不可用，请先验证可信 VPS")
+    try:
+        return parse_sui_status(executor.run(host, SUI_STATUS_SCRIPT, timeout=25))
+    except (SSHError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"无法读取 S-UI 当前状态：{exc}") from exc
+
+
+@app.get("/api/hosts/{id}/s-ui", dependencies=[Depends(authorized)])
+def sui_status(id: int):
+    return read_existing_sui(find_host(id))
+
+
+@app.get("/api/hosts/{id}/s-ui/access", dependencies=[Depends(authorized)])
+def sui_access(id: int):
+    """Explicit user action; no credentials in stored plan, task logs or AI."""
+    host = find_host(id)
+    status = read_existing_sui(host)
+    if not status["installed"]:
+        raise HTTPException(status_code=409, detail="尚未安装 S-UI")
+    if status["service"] != "active" or not status["managed"] or status["access_mode"] != "local":
+        raise HTTPException(status_code=409, detail="S-UI 服务或本地监听尚未验证；不会猜测登录凭据或开放公网")
+    try:
+        result = parse_sui_access(executor.run(host, SUI_ACCESS_SCRIPT, timeout=25), host)
+    except (SSHError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail="无法安全读取 S-UI 初始凭据；请在 VPS 控制台检查安装记录") from exc
+    return result
+
+
 @app.get("/api/hosts/{id}/firewall", dependencies=[Depends(authorized)])
 def firewall_status(id: int):
     host = find_host(id)
@@ -629,6 +662,9 @@ def new_job(body: NewJob):
             options.update({"access_mode": "https", **tls_options(host)})
         if options["panel_port"] == host["port"]:
             raise HTTPException(status_code=422, detail="面板端口不能与 VPS SSH 端口相同")
+    elif body.project == "s-ui":
+        if host["facts"].get("SUI_PRESENT") != "no":
+            raise HTTPException(status_code=409, detail="S-UI 已安装或冲突检查不完整，请先查看现有面板；禁止覆盖重装")
     elif body.project == "3x-ui-https":
         if body.access_mode or body.panel_port is not None:
             raise HTTPException(status_code=422, detail="现有面板的 HTTPS 升级端口由服务器实际配置决定，不能手工覆盖")

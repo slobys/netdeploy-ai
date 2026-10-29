@@ -219,13 +219,14 @@ if docker compose version >/dev/null 2>&1; then echo COMPOSE=yes; else echo COMP
 if command -v systemctl >/dev/null 2>&1; then echo SYSTEMD=yes; else echo SYSTEMD=no; fi
 if command -v ss >/dev/null 2>&1; then echo SS_AVAILABLE=yes; else echo SS_AVAILABLE=no; fi
 if [ -d /usr/local/x-ui ] || [ -d /etc/x-ui ] || command -v x-ui >/dev/null 2>&1 || (command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files --no-legend x-ui.service 2>/dev/null | grep -q '^x-ui[.]service'); then echo XUI_PRESENT=yes; else echo XUI_PRESENT=no; fi
+if [ -d /usr/local/s-ui ] || [ -d /etc/s-ui ] || [ -e /usr/bin/s-ui ] || (command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files --no-legend s-ui.service 2>/dev/null | grep -q '^s-ui[.]service'); then echo SUI_PRESENT=yes; else echo SUI_PRESENT=no; fi
 if ! command -v ss >/dev/null 2>&1; then echo UDP_51820=unknown; elif ss -Hlun | grep -Eq '(^|[[:space:]])[^[:space:]]*:51820([[:space:]]|$)'; then echo UDP_51820=busy; else echo UDP_51820=free; fi
 """
         result = {}
         for line in self.run(host, script, 35).splitlines():
             if "=" in line:
                 k, v = line.split("=", 1)
-                if k in {"OS_ID", "OS_VERSION", "ARCH", "UID", "FREE_KB", "DOCKER", "COMPOSE", "SYSTEMD", "UDP_51820", "SS_AVAILABLE", "XUI_PRESENT"}:
+                if k in {"OS_ID", "OS_VERSION", "ARCH", "UID", "FREE_KB", "DOCKER", "COMPOSE", "SYSTEMD", "UDP_51820", "SS_AVAILABLE", "XUI_PRESENT", "SUI_PRESENT"}:
                     result[k] = v.strip()[:80]
         if not {"OS_ID", "ARCH", "UID"} <= result.keys():
             raise SSHError("设备预检信息不完整")

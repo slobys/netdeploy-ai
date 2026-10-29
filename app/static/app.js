@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.13 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.14 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.13';
+const CLIENT_VERSION = '0.3.14';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -71,10 +71,11 @@ async function loadAll(silent=false){
 }
 function stateText(status){return ({planned:'等待审批',queued:'已排队',running:'正在执行',completed:'执行完成',failed:'执行失败',interrupted:'执行中断',partial:'3X-UI 已装，HTTPS 待修复',invalidated:'服务器已重装，计划失效'})[status]||status;}
 function chip(status){const cls=status==='completed'?'success':status==='failed'||status==='interrupted'||status==='invalidated'?'error':'warn';return `<span class="chip ${cls}">${escapeHtml(stateText(status))}</span>`;}
-const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈"};
+const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡"};
 function render(){
  const {hosts,jobs,catalog}=state;
  const loneInstalledXui=hosts.length===1&&hosts[0].facts?.XUI_PRESENT==='yes';
+ const loneInstalledSui=hosts.length===1&&hosts[0].facts?.SUI_PRESENT==='yes';
  el('#stats').innerHTML = [
   ['已添加服务器',hosts.length,'▤','已通过 SSH 扫描 '+hosts.filter(h=>!!h.facts).length+' 台'],
   ['项目模板',Object.values(catalog).filter(p=>!p.internal).length,'⬡','固定、可审核的部署计划'],
@@ -84,8 +85,8 @@ function render(){
  el('#project-grid').innerHTML = Object.entries(catalog).filter(([_,p])=>!p.internal).map(([key,p])=>`
  <div class="project"><div class="project-head"><div class="project-icon">${symbol[key]}</div><span class="project-kind">${escapeHtml(p.category)}</span></div>
  <h3>${escapeHtml(p.name)}</h3><p>${escapeHtml(p.subtitle)}</p><div class="project-footer">
- <span class="status ${p.deployment==='install'?'':'muted'}">${key==='3x-ui'&&loneInstalledXui?'已安装 · 无需审批':p.deployment==='install'?'自动安装 Beta':'方案引导'}</span>
- <button class="btn subtle" data-action="${key==='3x-ui'&&loneInstalledXui?'installed-xui':'plan'}" ${key==='3x-ui'&&loneInstalledXui?'data-id="'+hosts[0].id+'"':'data-project="'+escapeHtml(key)+'"'}>${key==='3x-ui'&&loneInstalledXui?'查看已安装面板':p.deployment==='install'?'部署项目':'查看方案'} →</button></div></div>`).join('');
+ <span class="status ${p.deployment==='install'?'':'muted'}">${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)?'已安装 · 无需审批':p.deployment==='install'?'自动安装 Beta':'方案引导'}</span>
+ <button class="btn subtle" data-action="${key==='3x-ui'&&loneInstalledXui?'installed-xui':key==='s-ui'&&loneInstalledSui?'installed-sui':'plan'}" ${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)?'data-id="'+hosts[0].id+'"':'data-project="'+escapeHtml(key)+'"'}>${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)?'查看已安装面板':p.deployment==='install'?'部署项目':'查看方案'} →</button></div></div>`).join('');
  el('#host-list').innerHTML=hosts.length?hosts.map(h=>{
    const duplicate=hosts.filter(x=>x.hostname.toLowerCase()===h.hostname.toLowerCase()&&x.port===h.port).length;
    const status=!h.credential_ready?'需要登录凭据':h.facts?'最近检测成功':'待连接检测';
@@ -93,7 +94,7 @@ function render(){
    return `<article class="host-item interactive-card" role="button" tabindex="0" data-action="host-console" data-id="${h.id}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台">
       <div class="host-card-top"><div class="host-icon">▤</div><div class="host-title"><b>${escapeHtml(h.name)}</b><span class="chip ${statusClass}">${status}</span></div><span class="host-card-open">管理服务器 →</span></div>
       <div class="host-card-address">${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port}</div>
-      <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span><span class="host-cert-detail">${h.tls_domain?'域名证书 '+escapeHtml(h.tls_domain):'IP 证书（未填域名）'}</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}</div>
+      <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span><span class="host-cert-detail">${h.tls_domain?'域名证书 '+escapeHtml(h.tls_domain):'IP 证书（未填域名）'}</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}${h.facts?.SUI_PRESENT==='yes'?'<span class="host-installed-xui">S-UI 已安装</span>':''}</div>
       ${duplicate>1?`<span class="host-card-hint">${duplicate} 条记录共用此 SSH 地址</span>`:''}
       <button class="host-card-delete" type="button" data-action="delete-host" data-id="${h.id}" aria-label="删除 ${escapeHtml(h.name)} 的本地服务器记录">删除服务器</button>
     </article>`;
@@ -219,8 +220,8 @@ function openHostConsole(id,tab='overview'){
      ${pending.length?`<div class="server-pending-shortcut"><strong>你有 ${pending.length} 个等待审批的计划</strong>
        <button class="btn primary" data-action="${planNeedsUpdate(pending[0])?'regenerate-plan':'job'}" data-id="${escapeHtml(pending[0].id)}">${planNeedsUpdate(pending[0])?'刷新方案并继续':'立即继续审批'} →</button></div>`:''}
      <div class="server-project-grid">${visible.map(([key,project])=>`<button class="server-project-choice" data-action="server-install" data-id="${id}" data-project="${escapeHtml(key)}">
-       <span class="project-choice-icon">${symbol[key]||'▣'}</span><strong>${escapeHtml(project.name)}</strong>${key==='3x-ui'&&installedXui?'<span class="chip success">已安装</span>':''}<small>${escapeHtml(project.subtitle)}</small>
-       <span class="project-choice-link">${key==='3x-ui'&&installedXui?'已安装 · 查看面板信息':project.deployment==='install'?'安装 / 继续配置':'查看部署方案'} →</span>
+       <span class="project-choice-icon">${symbol[key]||'▣'}</span><strong>${escapeHtml(project.name)}</strong>${(key==='3x-ui'&&installedXui)||(key==='s-ui'&&host.facts?.SUI_PRESENT==='yes')?'<span class="chip success">已安装</span>':''}<small>${escapeHtml(project.subtitle)}</small>
+       <span class="project-choice-link">${(key==='3x-ui'&&installedXui)||(key==='s-ui'&&host.facts?.SUI_PRESENT==='yes')?'已安装 · 查看面板信息':project.deployment==='install'?'安装 / 继续配置':'查看部署方案'} →</span>
      </button>`).join('')}</div>`;
  }else if(tab==='network'){
    content=`<div class="server-tab-intro"><h3>开放服务器需要使用的端口</h3><p>例如 HTTPS 证书验证需要 TCP 80，3X-UI 默认管理端口是 TCP 24443。这里只有本机 UFW，云平台安全组仍须另行允许。</p></div>
@@ -325,6 +326,13 @@ async function createHostPlan(id,project,panelPort=null,absenceVerified=false){
      if(status.installed){await showExistingXui(id,status);return;}
    }catch(err){toast('无法安全确认现有安装，已阻止覆盖：'+err.message,true);return;}
  }
+ if(project==='s-ui'){
+   toast('正在只读检查 S-UI 是否已经安装…');
+   try{
+     const status=await api('/hosts/'+id+'/s-ui');
+     if(status.installed){await showExistingSui(id,status);return;}
+   }catch(err){toast('无法安全核对现有 S-UI 安装，已阻止覆盖：'+err.message,true);return;}
+ }
  const existing=state.jobs.find(j=>j.project===project&&j.host_id===id&&
    (j.plan?.trust_epoch||0)===(host.trust_epoch||0)&&j.plan?.executable&&
    j.plan?.steps?.length>0&&['planned','queued','running'].includes(j.status)&&!planNeedsUpdate(j));
@@ -364,6 +372,54 @@ async function createHostPlan(id,project,panelPort=null,absenceVerified=false){
    showJob(job.id);
  }catch(err){toast(err.message,true);}
 }
+
+async function showExistingSui(id,known=null){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ state.hostPanel={id,tab:'deploy'};state.activeJob=null;
+ dialog(modalHead('S-UI · 已安装面板')+'<div class="xui-loading"><span class="inline-spinner"></span>正在通过已信任 SSH 检查 S-UI 服务…</div>');
+ try{
+   const status=known||await api('/hosts/'+id+'/s-ui');
+   if(!status.installed){
+     dialog(modalHead('S-UI · 尚未安装')+
+       '<div class="modal-tip">未检测到 S-UI；可返回选择官方 v1.6.6 的固定安装方案。</div>'+
+       '<div class="modal-actions"><button class="btn primary" data-action="server-install" data-id="'+id+'" data-project="s-ui">创建安装方案 →</button>'+
+       '<button class="btn ghost" data-action="back-host" data-id="'+id+'">返回</button></div>');
+     return;
+   }
+   if(status.service!=='active'||!status.managed||status.access_mode!=='local'){
+     dialog(modalHead('S-UI · 状态需要检查')+
+       '<div class="modal-tip warning">检测到 S-UI 文件，但服务未运行、缺少受保护的安装记录或本机监听未验证。为保护现有数据，不会覆盖重装或猜测账号。请通过 VPS 控制台检查 systemctl status s-ui。</div>'+
+       '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回</button></div>');
+     return;
+   }
+   const details=await api('/hosts/'+id+'/s-ui/access');
+   const row=(label,field,value,action)=>'<div class="xui-info-row"><label>'+label+'</label>'+
+     '<input id="'+field+'" readonly autocomplete="off" value="'+escapeHtml(value)+'"/>'+
+     '<button type="button" class="btn subtle" data-action="'+action+'">复制</button></div>';
+   const credentials='<div class="xui-info-grid">'+
+      row('本地面板地址','sui-url',details.local_url,'copy-sui-url')+
+      row('初始管理员用户名','sui-username',details.username,'copy-sui-username')+
+      '<div class="xui-info-row"><label>初始管理员密码</label>'+
+        '<input id="sui-password" type="password" readonly autocomplete="off" value="'+escapeHtml(details.password)+'"/>'+
+        '<button type="button" class="btn subtle" data-action="toggle-sui-password">显示 / 隐藏</button>'+
+        '<button type="button" class="btn subtle" data-action="copy-sui-password">复制密码</button></div>'+
+      row('PowerShell SSH 隧道命令','sui-tunnel',details.ssh_tunnel,'copy-sui-tunnel')+
+      '</div>';
+   dialog(modalHead('S-UI · 已安装面板')+
+     '<section class="xui-existing"><div class="xui-existing-state"><span class="chip success">已安装 · 运行正常</span><span class="chip">仅 VPS 本机访问</span></div>'+
+     '<h3>S-UI 已安装，无需重复部署</h3>'+
+     '<p class="xui-existing-meta">管理端口：2095/TCP · 本机 127.0.0.1 · 如需访问请先在 PowerShell 执行下方 SSH 隧道命令。</p>'+
+     credentials+
+     '<p class="helptext">初始密码仅按你主动点击从 VPS 受保护文件读取，NetDeploy 不会写入任务日志。如在 S-UI 中改过密码，以当前设置为准。未配置可信 TLS 前不建议公网开放 2095。</p>'+
+     '<div class="modal-actions"><button type="button" class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button></div></section>');
+ }catch(err){
+   dialog(modalHead('S-UI · 无法读取面板信息')+
+     '<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>'+
+     '<div class="modal-actions"><button type="button" class="btn subtle" data-action="back-host" data-id="'+id+'">返回</button></div>');
+   toast(err.message,true);
+ }
+}
+
 async function showExistingXui(id,known=null){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
  state.hostPanel={id,tab:'deploy'};state.activeJob=null;
@@ -634,6 +690,17 @@ async function setupFirewall(id){
       </div>
       <p class="helptext">可添加最多 20 项。每项单独选择 TCP/UDP；相同端口与协议自动检查重复。</p>
     </form>
+    <details class="cloud-firewall-help">
+      <summary>云厂商安全组 · 快速打开官方控制台（可选）</summary>
+      <p>仅本机 UFW 放行，不代表云防火墙已放行。打开你购买 VPS 的云控制台，选择正确地域与实例，找到关联的安全组或 VPC 入站规则。</p>
+      <div class="cloud-provider-links">
+        <a href="https://ecs.console.aliyun.com/" target="_blank" rel="noopener noreferrer" aria-label="打开阿里云 ECS 控制台安全组">阿里云 ECS <span>安全组 ↗</span></a>
+        <a href="https://console.cloud.tencent.com/cvm/securitygroup" target="_blank" rel="noopener noreferrer" aria-label="打开腾讯云 CVM 安全组控制台">腾讯云 CVM <span>安全组 ↗</span></a>
+        <a href="https://console.cloud.google.com/networking/firewalls/list" target="_blank" rel="noopener noreferrer" aria-label="打开 Google Cloud VPC 防火墙控制台">Google Cloud <span>VPC 防火墙 ↗</span></a>
+        <a href="https://console.aws.amazon.com/ec2/" target="_blank" rel="noopener noreferrer" aria-label="打开 AWS EC2 控制台">AWS EC2 <span>Security Groups ↗</span></a>
+      </div>
+      <p class="cloud-security-note">按实际需要添加 <strong>入站</strong> TCP/UDP 规则；SSH 与管理面板端口建议只允许你的固定管理 IP。登录状态、地域和云账号仍由各平台负责，NetDeploy 不代你修改云安全组。</p>
+    </details>
     <div class="firewall-toggle-panel"><h4>高级操作：关闭整台 VPS 的本机防火墙</h4>
       <p>此操作会停止 UFW 对所有端口的过滤，可能让管理服务暴露公网；仅在你明确需要时操作。关闭前还会再次确认风险。</p>
       <div class="firewall-toggle-actions"><button type="button" class="btn danger" data-action="toggle-ufw" data-mode="disable" data-id="${id}" disabled>关闭 UFW（需确认风险）</button></div></div>
@@ -951,6 +1018,7 @@ function showJob(id){
       <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
       <div class="modal-actions modal-action-wrap">
        ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看面板信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
+       ${job.project==='s-ui'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI 面板信息</button>`:''}
        ${job.project==='3x-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看 HTTPS 面板信息</button>`:''}
        ${job.project==='3x-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成证书方案</button>`:''}
        <button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读排障</button>
@@ -1108,6 +1176,12 @@ document.addEventListener('click',async e=>{
   else if(act==='toggle-ufw')confirmUfwToggle(Number(id),t.dataset.mode);
   else if(act==='apply-ufw-toggle')await applyUfwToggle(Number(id),t.dataset.mode);
   else if(act==='host-check')await checkHostInConsole(Number(id));
+  else if(act==='installed-sui')await showExistingSui(Number(id));
+  else if(act==='toggle-sui-password'){const field=el('#sui-password');if(field)field.type=field.type==='password'?'text':'password';}
+  else if(act==='copy-sui-url')await copyXuiField('sui-url','S-UI 面板地址');
+  else if(act==='copy-sui-username')await copyXuiField('sui-username','S-UI 管理员用户名');
+  else if(act==='copy-sui-password')await copyXuiField('sui-password','S-UI 管理员密码');
+  else if(act==='copy-sui-tunnel')await copyXuiField('sui-tunnel','S-UI SSH 隧道命令');
   else if(act==='installed-xui')await showExistingXui(Number(id));
   else if(act==='existing-xui-https')await continueExistingXuiHttps(Number(id));
   else if(act==='install-new-xui')await createHostPlan(Number(id),'3x-ui');

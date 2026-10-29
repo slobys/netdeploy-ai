@@ -1,4 +1,4 @@
-# NetDeploy AI · v0.3.13 Alpha
+# NetDeploy AI · v0.3.14 Alpha
 
 > 一个以 VPS 为优先方向的 AI 辅助网络项目部署面板。2026-10-29 第一阶段原型（Windows SSH 主机指纹扫描修复）。 **不是生产稳定版，不要用重要 VPS 直接试错。**
 
@@ -222,6 +222,25 @@ tests/                    自动化测试
 
 参见 [架构](docs/ARCHITECTURE.md)、[安全边界](docs/SECURITY.md)、[阶段计划](docs/ROADMAP.md)。
 
+
+## v0.3.14：云平台安全组入口 + S-UI 固定版本一键部署
+
+### 云平台安全组快捷入口（可选）
+
+VPS 连续引导的第 4 步新增默认收起的 **“云厂商安全组 · 快速打开官方控制台”**。点开后有四个官方入口：阿里云 ECS、腾讯云 CVM、Google Cloud VPC 防火墙、AWS EC2 Security Groups。无需新建 NetDeploy 云账号或交出云平台密钥；登录到相应云平台后，自行选择地域、实例及安全组并设置入站规则，未登录会先要求完成云端身份认证。此入口不是第六个必经步骤，也不替你自动修改云安全组。
+
+**关于安装后为什么能访问：** 新安装 3X-UI 时不会自动关闭 UFW；如果选择了 HTTPS 一次部署，NetDeploy 在 UFW 活跃时会按经审核的固定脚本尝试放行 ACME TCP 80，并在 HTTPS 验收成功后放行面板端口。UFW 已停用时会跳过本机规则；云厂商安全组始终不由 NetDeploy 自动修改。安装成功只说明服务和本机验收完成，不代表来自外网的所有连接均被允许。sing-box 不创建公网监听，wg-easy 的 Docker UDP 映射也不能等同云安全组已经放行。
+
+### S-UI 项目一键部署（v1.6.6 Beta）
+
+在“选择软件”中增加 **S-UI（sing-box 面板）**。固定官方 [alireza0/s-ui](https://github.com/alireza0/s-ui) **v1.6.6** 发布版本，使用 GitHub Releases 已公开的 amd64/arm64 发行包 SHA-256；不用联网执行不固定版本的 `curl | bash`。仅 Debian/Ubuntu 的 root SSH、systemd 和经过检查的 x86_64/aarch64 服务器可生成安装计划，先验证 2095/2096 TCP 未占用、目录与服务未存在，不会覆盖已有 S-UI。
+
+- 整个安装是**一次审核、五个固定步骤**：系统预检、依赖准备、下载并验证 SHA-256 与安全归档路径、在启动前随机生成管理用户名/强密码及 Web 路径并将管理与订阅监听设为 `127.0.0.1`、启动并验证本机响应。
+- 安装后在项目卡片显示“已安装”，点开可以在**只读且经验证 SSH** 下查看本机登录地址、初始管理员用户名和密码（默认隐藏、可复制）、PowerShell SSH 隧道命令。不会在 NetDeploy 任务日志、AI Worker 或数据库存储明文 s-ui 管理密码。
+- **默认不开放公网 Web HTTP，亦不自动申请 S-UI TLS 证书或放行云/本机 UFW**。第一次访问需在本机 PowerShell 建立 SSH 隧道；若未来希望直接公网 HTTPS，将另行引入可审计的 TLS 配置流程。现有 s-ui 实例仅检测和展示，不会重复覆盖安装。
+- 本轮使用本地/CI 模拟环境验证固定脚本、参数和状态接口，**没有在你的真实 VPS 上执行安装**。此 Alpha 集成不等同生产环境验收；建议先用可重置的测试 VPS 尝试。
+
+**Windows 更新**：先在原来的 PowerShell 窗口按 Ctrl+C 停止旧 NetDeploy，再双击桌面 `netdeploy-ai-git\QuickStart-NetDeploy.bat`，浏览器 Ctrl+F5，确认 `ALPHA v0.3.14` 与本机 `/api/health` 的 version 一致。
 
 ## v0.3.13：第 4 步支持一次添加和放行多个端口
 

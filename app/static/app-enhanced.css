@@ -433,6 +433,20 @@ details>summary:hover{color:#d2e6ff}
  .setup-port-results{grid-template-columns:1fr}
 }
 
+
+/* Optional cloud provider safety-group links: one disclosure, no extra step */
+.cloud-firewall-help{margin:14px 0;padding:11px 14px;border:1px solid #35516f;border-radius:12px;background:#101e32}
+.cloud-firewall-help>summary{list-style:revert;cursor:pointer;font-size:13px;font-weight:650;color:#bad8ff}
+.cloud-firewall-help>summary:focus-visible{outline:2px solid #88b5ff;outline-offset:3px}
+.cloud-firewall-help>p{font-size:12px;color:#a9bdd6;line-height:1.7;margin:12px 0}
+.cloud-provider-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.cloud-provider-links a{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px;border:1px solid #2e486a;border-radius:10px;text-decoration:none;color:#e2eeff;background:#162740;font-size:12px;transition:background .18s,border-color .18s}
+.cloud-provider-links a span{color:#9ec5fc;font-size:11px;white-space:nowrap}
+.cloud-provider-links a:hover{background:#23436b;border-color:#80b6fc}
+.cloud-provider-links a:focus-visible{outline:2px solid #a3d3ff;outline-offset:2px}
+.cloud-firewall-help .cloud-security-note{margin-bottom:0}
+@media(max-width:530px){.cloud-provider-links{grid-template-columns:1fr}}
+
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
   .host-item:hover,.project:hover,.stat:hover,.job-item:hover,.btn:hover,.nav-item:hover{transform:none!important}

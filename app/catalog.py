@@ -10,6 +10,7 @@ from typing import Any
 
 from .three_x_ui import DEFAULT_PORT, VERSION as XUI_VERSION, deployment_steps, validate_port
 from .https_upgrade import identify, https_steps
+from .s_ui import VERSION as SUI_VERSION, steps as sui_steps
 
 CATALOG = {
     "3x-ui": {
@@ -26,6 +27,14 @@ CATALOG = {
         "docs": "https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability",
         "summary": "对现有 3X-UI 开通公网可信 HTTPS；只有证书验证和续期配置成功才更改监听。",
         "requires": ["已完成并运行的 3X-UI", "域名 A 记录或公网 IPv4", "公网上 TCP 80 可访问", "支持 IP 证书的 Certbot", "云防火墙放行管理端口"],
+    },
+    "s-ui": {
+        "name": "S-UI", "subtitle": "sing-box 可视化管理面板", "category": "面板",
+        "icon": "layers", "deployment": "install", "risk": "高",
+        "docs": "https://github.com/alireza0/s-ui",
+        "summary": "官方 v1.6.6 已校验发行包，固定版本随机管理凭据，Web 仅监听 127.0.0.1:2095，SSH 隧道访问。",
+        "requires": ["Debian/Ubuntu root VPS", "x86_64/arm64", "systemd、ss、Python3 SQLite",
+                     "2095/2096 端口未占用", "无已有 S-UI 安装", "管理面板仅本机 HTTP，公网访问需另行配置 TLS"],
     },
     "sing-box": {
         "name": "sing-box", "subtitle": "通用网络代理内核", "category": "核心",
@@ -183,6 +192,15 @@ def compatibility(project: str, facts: dict[str, Any]) -> tuple[bool, list[str]]
         expected = "yes" if project == "3x-ui-https" else "no"
         if facts.get("XUI_PRESENT") != expected:
             issues.append("HTTPS 升级要求已安装 x-ui，且已完成冲突检测" if project == "3x-ui-https" else "已存在 x-ui 安装，或尚未完成新版 x-ui 冲突检测；禁止覆盖")
+    if project == "s-ui":
+        if os_id not in {"debian", "ubuntu"}:
+            issues.append("S-UI 自动安装目前仅对 Debian/Ubuntu 开放")
+        if arch not in {"x86_64", "aarch64", "arm64"}:
+            issues.append("S-UI 目前只支持 x86_64/arm64")
+        if facts.get("SYSTEMD") != "yes" or facts.get("SS_AVAILABLE") != "yes":
+            issues.append("S-UI 安装需要 systemd 和 ss 端口检测")
+        if facts.get("SUI_PRESENT") != "no":
+            issues.append("已有 S-UI 或尚未完成冲突检查；禁止覆盖已安装程序")
     if project == "sing-box" and os_id not in {"debian", "ubuntu"}:
         issues.append("自动安装 sing-box 暂仅覆盖 Debian/Ubuntu APT 环境")
     if project == "wg-easy":
@@ -196,8 +214,8 @@ def compatibility(project: str, facts: dict[str, Any]) -> tuple[bool, list[str]]
         issues.append("Hysteria2 官方安装脚本需要 systemd")
     if not str(facts.get("FREE_KB", "")).isdigit():
         issues.append("无法确认根分区可用空间")
-    elif int(facts["FREE_KB"]) < (600_000 if project == "3x-ui" else 400_000):
-        issues.append("根分区可用空间不足（3X-UI 最低要求 600 MB）" if project == "3x-ui" else "根分区可用空间低于 400 MB")
+    elif int(facts["FREE_KB"]) < (600_000 if project in {"3x-ui", "s-ui"} else 400_000):
+        issues.append("根分区可用空间不足（至少需要 600 MB）" if project in {"3x-ui", "s-ui"} else "根分区可用空间低于 400 MB")
     return not issues, issues
 
 
@@ -261,6 +279,8 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             steps = steps + https_steps(options["tls_identity"], options["panel_port"], options.get("ssh_ipv4"))
     elif runnable and project == "3x-ui-https":
         steps = https_steps(options["tls_identity"], options["panel_port"], options.get("ssh_ipv4"))
+    elif runnable and project == "s-ui":
+        steps = sui_steps(str(facts.get("ARCH", "")))
     elif runnable and project == "sing-box":
         steps = SINGBOX_STEPS
     elif runnable and project == "wg-easy":
@@ -279,6 +299,13 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         "requires": meta["requires"],
         "steps": [dict(x) for x in steps],
         "warnings": {
+            "s-ui": [
+                f"从上游 GitHub Releases 固定下载 {SUI_VERSION} 的 amd64/arm64 发行包，并通过已固定 SHA-256 校验，不运行在线最新安装脚本",
+                "首次初始化随机管理员账号、强密码和 Web 路径；敏感信息仅保存在 VPS 受权限保护的文件中，部署日志不输出密码",
+                "管理 Web 只监听 127.0.0.1:2095，订阅接口也仅本机监听；需要 PowerShell SSH 隧道访问，不能直接打开公网 HTTP",
+                "安装不会自动申请 TLS 证书、放行 UFW 或修改云平台安全组；后续业务端口按需自行配置",
+                "不会覆盖已有 S-UI；如果失败可能留下需要人工检查的部分目录/服务，不应直接重复执行安装",
+            ],
             "sing-box": ["安装的是内核，不会自动配置对外监听或打开端口", "APT 仓库密钥来自官方 HTTPS 地址，初版尚未固定密钥指纹", "APT 变更不会自动回滚"],
             "wg-easy": ["需预先安装 Docker 且 Docker 网络不可与 10.42.42.0/24 冲突；不会自动修改防火墙", "Web 管理端只绑定 VPS 的 localhost，必须使用 SSH 隧道或安全反代", "容器镜像使用 v15 主版本标签，不是不可变 digest", "首次访问还需设置管理员账户及公网地址"],
             "3x-ui": [f"固定官方 {XUI_VERSION} 安装器 SHA-256 后执行，二进制由上游发布的 .sha256 校验；安装依赖可能需要联网和更改 APT 包", "自动生成账户、密码和随机 Web 路径；只在安装后明确点击查看时读取，不存入 NetDeploy 数据库或任务日志", "先将面板绑定本机 127.0.0.1；选择 HTTPS 时自动按公网 IPv4 / 域名签发证书并验证，成功后才开放公网 HTTPS，失败不开放明文 HTTP", "不会自动覆盖已有安装；失败可能留下部分文件，需要人工检查，不能盲目重试"],

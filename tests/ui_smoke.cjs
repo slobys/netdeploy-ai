@@ -107,8 +107,10 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.13';
+let runtimeVersion='0.3.14';
 let xuiReadRequests=0;
+let suiReadRequests=0;
+let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
 const context = vm.createContext({
   console,
   document,
@@ -184,6 +186,18 @@ const context = vm.createContext({
         facts:{OS_ID:'ubuntu',OS_VERSION:'26.10',ARCH:'x86_64'}
       })};
     }
+    if(url==='/api/hosts/1/s-ui'){
+      return {ok:true,status:200,json:async()=>suiStatus};
+    }
+    if(url==='/api/hosts/1/s-ui/access'){
+      suiReadRequests++;
+      return {ok:true,status:200,json:async()=>({
+        username:'nd_aabbccddeeff',password:'a'.repeat(48),port:2095,
+        local_url:'http://127.0.0.1:2095/deadbeefdeadbeefdeadbeef/',
+        ssh_tunnel:'ssh -N -p 22 -L 2095:127.0.0.1:2095 root@45.32.35.195',
+        access_mode:'local'
+      })};
+    }
     if(url==='/api/hosts/1/3x-ui'){
       return {ok:true,status:200,json:async()=>xuiStatus};
     }
@@ -206,7 +220,8 @@ const context = vm.createContext({
     }
     if(url==='/api/hosts')return {ok:true,status:200,json:async()=>storedHosts};
     if(url==='/api/catalog')return {ok:true,status:200,json:async()=>({
-      '3x-ui':{name:'3X-UI',subtitle:'Xray 管理面板',deployment:'install',category:'面板'}
+      '3x-ui':{name:'3X-UI',subtitle:'Xray 管理面板',deployment:'install',category:'面板'},
+      's-ui':{name:'S-UI',subtitle:'sing-box 管理面板',deployment:'install',category:'面板'}
     })};
     if(url==='/api/capabilities')return {ok:true,status:200,json:async()=>({secure_password_storage:false})};
     if(url==='/api/jobs'&&returnedJobs)
@@ -260,9 +275,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.13';
+  runtimeVersion='0.3.14';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.13');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.14');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -350,6 +365,18 @@ function fingerprintFor(label) {
   assert.equal(xuiReadRequests,1);
   assert.equal(planCreations,0,'Existing installation must not create a new install task');
 
+  // S-UI is a selectable pinned project, but an already-installed instance
+  // must show read-only localhost access rather than reinstall or expose HTTP.
+  suiStatus={installed:true,service:'active',managed:true,port:2095,access_mode:'local'};
+  await evaluate("createHostPlan(1,'s-ui')");
+  assert(modal.innerHTML.includes('S-UI 已安装，无需重复部署'));
+  assert(modal.innerHTML.includes('id="sui-url"'));
+  assert(modal.innerHTML.includes('id="sui-password" type="password"'));
+  assert(modal.innerHTML.includes('SSH 隧道命令'));
+  assert.equal(suiReadRequests,1);
+  assert.equal(planCreations,0,'S-UI already installed must never be reinstalled');
+  suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
+
   // A running job becoming completed via polling must immediately grow its
   // "查看面板信息" action in the currently open modal, no reopening required.
   const running={...freshJob,status:'running',logs:'Started',plan:{...freshJob.plan}};
@@ -408,6 +435,15 @@ function fingerprintFor(label) {
   assert.equal(firewallDisableCount,0);
   await evaluate('setupFirewall(2)');
   assert(modal.innerHTML.includes('第 4 步 · 端口与防火墙'));
+  assert(modal.innerHTML.includes('云厂商安全组 · 快速打开官方控制台（可选）'));
+  for(const url of ['https://ecs.console.aliyun.com/',
+    'https://console.cloud.tencent.com/cvm/securitygroup',
+    'https://console.cloud.google.com/networking/firewalls/list',
+    'https://console.aws.amazon.com/ec2/']){
+    assert(modal.innerHTML.includes('href="'+url+'"'));
+  }
+  assert(modal.innerHTML.includes('target="_blank" rel="noopener noreferrer"'));
+  assert(modal.innerHTML.includes('云厂商安全组'));
   assert(modal.innerHTML.includes('一次放行全部端口'));
   assert(modal.innerHTML.includes('关闭 UFW（需确认风险）'));
   assert(modal.innerHTML.includes('跳过此步，下一步：选择软件'));
