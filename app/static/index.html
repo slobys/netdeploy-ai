@@ -5,8 +5,10 @@
 <meta name="referrer" content="no-referrer"/>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"/>
 <title>NetDeploy AI · VPS 智能部署平台</title>
+<script src="/static/theme.js"></script>
 <link rel="stylesheet" href="/static/app.css"/>
 <link rel="stylesheet" href="/static/app-enhanced.css"/>
+<link rel="stylesheet" href="/static/theme.css"/>
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
@@ -40,7 +42,30 @@
   <div class="main">
     <header class="topbar">
       <div class="crumb">工作空间 <span>/</span> <b id="crumb-current">总览面板</b></div>
-      <div class="top-actions"><a class="topbar-doc-link" href="https://slobys.github.io/netdeploy-ai/" target="_blank" rel="noopener noreferrer" aria-label="打开 NetDeploy AI 在线使用文档">？ 使用文档 ↗</a><button class="btn primary topbar-add" data-action="add-host"><span aria-hidden="true">＋</span> 添加 VPS</button><span class="tag alpha">ALPHA v0.3.15</span><button id="refresh" class="icon-button" aria-label="刷新">⟳</button><div class="avatar">ND</div></div>
+      <div class="top-actions"><a class="topbar-doc-link" href="https://slobys.github.io/netdeploy-ai/" target="_blank" rel="noopener noreferrer" aria-label="打开 NetDeploy AI 在线使用文档">？ 使用文档 ↗</a><div class="theme-control" id="theme-control">
+  <button type="button" id="theme-menu-button" class="topbar-theme-button" aria-expanded="false" aria-controls="theme-menu" aria-label="外观主题设置">
+    <span class="topbar-theme-icon" aria-hidden="true">◐</span><span class="topbar-theme-text">主题</span>
+  </button>
+  <section id="theme-menu" class="theme-menu" aria-label="外观主题设置" hidden>
+    <div class="theme-menu-head"><div><strong>外观与主题</strong><small>即时预览，自动保存至当前浏览器</small></div><span aria-hidden="true">✦</span></div>
+    <p class="theme-caption" id="appearance-label">外观模式</p>
+    <div class="theme-mode-options" role="group" aria-labelledby="appearance-label">
+      <button type="button" class="theme-choice" data-theme-mode="light" aria-pressed="false">☀ 明亮</button>
+      <button type="button" class="theme-choice" data-theme-mode="dark" aria-pressed="true">☾ 暗黑</button>
+      <button type="button" class="theme-choice" data-theme-mode="system" aria-pressed="false">◐ 跟随系统</button>
+    </div>
+    <p class="theme-caption" id="palette-label">主题配色</p>
+    <div class="theme-swatches" role="group" aria-labelledby="palette-label">
+      <button type="button" class="theme-swatch" data-theme-color="blue" aria-pressed="true"><span class="theme-swatch-dot" aria-hidden="true"></span>经典蓝</button>
+      <button type="button" class="theme-swatch" data-theme-color="violet" aria-pressed="false"><span class="theme-swatch-dot" aria-hidden="true"></span>极光紫</button>
+      <button type="button" class="theme-swatch" data-theme-color="teal" aria-pressed="false"><span class="theme-swatch-dot" aria-hidden="true"></span>海洋青</button>
+      <button type="button" class="theme-swatch" data-theme-color="emerald" aria-pressed="false"><span class="theme-swatch-dot" aria-hidden="true"></span>翡翠绿</button>
+      <button type="button" class="theme-swatch" data-theme-color="rose" aria-pressed="false"><span class="theme-swatch-dot" aria-hidden="true"></span>玫瑰粉</button>
+      <button type="button" class="theme-swatch" data-theme-color="amber" aria-pressed="false"><span class="theme-swatch-dot" aria-hidden="true"></span>暖日橙</button>
+    </div>
+    <div class="theme-menu-foot">当前：<span id="theme-status" role="status" aria-live="polite">暗黑 · 经典蓝</span></div>
+  </section>
+</div><button class="btn primary topbar-add" data-action="add-host"><span aria-hidden="true">＋</span> 添加 VPS</button><span class="tag alpha">ALPHA v0.3.16</span><button id="refresh" class="icon-button" aria-label="刷新">⟳</button><div class="avatar">ND</div></div>
     </header>
     <main class="content">
       <section class="hero" id="hero">
@@ -57,7 +82,7 @@
       <div class="stats" id="stats"></div>
       <section class="section" id="projects-section"><div class="section-heading smaller"><div><h2>精选部署项目</h2><p>选择经过审核的安装模板，AI 仅提供只读诊断建议</p></div><button class="text-action" data-nav="projects">查看全部项目 →</button></div><div class="project-grid" id="project-grid"></div></section>
       <section class="section" id="jobs-section"><div class="section-heading smaller"><div><h2>最近部署任务</h2><p>审批、状态和日志都清楚可见</p></div><button class="text-action" data-nav="jobs">查看任务 →</button></div><div class="job-list" id="job-list"></div></section>
-      <footer>NetDeploy AI v0.3.15 · Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
+      <footer>NetDeploy AI v0.3.16 · Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
     </main>
   </div>
 </div>

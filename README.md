@@ -1,4 +1,4 @@
-# NetDeploy AI · v0.3.15 Alpha
+# NetDeploy AI · v0.3.16 Alpha
 
 > 一个以 VPS 为优先方向的 AI 辅助网络项目部署面板。2026-10-29 第一阶段原型（Windows SSH 主机指纹扫描修复）。 **不是生产稳定版，不要用重要 VPS 直接试错。**
 
@@ -11,6 +11,15 @@
 参考 NaiLink 的文档使用方式，新建独立的 GitHub Pages 中文手册，包含手机适配、章节导航、搜索和复制命令。仓库 `.github/workflows/docs.yml` 随 main 自动构建发布；首次需要在仓库 **Settings → Pages → Source → GitHub Actions** 启用 Pages。站点未启用前可先阅读 [文档源码](docs/site/README.md)。
 
 **谷歌云 root 密码操作：** 仅推荐交互执行 `sudo passwd root`，不在公共教程中固定密码。附加 [GCP root 辅助脚本](scripts/gcp-root-setup.sh) 默认不启用密码 SSH；可选模式属于高风险操作，请先阅读 [Google Cloud 专题](https://slobys.github.io/netdeploy-ai/google-cloud.html)。
+
+## v0.3.16：个性化外观主题（Alpha）
+
+控制台顶栏增加 **「◐ 主题」**：支持经典蓝（保留原样）、极光紫、海洋青、翡翠绿、玫瑰粉、暖日橙六种配色，支持 **明亮 / 暗黑 / 跟随系统** 三种外观。主题作用于所有服务器卡片、部署项目、状态、表单、SSH 指纹和配置弹窗，兼容手机端。
+
+- 即时切换，无需重新加载或中断部署；选择只写入本机浏览器 localStorage 的 UI 偏好，与 SSH 令牌、VPS 数据隔离，不会同步到其他设备。
+- 「跟随系统」会根据 Windows/macOS 的深浅模式自动变化；默认仍是「经典蓝 · 暗黑」，保持原用户的使用习惯。
+- 修复页面初次加载的主题闪烁，保证主题生效顺序；考虑弱视可读性、键盘操作、窄屏按钮和减少动画偏好。
+- 可运行 `node tests/theme_smoke.cjs` 独立检查颜色/模式选择、刷新恢复、系统跟随、浏览器存储不可用和交互，无需外部依赖。
 
 ## v0.3.15：S-UI 自动 IP/域名 HTTPS（Alpha）
 
