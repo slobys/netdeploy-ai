@@ -4,6 +4,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import shutil
+import sys
 import subprocess
 import tempfile
 import unittest
@@ -82,6 +84,10 @@ class DocsTests(unittest.TestCase):
         self.assertNotRegex(source, r"(?m)^\s*(sudo\s+)?reboot\b")
         self.assertNotRegex(source, r"echo\s+root:[^\s|]+")
 
+    # Windows may resolve 'bash' to an unconfigured WSL stub instead of Git Bash;
+    # the same script is syntax checked on Ubuntu CI and in docs workflow.
+    @unittest.skipIf(sys.platform == "win32" or shutil.which("bash") is None,
+                     "GCP Bash syntax and help checks require a real POSIX Bash")
     def test_gcp_script_syntax_and_help_do_not_require_root(self):
         check = subprocess.run(["bash", "-n", str(SCRIPT)], capture_output=True, text=True)
         self.assertEqual(check.returncode, 0, check.stderr)
