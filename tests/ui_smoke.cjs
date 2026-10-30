@@ -10,6 +10,7 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const javascript = fs.readFileSync(path.join(root, 'app/static/app.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'app/static/app-enhanced.css'), 'utf8');
+const typographyCss = fs.readFileSync(path.join(root, 'app/static/typography.css'), 'utf8');
 const made = new Map();
 function makeElement() {
   const classes = new Set();
@@ -107,7 +108,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.18';
+let runtimeVersion='0.3.19';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -255,6 +256,38 @@ function fingerprintFor(label) {
 
 (async()=>{
   fill();
+  // Home featured cards should use a compact, fluid grid without affecting
+  // the full-size cards reached through Project Center.
+  context.fixtures.featuredCatalog = {
+    '3x-ui':{name:'3X-UI',subtitle:'Xray 可视化管理面板',category:'面板',deployment:'install'},
+    's-ui':{name:'S-UI',subtitle:'sing-box 可视化管理面板',category:'面板',deployment:'install'},
+    'sing-box':{name:'sing-box',subtitle:'通用网络代理内核',category:'核心',deployment:'install'},
+    'hysteria2':{name:'Hysteria2',subtitle:'基于 QUIC 的网络传输服务',category:'协议',deployment:'guide'},
+    'wg-easy':{name:'wg-easy',subtitle:'WireGuard + Web 管理界面',category:'VPN',deployment:'install'}
+  };
+  evaluate('state.section="dashboard";state.catalog=fixtures.featuredCatalog;render();');
+  const compactProjects = made.get('#project-grid').innerHTML;
+  assert.equal((compactProjects.match(/class="project"/g)||[]).length,5,
+    'Five featured projects remain directly visible and actionable');
+  assert.equal((compactProjects.match(/data-action="plan"/g)||[]).length,5,
+    'Compact layout must not remove any deployment or guide action');
+  assert(made.get('#projects-section').classList.contains('is-featured'),
+    'Dashboard should activate the compact featured presentation');
+  assert(typographyCss.includes('repeat(auto-fit,minmax(min(100%,246px),1fr))'),
+    'Five cards should flow into one row on wide screens and wrap naturally');
+  assert(typographyCss.includes('#projects-section.is-featured .project')&&
+    typographyCss.includes('min-height:0'),
+    'Featured cards must override the previous tall 240/267px minimum heights');
+  assert(typographyCss.includes('var(--ui-fs-meta)')&&
+    typographyCss.includes('var(--theme-line)'),
+    'Compact cards must preserve comfortable typography and the current theme');
+  evaluate('state.section="projects";renderSection();');
+  assert(!made.get('#projects-section').classList.contains('is-featured'),
+    'Project Center must retain full-size detailed cards');
+  evaluate('state.section="dashboard";renderSection();');
+  assert(made.get('#projects-section').classList.contains('is-featured'));
+  fill();
+
   evaluate('openHostConsole(1)');
   assert(modal.innerHTML.includes('继续审批部署'), 'Primary action must be visible');
   assert(modal.innerHTML.includes('部署方案已准备好'), 'Must explain pending approval');
@@ -280,9 +313,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.18';
+  runtimeVersion='0.3.19';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.18');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.19');
   returnedJobs=null;
   evaluate("state.token=''");
 

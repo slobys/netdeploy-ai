@@ -1,4 +1,4 @@
-# NetDeploy AI · v0.3.18 Alpha
+# NetDeploy AI · v0.3.19 Alpha
 
 > 一个以 VPS 为优先方向的 AI 辅助网络项目部署面板。2026-10-29 第一阶段原型（Windows SSH 主机指纹扫描修复）。 **不是生产稳定版，不要用重要 VPS 直接试错。**
 
@@ -11,6 +11,14 @@
 参考 NaiLink 的文档使用方式，新建独立的 GitHub Pages 中文手册，包含手机适配、章节导航、搜索和复制命令。仓库 `.github/workflows/docs.yml` 随 main 自动构建发布；首次需要在仓库 **Settings → Pages → Source → GitHub Actions** 启用 Pages。站点未启用前可先阅读 [文档源码](docs/site/README.md)。
 
 **谷歌云 root 密码操作：** 仅推荐交互执行 `sudo passwd root`，不在公共教程中固定密码。附加 [GCP root 辅助脚本](scripts/gcp-root-setup.sh) 默认不启用密码 SSH；可选模式属于高风险操作，请先阅读 [Google Cloud 专题](https://slobys.github.io/netdeploy-ai/google-cloud.html)。
+
+## v0.3.19：首页精选项目紧凑排版（Alpha）
+
+针对首页「精选部署项目」卡片高度过高、短项目说明留白过多和第 5 个项目单独换行的问题，首页改为紧凑自适应网格：**宽屏自动将现有 5 个项目安排在一行**；窗口变窄时依容器宽度自动换列，不再固定四列。每张卡片取消 240px/267px 高度限制，收紧图标、内边距与说明间距，状态和操作按钮依然完整可点击。
+
+- 仅在首页总览使用紧凑卡片；进入「项目中心」仍展示完整的大尺寸项目卡片。
+- 继续兼容深色/浅色、六种主题配色，以及「标准 / 舒适 / 大字」三档字体；文字需要换行时卡片自动增高，不截断操作按钮。
+- `node tests/ui_smoke.cjs` 覆盖五项渲染、操作按钮未丢失、首页与项目中心的展示模式切换及自适应网格样式。
 
 ## v0.3.18：修复 Debian 13 的 IP 证书签发（Alpha）
 

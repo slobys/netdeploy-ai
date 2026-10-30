@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.18 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.19 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.18';
+const CLIENT_VERSION = '0.3.19';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -108,6 +108,8 @@ function renderSection(){
  document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('active',b.classList.contains('nav-item')&&b.dataset.nav===state.section));
  el('#hero').classList.toggle('hidden',state.section!=='dashboard');el('#stats').classList.toggle('hidden',state.section!=='dashboard');
  el('#projects-section').classList.toggle('hidden',!['dashboard','projects'].includes(state.section));
+ // Only dashboard featured cards are condensed. Project Center keeps full-size cards.
+ el('#projects-section').classList.toggle('is-featured',state.section==='dashboard');
  el('#hosts-section').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
  el('#jobs-section').classList.toggle('hidden',!['dashboard','jobs'].includes(state.section));
  el('#main-cta').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
