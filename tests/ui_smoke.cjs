@@ -108,10 +108,13 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.20';
+let runtimeVersion='0.3.21';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
+let dockgeStatus={installed:false,managed:false,service:'absent',access_mode:'unavailable',port:5001};
+let dockgeAccessReads=0;
+let dockgeStatusReads=0;
 const context = vm.createContext({
   console,
   document,
@@ -185,6 +188,18 @@ const context = vm.createContext({
       return {ok:true,status:200,json:async()=>({
         id:2,name:'VIP1',hostname:'45.32.35.196',
         facts:{OS_ID:'ubuntu',OS_VERSION:'26.10',ARCH:'x86_64'}
+      })};
+    }
+    if(url==='/api/hosts/1/dockge'){
+      dockgeStatusReads++;
+      return {ok:true,status:200,json:async()=>dockgeStatus};
+    }
+    if(url==='/api/hosts/1/dockge/access'){
+      dockgeAccessReads++;
+      return {ok:true,status:200,json:async()=>({
+        local_url:'http://127.0.0.1:5001/',
+        ssh_tunnel:'ssh -N -p 22 -L 5001:127.0.0.1:5001 root@45.32.35.195',
+        first_run_setup:true,access_mode:'local',port:5001
       })};
     }
     if(url==='/api/hosts/1/s-ui'){
@@ -296,6 +311,15 @@ function fingerprintFor(label) {
   assert(made.get('#projects-section').classList.contains('is-featured'));
   assert(!made.get('#projects-section').classList.contains('is-catalog'),
     'Dashboard heading/link must be visible again after leaving Project Center');
+  evaluate(`state.catalog={...fixtures.featuredCatalog,dockge:{name:'Dockge',subtitle:'Compose stacks',category:'容器',deployment:'install'}};render();`);
+  assert.equal((made.get('#project-grid').innerHTML.match(/class="project"/g)||[]).length,6,
+    'All six projects are available in the complete catalog');
+  assert(typographyCss.includes('#projects-section.is-featured .project[data-project="dockge"]{display:none}'),
+    'New Dockge card stays in Project Center so home still shows five curated cards');
+  evaluate('state.section="projects";renderSection();');
+  assert(made.get('#section-subtitle').textContent.includes('共 6 个项目'));
+  assert(made.get('#project-grid').innerHTML.includes('data-project="dockge"'));
+
   fill();
 
   evaluate('openHostConsole(1)');
@@ -323,9 +347,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.20';
+  runtimeVersion='0.3.21';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.20');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.21');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -431,6 +455,27 @@ function fingerprintFor(label) {
   assert(!modal.innerHTML.includes('SSH 隧道命令'));
   assert.equal(suiReadRequests,2);
   suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
+
+  // Dockge must appear as a real install project with local-only access.
+  evaluate("state.catalog={'dockge':{name:'Dockge',subtitle:'Docker Compose 管理界面',category:'容器',deployment:'install'}};render();");
+  assert(made.get('#project-grid').innerHTML.includes('Dockge'));
+  assert(made.get('#project-grid').innerHTML.includes('data-project="dockge"'));
+  dockgeStatus={installed:true,managed:true,service:'active',access_mode:'local',port:5001};
+  await evaluate("createHostPlan(1,'dockge')");
+  assert(modal.innerHTML.includes('Dockge 已安装，无需重复部署'));
+  assert(modal.innerHTML.includes('id="dockge-url"'));
+  assert(modal.innerHTML.includes('id="dockge-tunnel"'));
+  assert(modal.innerHTML.includes('http://127.0.0.1:5001/'));
+  assert(modal.innerHTML.includes('首次打开请在 Dockge 页面创建管理员'));
+  assert(!modal.innerHTML.includes('id="approve-form"'));
+  assert.equal(dockgeStatusReads,1);
+  assert.equal(dockgeAccessReads,1);
+  dockgeStatus={installed:true,managed:false,service:'active',access_mode:'unverified',port:5001};
+  await evaluate('showExistingDockge(1)');
+  assert(modal.innerHTML.includes('不会覆盖重装'));
+  assert(!modal.innerHTML.includes('id="dockge-url"'));
+  assert.equal(dockgeAccessReads,1,'Unmanaged Dockge cannot retrieve an access route');
+  dockgeStatus={installed:false,managed:false,service:'absent',access_mode:'unavailable',port:5001};
 
   // A running job becoming completed via polling must immediately grow its
   // "查看面板信息" action in the currently open modal, no reopening required.

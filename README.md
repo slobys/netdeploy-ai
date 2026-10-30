@@ -1,4 +1,4 @@
-# NetDeploy AI · v0.3.20 Alpha
+# NetDeploy AI · v0.3.21 Alpha
 
 > 一个以 VPS 为优先方向的 AI 辅助网络项目部署面板。2026-10-29 第一阶段原型（Windows SSH 主机指纹扫描修复）。 **不是生产稳定版，不要用重要 VPS 直接试错。**
 
@@ -11,6 +11,15 @@
 参考 NaiLink 的文档使用方式，新建独立的 GitHub Pages 中文手册，包含手机适配、章节导航、搜索和复制命令。仓库 `.github/workflows/docs.yml` 随 main 自动构建发布；首次需要在仓库 **Settings → Pages → Source → GitHub Actions** 启用 Pages。站点未启用前可先阅读 [文档源码](docs/site/README.md)。
 
 **谷歌云 root 密码操作：** 仅推荐交互执行 `sudo passwd root`，不在公共教程中固定密码。附加 [GCP root 辅助脚本](scripts/gcp-root-setup.sh) 默认不启用密码 SSH；可选模式属于高风险操作，请先阅读 [Google Cloud 专题](https://slobys.github.io/netdeploy-ai/google-cloud.html)。
+
+## v0.3.21：Dockge Docker Compose 管理面板（Alpha）
+
+「项目中心」新增 [Dockge](https://github.com/louislam/dockge) **v1.5.0**，内置四步安全可审核部署：检查 Docker Engine/Compose v2、已有安装、TCP 5001 及至少 1.2 GB 空间 → 拉取上游稳定版镜像并核验 CPU 架构 → 写入专属受保护 Compose → 启动并验证实际本机端口与 HTTP。项目版本号固定为 `louislam/dockge:1.5.0`（版本标签，不是不可变 digest）。
+
+- **高权限保护**：Docker Socket 具有服务器级管理能力；管理 Web 仅绑定 VPS 的 `127.0.0.1:5001`，用户通过 SSH 隧道访问，禁用 Dockge 内置控制台，不自动开 UFW / 云安全组。
+- **保留数据**：独立目录 `/opt/netdeploy/dockge`，栈目录 `/opt/stacks`（容器内外路径一致），遇到已存在手动 Dockge、同名容器、部分部署目录或端口冲突则拒绝覆盖。需要先安装并启动 Docker/Compose，本版本不自动修改已有 Docker 服务。
+- **完整面板入口**：已安装 Dockge 的服务器可以查询容器状态；仅在实际端口绑定验证为本机、受 NetDeploy 管理且服务运行时，才显示可复制的 SSH 隧道和本机访问地址。首次管理员账号在 Dockge Web 页面创建，NetDeploy 不保存或生成密码。
+- 为避免增加第六张首页卡片后单独换行，首页仍精选原有 5 个项目，Dockge 放在「项目中心」完整目录。新增 API / CLI / Shell / 前端测试。真实 VPS 尚未做首次验收，请用可重置测试服务器。
 
 ## v0.3.20：项目中心也启用紧凑布局（Alpha）
 

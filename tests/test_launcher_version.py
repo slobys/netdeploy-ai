@@ -32,9 +32,9 @@ def test_current_version_is_consistent_between_server_frontend_and_docs():
     main = (root / "app" / "main.py").read_text(encoding="utf-8")
     html = (root / "app" / "static" / "index.html").read_text(encoding="utf-8")
     js = (root / "app" / "static" / "app.js").read_text(encoding="utf-8")
-    assert 'version="0.3.20"' in main
-    assert '"version": "0.3.20"' in main
-    assert "ALPHA v0.3.20" in html
-    assert "const CLIENT_VERSION = '0.3.20'" in js
+    assert 'version="0.3.21"' in main
+    assert '"version": "0.3.21"' in main
+    assert "ALPHA v0.3.21" in html
+    assert "const CLIENT_VERSION = '0.3.21'" in js
     assert "api('/health')" in js
     assert "版本不一致" in js

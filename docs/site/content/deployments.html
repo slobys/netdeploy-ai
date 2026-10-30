@@ -5,6 +5,7 @@
 <tr><td>S-UI</td><td>固定 v1.6.6 自动安装，支持公网 IP/域名 HTTPS 与续期</td><td>Debian/Ubuntu、root、x86_64/ARM64、2095/2096 空闲、TCP 80 ACME 可达</td></tr>
 <tr><td>sing-box</td><td>通过签名 APT 仓库安装内核</td><td>需自行创建配置、认证与监听</td></tr>
 <tr><td>wg-easy</td><td>使用 Docker Compose 安装 WireGuard 管理容器</td><td>Docker、Compose v2、51820/UDP 空闲</td></tr>
+<tr><td>Dockge</td><td>固定 1.5.0 Docker Compose 项目管理面板，默认仅 VPS 本机访问</td><td>Debian/Ubuntu、Docker Engine、Compose v2、5001/TCP 空闲、约 1.2GB 以上磁盘空间</td></tr>
 <tr><td>Hysteria2</td><td>仅引导、兼容性提示与技能资料</td><td>暂未开放正式一键自动部署</td></tr>
 </tbody></table></div>
 <h2 id="three-x-ui">3X-UI · Xray 面板</h2>
@@ -32,5 +33,12 @@ ssh -N -p 22 -L 2095:127.0.0.1:2095 root@YOUR_VPS_IP</code></pre>
 <h2 id="wg-easy">wg-easy · WireGuard</h2>
 <p>默认 WireGuard 隧道使用 <code>51820/UDP</code>，Web 管理页面绑定 VPS <code>127.0.0.1:51821</code>。首次访问应使用 SSH 隧道初始化管理员与公网连接参数。</p>
 <pre><code>ssh -N -p 22 -L 51821:127.0.0.1:51821 root@YOUR_VPS_IP</code></pre>
+<h2 id="dockge">Dockge · Docker Compose 管理面板</h2>
+<p>Dockge 是用于创建、编辑、启动、停止和管理 Docker Compose 栈的 Web 工具。NetDeploy v{{version}} 集成官方 <a href="https://github.com/louislam/dockge/releases/tag/1.5.0">1.5.0 稳定版本</a>，采用 Docker Hub 镜像 <code>louislam/dockge:1.5.0</code>（固定版本标签，但不是不可变 digest）。</p>
+<ol><li>先在 VPS 安装并启动 <strong>Docker Engine 和 Docker Compose v2</strong>，确保已通过 NetDeploy SSH 主机指纹验证。当前安装模板不会自动覆盖/重装 Docker。</li><li>进入 <strong>项目中心 → Dockge → 部署项目</strong>，选择 VPS，查看兼容性、现有安装、TCP 5001 和磁盘检查结果，确认风险后批准固定四步安装。</li><li>部署写入 <code>/opt/netdeploy/dockge/compose.yaml</code>，数据保存在 <code>/opt/netdeploy/dockge/data</code>。Docker Compose 栈目录为 <code>/opt/stacks</code>，容器内外保持同一路径；不会移动已有项目。</li><li>完成后点 <strong>查看 Dockge 面板信息</strong>，复制显示的 SSH 隧道命令，在 Windows PowerShell 执行，保持窗口运行；打开本机 <code>http://127.0.0.1:5001/</code>，在 Dockge 页面首次创建管理员账号。</li></ol>
+<pre><code># SSH 隧道示意：实际 IP、SSH 端口请以 NetDeploy 给出的命令为准
+ssh -N -p 22 -L 5001:127.0.0.1:5001 root@YOUR_VPS_IP</code></pre>
+<div class="callout warn"><strong>Dockge 拥有较高的服务器权限</strong><p>Dockge 挂载 <code>/var/run/docker.sock</code>，相当于拥有管理服务器容器的高权限。NetDeploy 默认只绑定 VPS 的 <code>127.0.0.1:5001</code>，禁用交互控制台，不自动开放 UFW 或云厂商防火墙，也不生成初始管理员密码。不要把 5001/TCP 直接向公网开放。</p></div>
+<p>若已有 <code>/opt/dockge</code>、NetDeploy Dockge 目录或同名容器，系统会阻止重复安装。若先前安装中途失败，请检查容器与目录状态，确认后再进行人工恢复；不要直接删除 <code>/opt/stacks</code> 或重复覆盖部署。</p>
 <h2 id="jobs">失败、重试与日志</h2>
 <p>任务列表将显示等待审批、执行中、已完成、部分成功或失败状态。出现异常时，先查看最后一步实际日志，再通过服务器控制台核对远端程序状态。不同版本固定脚本变更后应刷新旧审批方案，不能继续执行过期计划。</p>

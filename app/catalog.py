@@ -12,6 +12,7 @@ from .three_x_ui import DEFAULT_PORT, VERSION as XUI_VERSION, deployment_steps, 
 from .https_upgrade import identify, https_steps
 from .s_ui import VERSION as SUI_VERSION, steps as sui_steps
 from .sui_https import https_steps as sui_https_steps
+from .dockge import VERSION as DOCKGE_VERSION, steps as dockge_steps
 
 CATALOG = {
     "3x-ui": {
@@ -57,6 +58,14 @@ CATALOG = {
         "docs": "https://hysteria.network/docs/getting-started/Server-Installation-Script/",
         "summary": "安装后仍需证书、认证和配置；初版展示完整先决条件，不自动执行下载脚本。",
         "requires": ["systemd Linux", "TLS 证书或可靠的签发方式", "认证配置", "开放 UDP 端口"],
+    },
+    "dockge": {
+        "name": "Dockge", "subtitle": "Docker Compose 可视化管理面板", "category": "容器",
+        "icon": "container", "deployment": "install", "risk": "高",
+        "docs": "https://github.com/louislam/dockge",
+        "summary": "固定 Docker Hub 上游 1.5.0 版本，通过受保护的 Compose 管理容器栈；5001 仅本机监听、SSH 隧道访问。",
+        "requires": ["Debian/Ubuntu root VPS", "x86_64/ARM64", "已安装 Docker Engine 和 Compose v2",
+                     "Docker Socket 可用", "5001/TCP 未占用", "至少 1.2GB 可用空间", "无已有 Dockge 安装", "仅本机访问 Dockge Web"],
     },
     "wg-easy": {
         "name": "wg-easy", "subtitle": "WireGuard + Web 管理界面", "category": "VPN",
@@ -218,12 +227,28 @@ def compatibility(project: str, facts: dict[str, Any]) -> tuple[bool, list[str]]
             issues.append("未检测到 Docker Compose v2")
         if facts.get("UDP_51820") != "free":
             issues.append("UDP 51820 端口已占用，或无法可靠检测端口占用状态")
+    if project == "dockge":
+        if os_id not in {"debian", "ubuntu"}:
+            issues.append("Dockge 自动安装目前仅对已验证的 Debian/Ubuntu VPS 开放")
+        if facts.get("DOCKER") != "yes":
+            issues.append("Dockge 需要先安装并启动 Docker Engine；不会自动修改宿主机 Docker")
+        if facts.get("COMPOSE") != "yes":
+            issues.append("Dockge 需要 Docker Compose v2 插件")
+        if facts.get("SS_AVAILABLE") != "yes":
+            issues.append("缺少 ss，无法可靠判断 5001/TCP 端口占用")
+        if facts.get("DOCKGE_PRESENT") != "no":
+            issues.append("检测到已有 Dockge 或旧版检测结果不完整，禁止覆盖安装")
+        if facts.get("DOCKGE_TCP_5001") != "free":
+            issues.append("5001/TCP 已占用或状态未知，禁止未经确认的安装")
     if project == "hysteria2" and facts.get("SYSTEMD") != "yes":
         issues.append("Hysteria2 官方安装脚本需要 systemd")
+    minimum_kb = (1_200_000 if project == "dockge" else
+                  600_000 if project in {"3x-ui", "s-ui"} else 400_000)
     if not str(facts.get("FREE_KB", "")).isdigit():
         issues.append("无法确认根分区可用空间")
-    elif int(facts["FREE_KB"]) < (600_000 if project in {"3x-ui", "s-ui"} else 400_000):
-        issues.append("根分区可用空间不足（至少需要 600 MB）" if project in {"3x-ui", "s-ui"} else "根分区可用空间低于 400 MB")
+    elif int(facts["FREE_KB"]) < minimum_kb:
+        minimum_text = "1.2 GB" if project == "dockge" else "600 MB" if minimum_kb == 600_000 else "400 MB"
+        issues.append(f"根分区可用空间不足（至少需要 {minimum_text}）")
     return not issues, issues
 
 
@@ -333,6 +358,8 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         steps = SINGBOX_STEPS
     elif runnable and project == "wg-easy":
         steps = WGEASY_STEPS
+    elif runnable and project == "dockge":
+        steps = dockge_steps()
     else:
         steps = []
     return {
@@ -357,6 +384,14 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             ],
             "s-ui-https": ["仅为已安装且本机运行的受管理 S-UI 签发 IP/域名证书，不重复下载或安装面板", "先验证公网 IPv4 / DNS A 与 TCP 80 可达；IP 证书自动使用独立 Certbot 5.8.0 + 续期定时器，域名使用系统 Certbot",  "HTTPS 配置或验证失败自动恢复 127.0.0.1:2095；订阅 2096 始终本机访问", "需要云厂商手动设置 TCP 2095 入站管理 IP 白名单"],
             "sing-box": ["安装的是内核，不会自动配置对外监听或打开端口", "APT 仓库密钥来自官方 HTTPS 地址，初版尚未固定密钥指纹", "APT 变更不会自动回滚"],
+            "dockge": [
+                f"使用官方 Docker Hub 版本标签 {DOCKGE_VERSION}（固定版本标签，但不是不可变 SHA-256 镜像 digest）",
+                "需要现有 Docker Engine 和 Compose v2；不会自动下载并运行 Docker 安装脚本，也不关闭 UFW",
+                "管理页仅绑定 VPS 127.0.0.1:5001，须建立 SSH 隧道访问；不开放公网明文 5001/TCP",
+                "Docker Socket 具有近似 root 的管理权限；Dockge 可管理 /opt/stacks 中的服务与配置，务必保护管理员账号",
+                "默认禁用 Dockge 控制台；首次访问需要在 Dockge Web 中创建管理员，不会生成或显示预设密码",
+                "如检测到 /opt/dockge、现有 Dockge 容器或安装目录，停止安装以保护已有数据，不自动覆盖或卸载",
+            ],
             "wg-easy": ["需预先安装 Docker 且 Docker 网络不可与 10.42.42.0/24 冲突；不会自动修改防火墙", "Web 管理端只绑定 VPS 的 localhost，必须使用 SSH 隧道或安全反代", "容器镜像使用 v15 主版本标签，不是不可变 digest", "首次访问还需设置管理员账户及公网地址"],
             "3x-ui": [f"固定官方 {XUI_VERSION} 安装器 SHA-256 后执行，二进制由上游发布的 .sha256 校验；安装依赖可能需要联网和更改 APT 包", "自动生成账户、密码和随机 Web 路径；只在安装后明确点击查看时读取，不存入 NetDeploy 数据库或任务日志", "先将面板绑定本机 127.0.0.1；选择 HTTPS 时自动按公网 IPv4 / 域名签发证书并验证，成功后才开放公网 HTTPS，失败不开放明文 HTTP", "不会自动覆盖已有安装；失败可能留下部分文件，需要人工检查，不能盲目重试"],
             "3x-ui-https": ["公网 TCP 80 必须允许 Let’s Encrypt HTTP-01 验证（本机空闲不代表云安全组开放）；域名证书要求 DNS A 正确，公网 IP 证书使用 shortlived", "IP 证书有效期约 160 小时，必须保持 netdeploy-certbot-renew.timer 活跃（独立续期）；域名证书使用系统 certbot.timer；失败不开放公网面板",  "公网 HTTPS 管理面板属于高敏感服务，请启用强密码、双因素认证和云防火墙 IP 白名单"],

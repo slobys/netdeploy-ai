@@ -2,15 +2,15 @@ from app.catalog import build_plan, compatibility, CATALOG
 from app.executor import validate_host
 import pytest
 
-GOOD = {"OS_ID":"debian", "ARCH":"x86_64", "UID":"0", "FREE_KB":"3000000", "DOCKER":"yes", "COMPOSE":"yes", "UDP_51820":"free", "SYSTEMD":"yes", "XUI_PRESENT":"no", "SS_AVAILABLE":"yes", "SUI_PRESENT":"no"}
+GOOD = {"OS_ID":"debian", "ARCH":"x86_64", "UID":"0", "FREE_KB":"3000000", "DOCKER":"yes", "COMPOSE":"yes", "UDP_51820":"free", "SYSTEMD":"yes", "XUI_PRESENT":"no", "SS_AVAILABLE":"yes", "SUI_PRESENT":"no", "DOCKGE_PRESENT":"no", "DOCKGE_TCP_5001":"free"}
 
 
 def test_catalog_has_four_known_projects():
-    assert set(CATALOG) == {"3x-ui", "3x-ui-https", "sing-box", "hysteria2", "wg-easy", "s-ui", "s-ui-https"}
+    assert set(CATALOG) == {"3x-ui", "3x-ui-https", "sing-box", "hysteria2", "wg-easy", "s-ui", "s-ui-https", "dockge"}
 
 
 def test_supported_recipes_executable():
-    assert set(p for p in CATALOG if not CATALOG[p].get('internal') and build_plan(p,GOOD)['executable']) == {'3x-ui','wg-easy','sing-box','s-ui'}
+    assert set(p for p in CATALOG if not CATALOG[p].get('internal') and build_plan(p,GOOD)['executable']) == {'3x-ui','wg-easy','sing-box','s-ui','dockge'}
 
 
 def test_xui_pinned_install_plan_requires_compatibility():

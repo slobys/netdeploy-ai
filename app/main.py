@@ -28,6 +28,8 @@ from .firewall import (PortRule, FirewallBatch, STATUS_SCRIPT, allow_port_script
 from .xui_existing import status_script, parse_status, public_access_script, direct_url
 from .s_ui import (PORT as SUI_PORT, STATUS as SUI_STATUS_SCRIPT, ACCESS as SUI_ACCESS_SCRIPT,
                    parse_status as parse_sui_status, parse_access as parse_sui_access)
+from .dockge import (PORT as DOCKGE_PORT, STATUS as DOCKGE_STATUS_SCRIPT,
+                     parse_status as parse_dockge_status, local_access as dockge_local_access)
 
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("NETDEPLOY_DATA", str(BASE.parent / "data")))
@@ -42,7 +44,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.20")
+app = FastAPI(title="NetDeploy AI", version="0.3.21")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -188,7 +190,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.20", "security": "local-only"}
+    return {"ok": True, "version": "0.3.21", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -488,6 +490,33 @@ def sui_access(id: int):
     return result
 
 
+def read_existing_dockge(host: dict) -> dict:
+    """Only read current Dockge state through trusted SSH, never Docker secrets."""
+    if not executor.credential_ready(host):
+        raise HTTPException(status_code=409, detail="SSH 登录凭据不可用，请先验证可信 VPS")
+    try:
+        return parse_dockge_status(executor.run(host, DOCKGE_STATUS_SCRIPT, timeout=35))
+    except (SSHError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"无法验证 Dockge 运行与本机端口状态：{exc}") from exc
+
+
+@app.get("/api/hosts/{id}/dockge", dependencies=[Depends(authorized)])
+def dockge_status(id: int):
+    return read_existing_dockge(find_host(id))
+
+
+@app.get("/api/hosts/{id}/dockge/access", dependencies=[Depends(authorized)])
+def dockge_access(id: int):
+    """Explicit action; refuse any untrusted or public HTTP management access."""
+    host = find_host(id)
+    status = read_existing_dockge(host)
+    if not status["installed"]:
+        raise HTTPException(status_code=409, detail="此 VPS 尚未安装 Dockge")
+    if not status["managed"] or status["service"] != "active" or status["access_mode"] != "local":
+        raise HTTPException(status_code=409, detail="Dockge 未验证为受管理的本机监听服务；不会生成不安全的访问地址")
+    return dockge_local_access(host)
+
+
 @app.get("/api/hosts/{id}/firewall", dependencies=[Depends(authorized)])
 def firewall_status(id: int):
     host = find_host(id)
@@ -695,6 +724,13 @@ def new_job(body: NewJob):
         options = {**tls_options(host)}
         if body.source_job_id:
             options["source_job_id"] = body.source_job_id
+    elif body.project == "dockge":
+        if body.panel_port is not None or body.access_mode or body.source_job_id:
+            raise HTTPException(status_code=422, detail="Dockge 使用固定的本机管理端口 5001，不支持这些部署参数")
+        if int(host["port"]) == DOCKGE_PORT:
+            raise HTTPException(status_code=422, detail="Dockge 管理端口 5001 与 SSH 端口相同，请先调整服务器连接端口")
+        if host["facts"].get("DOCKGE_PRESENT") != "no":
+            raise HTTPException(status_code=409, detail="检测到已有 Dockge 或不完整安装，请先查看现有面板；不会覆盖安装")
     elif body.project == "3x-ui-https":
         if body.access_mode or body.panel_port is not None:
             raise HTTPException(status_code=422, detail="现有面板的 HTTPS 升级端口由服务器实际配置决定，不能手工覆盖")

@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.20 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.21 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.20';
+const CLIENT_VERSION = '0.3.21';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -71,11 +71,12 @@ async function loadAll(silent=false){
 }
 function stateText(status){return ({planned:'等待审批',queued:'已排队',running:'正在执行',completed:'执行完成',failed:'执行失败',interrupted:'执行中断',partial:'3X-UI 已装，HTTPS 待修复',invalidated:'服务器已重装，计划失效'})[status]||status;}
 function chip(status){const cls=status==='completed'?'success':status==='failed'||status==='interrupted'||status==='invalidated'?'error':'warn';return `<span class="chip ${cls}">${escapeHtml(stateText(status))}</span>`;}
-const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡","s-ui-https":"🔒"};
+const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡","s-ui-https":"🔒","dockge":"▣"};
 function render(){
  const {hosts,jobs,catalog}=state;
  const loneInstalledXui=hosts.length===1&&hosts[0].facts?.XUI_PRESENT==='yes';
  const loneInstalledSui=hosts.length===1&&hosts[0].facts?.SUI_PRESENT==='yes';
+ const loneInstalledDockge=hosts.length===1&&hosts[0].facts?.DOCKGE_PRESENT==='yes';
  el('#stats').innerHTML = [
   ['已添加服务器',hosts.length,'▤','已通过 SSH 扫描 '+hosts.filter(h=>!!h.facts).length+' 台'],
   ['项目模板',Object.values(catalog).filter(p=>!p.internal).length,'⬡','固定、可审核的部署计划'],
@@ -83,10 +84,10 @@ function render(){
   ['待处理任务',jobs.filter(j=>['failed','interrupted'].includes(j.status)||(j.status==='planned'&&j.plan?.executable)).length,'⌁','需确认或排障的任务']
  ].map(([label,val,ico,desc])=>`<div class="stat"><div class="top"><span>${label}</span><span class="icon">${ico}</span></div><strong>${val}</strong><small>${desc}</small></div>`).join('');
  el('#project-grid').innerHTML = Object.entries(catalog).filter(([_,p])=>!p.internal).map(([key,p])=>`
- <div class="project"><div class="project-head"><div class="project-icon">${symbol[key]}</div><span class="project-kind">${escapeHtml(p.category)}</span></div>
+ <div class="project" data-project="${escapeHtml(key)}"><div class="project-head"><div class="project-icon">${symbol[key]}</div><span class="project-kind">${escapeHtml(p.category)}</span></div>
  <h3>${escapeHtml(p.name)}</h3><p>${escapeHtml(p.subtitle)}</p><div class="project-footer">
- <span class="status ${p.deployment==='install'?'':'muted'}">${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)?'已安装 · 无需审批':p.deployment==='install'?'自动安装 Beta':'方案引导'}</span>
- <button class="btn subtle" data-action="${key==='3x-ui'&&loneInstalledXui?'installed-xui':key==='s-ui'&&loneInstalledSui?'installed-sui':'plan'}" ${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)?'data-id="'+hosts[0].id+'"':'data-project="'+escapeHtml(key)+'"'}>${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)?'查看已安装面板':p.deployment==='install'?'部署项目':'查看方案'} →</button></div></div>`).join('');
+ <span class="status ${p.deployment==='install'?'':'muted'}">${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'已安装 · 无需审批':p.deployment==='install'?'自动安装 Beta':'方案引导'}</span>
+ <button class="btn subtle" data-action="${key==='3x-ui'&&loneInstalledXui?'installed-xui':key==='s-ui'&&loneInstalledSui?'installed-sui':key==='dockge'&&loneInstalledDockge?'installed-dockge':'plan'}" ${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'data-id="'+hosts[0].id+'"':'data-project="'+escapeHtml(key)+'"'}>${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'查看已安装面板':p.deployment==='install'?'部署项目':'查看方案'} →</button></div></div>`).join('');
  el('#host-list').innerHTML=hosts.length?hosts.map(h=>{
    const duplicate=hosts.filter(x=>x.hostname.toLowerCase()===h.hostname.toLowerCase()&&x.port===h.port).length;
    const status=!h.credential_ready?'需要登录凭据':h.facts?'最近检测成功':'待连接检测';
@@ -94,7 +95,7 @@ function render(){
    return `<article class="host-item interactive-card" role="button" tabindex="0" data-action="host-console" data-id="${h.id}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台">
       <div class="host-card-top"><div class="host-icon">▤</div><div class="host-title"><b>${escapeHtml(h.name)}</b><span class="chip ${statusClass}">${status}</span></div><span class="host-card-open">管理服务器 →</span></div>
       <div class="host-card-address">${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port}</div>
-      <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span><span class="host-cert-detail">${h.tls_domain?'域名证书 '+escapeHtml(h.tls_domain):'IP 证书（未填域名）'}</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}${h.facts?.SUI_PRESENT==='yes'?'<span class="host-installed-xui">S-UI 已安装</span>':''}</div>
+      <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span><span class="host-cert-detail">${h.tls_domain?'域名证书 '+escapeHtml(h.tls_domain):'IP 证书（未填域名）'}</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}${h.facts?.SUI_PRESENT==='yes'?'<span class="host-installed-xui">S-UI 已安装</span>':''}${h.facts?.DOCKGE_PRESENT==='yes'?'<span class="host-installed-xui">Dockge 已安装</span>':''}</div>
       ${duplicate>1?`<span class="host-card-hint">${duplicate} 条记录共用此 SSH 地址</span>`:''}
       <button class="host-card-delete" type="button" data-action="delete-host" data-id="${h.id}" aria-label="删除 ${escapeHtml(h.name)} 的本地服务器记录">删除服务器</button>
     </article>`;
@@ -225,8 +226,8 @@ function openHostConsole(id,tab='overview'){
      ${pending.length?`<div class="server-pending-shortcut"><strong>你有 ${pending.length} 个等待审批的计划</strong>
        <button class="btn primary" data-action="${planNeedsUpdate(pending[0])?'regenerate-plan':'job'}" data-id="${escapeHtml(pending[0].id)}">${planNeedsUpdate(pending[0])?'刷新方案并继续':'立即继续审批'} →</button></div>`:''}
      <div class="server-project-grid">${visible.map(([key,project])=>`<button class="server-project-choice" data-action="server-install" data-id="${id}" data-project="${escapeHtml(key)}">
-       <span class="project-choice-icon">${symbol[key]||'▣'}</span><strong>${escapeHtml(project.name)}</strong>${(key==='3x-ui'&&installedXui)||(key==='s-ui'&&host.facts?.SUI_PRESENT==='yes')?'<span class="chip success">已安装</span>':''}<small>${escapeHtml(project.subtitle)}</small>
-       <span class="project-choice-link">${(key==='3x-ui'&&installedXui)||(key==='s-ui'&&host.facts?.SUI_PRESENT==='yes')?'已安装 · 查看面板信息':project.deployment==='install'?'安装 / 继续配置':'查看部署方案'} →</span>
+       <span class="project-choice-icon">${symbol[key]||'▣'}</span><strong>${escapeHtml(project.name)}</strong>${(key==='3x-ui'&&installedXui)||(key==='s-ui'&&host.facts?.SUI_PRESENT==='yes')||(key==='dockge'&&host.facts?.DOCKGE_PRESENT==='yes')?'<span class="chip success">已安装</span>':''}<small>${escapeHtml(project.subtitle)}</small>
+       <span class="project-choice-link">${(key==='3x-ui'&&installedXui)||(key==='s-ui'&&host.facts?.SUI_PRESENT==='yes')||(key==='dockge'&&host.facts?.DOCKGE_PRESENT==='yes')?'已安装 · 查看面板信息':project.deployment==='install'?'安装 / 继续配置':'查看部署方案'} →</span>
      </button>`).join('')}</div>`;
  }else if(tab==='network'){
    content=`<div class="server-tab-intro"><h3>开放服务器需要使用的端口</h3><p>例如 HTTPS 证书验证需要 TCP 80，3X-UI 默认管理端口是 TCP 24443。这里只有本机 UFW，云平台安全组仍须另行允许。</p></div>
@@ -339,6 +340,13 @@ async function createHostPlan(id,project,panelPort=null,absenceVerified=false){
      if(status.installed){await showExistingSui(id,status);return;}
    }catch(err){toast('无法安全核对现有 S-UI 安装，已阻止覆盖：'+err.message,true);return;}
  }
+ if(project==='dockge'){
+   toast('正在只读检查 VPS 上是否已有 Dockge…');
+   try{
+     const status=await api('/hosts/'+id+'/dockge');
+     if(status.installed){await showExistingDockge(id,status);return;}
+   }catch(err){toast('无法核对 Dockge 现有安装，已阻止覆盖：'+err.message,true);return;}
+ }
  const existing=state.jobs.find(j=>j.project===project&&j.host_id===id&&
    (j.plan?.trust_epoch||0)===(host.trust_epoch||0)&&j.plan?.executable&&
    j.plan?.steps?.length>0&&['planned','queued','running'].includes(j.status)&&!planNeedsUpdate(j));
@@ -380,6 +388,48 @@ async function createHostPlan(id,project,panelPort=null,absenceVerified=false){
  }catch(err){toast(err.message,true);}
 }
 
+async function showExistingDockge(id,known=null){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ state.hostPanel={id,tab:'deploy'};state.activeJob=null;
+ dialog(modalHead('Dockge · 现有面板')+'<div class="xui-loading"><span class="inline-spinner"></span>正在通过可信 SSH 检查 Docker 容器和管理端口…</div>');
+ try{
+   const status=known||await api('/hosts/'+id+'/dockge');
+   if(!status.installed){
+     dialog(modalHead('Dockge · 尚未安装')+
+       '<div class="modal-tip">未检测到 Dockge。安装前需要 VPS 已启动 Docker Engine 和 Compose v2。</div>'+
+       '<div class="modal-actions"><button class="btn primary" data-action="server-install" data-id="'+id+'" data-project="dockge">生成 Dockge 安装方案 →</button>'+
+       '<button class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button></div>');
+     return;
+   }
+   if(!status.managed||status.service!=='active'||status.access_mode!=='local'){
+     dialog(modalHead('Dockge · 需要检查')+
+       '<div class="modal-tip warning">检测到 Dockge 或部分安装文件，但无法确认它由 NetDeploy 管理、正在运行且 Web 仅监听本机。为保护已有容器和数据，不会覆盖重装或提供不安全的访问地址。请在 VPS 上检查 Docker、Compose 和 5001 端口。</div>'+
+       '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button></div>');
+     return;
+   }
+   const access=await api('/hosts/'+id+'/dockge/access');
+   const row=(label,field,value,action)=>'<div class="xui-info-row"><label>'+label+'</label>'+
+     '<input id="'+field+'" readonly autocomplete="off" value="'+escapeHtml(value)+'"/>'+
+     '<button type="button" class="btn subtle" data-action="'+action+'">复制</button></div>';
+   dialog(modalHead('Dockge · 管理面板')+
+     '<section class="xui-existing"><div class="xui-existing-state"><span class="chip success">已安装 · 本机运行正常</span>'+
+     '<span class="chip">5001/TCP · 仅 SSH 隧道访问</span></div>'+
+     '<h3>Dockge 已安装，无需重复部署</h3>'+
+     '<p class="helptext">此服务拥有 Docker Socket 管理权限，不能直接向公网开放管理端口。首次打开请在 Dockge 页面创建管理员账户；NetDeploy 不预设账号密码。</p>'+
+     '<div class="xui-info-grid">'+
+       row('本机管理地址','dockge-url',access.local_url,'copy-dockge-url')+
+       row('Windows PowerShell SSH 隧道','dockge-tunnel',access.ssh_tunnel,'copy-dockge-tunnel')+
+     '</div>'+
+     '<p class="helptext">先在 Windows PowerShell 执行隧道命令并保持窗口运行，然后从这台电脑打开本机地址。Dockge 将管理 /opt/stacks 目录里的 Compose 项目。</p>'+
+     '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button>'+
+       '<a class="btn primary" href="'+escapeHtml(access.local_url)+'" target="_blank" rel="noopener noreferrer">打开本机 Dockge ↗</a></div></section>');
+ }catch(err){
+   dialog(modalHead('Dockge · 读取状态失败')+
+     '<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>'+
+     '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button></div>');
+   toast(err.message,true);
+ }
+}
 async function showExistingSui(id,known=null){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
  state.hostPanel={id,tab:'deploy'};state.activeJob=null;
@@ -968,6 +1018,7 @@ function chooseHost(project){
  <div class="form-group"><label>目标服务器</label><select name="host_id" id="plan-host-id" required>${state.hosts.map(h=>`<option value="${h.id}">${escapeHtml(h.name)} (${escapeHtml(h.hostname)})</option>`).join('')}</select></div>
  ${project==='3x-ui'||project==='s-ui'?`${project==='3x-ui'?'<details><summary class="mini">高级设置（可选）：面板端口，默认 24443</summary><div class="form-group"><label>3X-UI 管理端口</label><input name="panel_port" type="number" min="1024" max="65535" value="24443" required/></div></details>':'<div class="modal-tip">S-UI 管理端口固定 2095/TCP；订阅 2096/TCP 始终仅本机监听，不直接开放公网。</div>'}
  <div class="modal-tip"><b id="cert-type-preview">证书类型自动识别中</b> — SSH 使用 VPS 公网 IPv4；填写 HTTPS 域名就申请域名证书，否则申请 IP 短期证书。需放行公网 TCP 80 验证，成功后才开启 HTTPS，失败不开放公网明文 HTTP。</div>`:''}
+ ${project==='dockge'?'<div class="modal-tip warning"><b>Dockge 需要已安装 Docker 与 Compose v2。</b>它通过 Docker Socket 拥有较高的主机管理权限；Web 默认仅开放到 VPS 本机 127.0.0.1:5001。安装后使用 SSH 隧道访问，并在 Dockge 页面首次创建管理员。</div>':''}
  <div class="modal-tip">仅生成可审查的部署计划；确认所有步骤和风险后仍需单独审批执行。</div>
  <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">自动检测并生成方案 →</button></div></form>`);
  if(project==='3x-ui'||project==='s-ui'){
@@ -1049,6 +1100,7 @@ function showJob(id){
        ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看面板信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
        ${job.project==='s-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI 面板信息</button>${job.status==='partial'||p.options?.access_mode!=='https'?`<button class="btn subtle" data-action="sui-upgrade" data-id="${job.host_id}">继续完成 HTTPS</button>`:''}`:''}
        ${job.project==='s-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI HTTPS 面板</button>`:''}
+       ${job.project==='dockge'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-dockge" data-id="${job.host_id}">查看 Dockge 面板信息</button>`:''}
        ${job.project==='s-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成 S-UI HTTPS 方案</button>`:''}
        ${job.project==='3x-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看 HTTPS 面板信息</button>`:''}
        ${job.project==='3x-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成证书方案</button>`:''}
@@ -1210,6 +1262,9 @@ document.addEventListener('click',async e=>{
   else if(act==='apply-ufw-toggle')await applyUfwToggle(Number(id),t.dataset.mode);
   else if(act==='host-check')await checkHostInConsole(Number(id));
   else if(act==='installed-sui')await showExistingSui(Number(id));
+  else if(act==='installed-dockge')await showExistingDockge(Number(id));
+  else if(act==='copy-dockge-url')await copyXuiField('dockge-url','Dockge 管理地址');
+  else if(act==='copy-dockge-tunnel')await copyXuiField('dockge-tunnel','Dockge SSH 隧道命令');
   else if(act==='sui-upgrade')await suiUpgrade(Number(id));
   else if(act==='toggle-sui-password'){const field=el('#sui-password');if(field)field.type=field.type==='password'?'text':'password';}
   else if(act==='copy-sui-url')await copyXuiField('sui-url','S-UI 面板地址');
