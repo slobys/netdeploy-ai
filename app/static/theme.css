@@ -56,7 +56,7 @@
   --theme-line-strong: #b9cce3;
   --theme-title: #1a2a42;
   --theme-secondary: #455b77;
-  --theme-subtle: #607895;
+  --theme-subtle: #506b88; /* readable supporting copy on pale panels */
   --theme-code: #ecf2fa;
   --theme-overlay: #0e203c88;
   --theme-shadow: 0 12px 32px #22395716;

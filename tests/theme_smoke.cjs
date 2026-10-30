@@ -8,6 +8,7 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'app/static/theme.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'app/static/theme.css'), 'utf8');
+const typography = fs.readFileSync(path.join(root, 'app/static/typography.css'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'app/static/index.html'), 'utf8');
 
 function node(data = {}) {
@@ -39,15 +40,18 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
   const control = node();
   const colorCodes = ['blue','violet','teal','emerald','rose','amber'];
   const modes = ['dark','light','system'];
+  const fontSizes = ['standard','comfortable','large'];
   const modeButtons = modes.map(x=>node({themeMode:x}));
   const colorButtons = colorCodes.map(x=>node({themeColor:x}));
+  const fontButtons = fontSizes.map(x=>node({themeFont:x}));
   const docs = new Map([
     ['theme-menu-button',button],['theme-menu',menu],['theme-control',control],['theme-status',status]
   ]);
   menu.querySelectorAll = selector => selector==='[data-theme-mode]'?modeButtons:
-    selector==='[data-theme-color]'?colorButtons:[];
+    selector==='[data-theme-color]'?colorButtons:
+    selector==='[data-theme-font]'?fontButtons:[];
   control.contains = target => target===control||target===button||target===menu||
-    colorButtons.includes(target)||modeButtons.includes(target);
+    colorButtons.includes(target)||modeButtons.includes(target)||fontButtons.includes(target);
   const docListeners = new Map();
   const winListeners = new Map();
   let systemDark = osDark;
@@ -74,11 +78,13 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
   docListeners.get('DOMContentLoaded')?.();
   const pressed = (items,key)=>items.filter(x=>x.getAttribute('aria-pressed')==='true').map(x=>x.dataset[key]);
   return {
-    root:rootNode,button,menu,status,control,modeButtons,colorButtons,stored:storage,early,
+    root:rootNode,button,menu,status,control,modeButtons,colorButtons,fontButtons,stored:storage,early,
     pressedMode:()=>pressed(modeButtons,'themeMode'),
     pressedColor:()=>pressed(colorButtons,'themeColor'),
+    pressedFont:()=>pressed(fontButtons,'themeFont'),
     chooseMode:value=>modeButtons.find(x=>x.dataset.themeMode===value).dispatch('click'),
     chooseColor:value=>colorButtons.find(x=>x.dataset.themeColor===value).dispatch('click'),
+    chooseFont:value=>fontButtons.find(x=>x.dataset.themeFont===value).dispatch('click'),
     systemDark(value){systemDark=value;onChange?.({matches:value});},
     storageEvent:(key=null)=>winListeners.get('storage')?.({key}),
     clickOutside:target=>docListeners.get('pointerdown')?.({target}),
@@ -88,10 +94,11 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
 
 {
   const ui=harness();
-  assert.deepEqual(ui.early,{appearance:'dark',themeMode:'dark',accent:'blue'},
+  assert.deepEqual(ui.early,{appearance:'dark',themeMode:'dark',accent:'blue',fontSize:'comfortable'},
     'The current blue-black look must be applied before CSS is loaded');
   assert.deepEqual(ui.pressedMode(),['dark']);
   assert.deepEqual(ui.pressedColor(),['blue']);
+  assert.deepEqual(ui.pressedFont(),['comfortable'],'Readable comfort size should be the default');
   assert.equal(ui.menu.hidden,true);
   assert.equal(ui.button.getAttribute('aria-expanded'),'false');
   ui.button.dispatch('click');
@@ -99,12 +106,16 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
   assert.equal(ui.button.getAttribute('aria-expanded'),'true');
   ui.chooseMode('light');
   ui.chooseColor('rose');
+  ui.chooseFont('large');
   assert.equal(ui.root.dataset.appearance,'light');
   assert.equal(ui.root.dataset.accent,'rose');
+  assert.equal(ui.root.dataset.fontSize,'large');
   assert.equal(ui.stored.get('netdeploy-ui-mode-v1'),'light');
   assert.equal(ui.stored.get('netdeploy-ui-color-v1'),'rose');
+  assert.equal(ui.stored.get('netdeploy-ui-font-size-v1'),'large');
   assert.deepEqual(ui.pressedMode(),['light']);
   assert.deepEqual(ui.pressedColor(),['rose']);
+  assert.deepEqual(ui.pressedFont(),['large']);
   assert.equal(ui.status.textContent,'明亮 · 玫瑰粉');
   assert.equal(ui.menu.hidden,false,'Keep picker open for interactive color preview');
   ui.clickOutside(node());
@@ -117,6 +128,7 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
   const reload=harness({stored:Object.fromEntries(ui.stored)});
   assert.equal(reload.early.appearance,'light');
   assert.equal(reload.early.accent,'rose');
+  assert.equal(reload.early.fontSize,'large','Font size is restored before paint');
   assert.equal(reload.status.textContent,'明亮 · 玫瑰粉');
 }
 
@@ -142,14 +154,18 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
   assert.equal(ui.root.dataset.appearance,'dark','Legacy matchMedia listener still updates system mode');
   ui.stored.set('netdeploy-ui-mode-v1','light');
   ui.stored.set('netdeploy-ui-color-v1','amber');
+  ui.stored.set('netdeploy-ui-font-size-v1','standard');
   ui.storageEvent('netdeploy-ui-color-v1');
   assert.equal(ui.root.dataset.appearance,'light');
   assert.equal(ui.root.dataset.accent,'amber');
+  assert.equal(ui.root.dataset.fontSize,'standard','Cross-tab updates include font size');
   ui.stored.set('netdeploy-ui-mode-v1','bogus');
   ui.stored.set('netdeploy-ui-color-v1','url(javascript:evil)');
+  ui.stored.set('netdeploy-ui-font-size-v1','calc(999px)');
   ui.storageEvent(null);
   assert.equal(ui.root.dataset.appearance,'dark','Tampered prefs are rejected');
   assert.equal(ui.root.dataset.accent,'blue');
+  assert.equal(ui.root.dataset.fontSize,'comfortable','Tampered font preference must use default');
 }
 
 {
@@ -158,7 +174,9 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
   assert.equal(ui.root.dataset.accent,'blue');
   ui.chooseColor('emerald');
   ui.chooseMode('light');
+  ui.chooseFont('large');
   assert.equal(ui.root.dataset.appearance,'light','Private storage mode still allows temporary changes');
+  assert.equal(ui.root.dataset.fontSize,'large','Fonts work when localStorage is blocked');
   assert.equal(ui.root.dataset.accent,'emerald');
 }
 
@@ -167,6 +185,8 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
     'Theme must apply in head before CSS paints');
   assert(html.indexOf('/static/theme.css')>html.indexOf('/static/app-enhanced.css'),
     'Theme tokens need the final cascade');
+  assert(html.indexOf('/static/typography.css')>html.indexOf('/static/theme.css'),
+    'Readable type must override old 10–12px component CSS');
   assert(html.includes("script-src 'self'"),'No inline scripts needed under strict CSP');
   assert(html.includes('id="theme-menu-button"'));
   assert(html.includes('id="theme-menu"'));
@@ -177,6 +197,17 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
     assert(css.includes('data-theme-color="'+accent+'"'));
   }
   for(const mode of ['dark','light','system'])assert(html.includes('data-theme-mode="'+mode+'"'));
+  for(const size of ['standard','comfortable','large']){
+    assert(html.includes('data-theme-font="'+size+'"'));
+    assert(typography.includes('data-font-size="'+size+'"'));
+  }
+  for(const selector of ['.project h3','.project p','.stat small','.stat .top','.nav-item','.hero p',
+      '.section-heading p','.form-group input','.modal-tip','.server-tab',
+      '.setup-port-row','.cloud-provider-links a']){
+    assert(typography.includes(selector),'Missing type coverage: '+selector);
+  }
+  assert(typography.includes('--ui-fs-body') && typography.includes('min-height:44px'));
+  assert(typography.includes('@media(max-width:530px)'));
   for(const token of ['--theme-page','--theme-panel','--theme-title','--theme-action','--theme-line']){
     assert(css.includes(token));
   }

@@ -1,0 +1,248 @@
+/* NetDeploy AI · readable typography.
+   The legacy dashboard used 9–12px text across desktop cards and secondary
+   copy. Define one scale instead of scattering fixed pixel overrides.
+   Loaded AFTER the palette CSS to win the original component cascade. */
+:root{
+  --ui-font-scale:1;
+  --ui-fs-caption:calc(12px * var(--ui-font-scale));
+  --ui-fs-small:calc(13px * var(--ui-font-scale));
+  --ui-fs-meta:calc(13.5px * var(--ui-font-scale));
+  --ui-fs-body:calc(14.5px * var(--ui-font-scale));
+  --ui-fs-lead:calc(16px * var(--ui-font-scale));
+  --ui-fs-heading:calc(19px * var(--ui-font-scale));
+  --ui-fs-hero:calc(24px * var(--ui-font-scale));
+  --ui-fs-metric:calc(27px * var(--ui-font-scale));
+}
+:root[data-font-size="standard"]{--ui-font-scale:.92}
+:root[data-font-size="comfortable"]{--ui-font-scale:1}
+:root[data-font-size="large"]{--ui-font-scale:1.15}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{
+  font-size:var(--ui-fs-body);
+  line-height:1.55;
+  letter-spacing:.005em;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+/* Header and navigation: avoid tiny, low-contrast workspace labels. */
+.brand strong{font-size:calc(16px * var(--ui-font-scale));font-weight:750}
+.brand small{font-size:var(--ui-fs-caption);letter-spacing:.3px;line-height:1.5}
+.sidebar-caption{font-size:var(--ui-fs-caption);letter-spacing:1px}
+.nav-item{font-size:var(--ui-fs-body);line-height:1.45;min-height:45px}
+.nav-count{font-size:var(--ui-fs-caption);line-height:1.2}
+.agent-info b{font-size:var(--ui-fs-small)}
+.agent-info small{font-size:var(--ui-fs-caption);line-height:1.55}
+.logout{font-size:var(--ui-fs-small)}
+.crumb{font-size:var(--ui-fs-small)}
+.crumb b{font-weight:650}
+.tag{font-size:var(--ui-fs-caption)}
+.topbar-doc-link,.topbar-theme-button{font-size:var(--ui-fs-small)}
+.topbar-add{font-size:var(--ui-fs-small)!important}
+.top-actions{gap:10px}
+.topbar{min-height:68px}
+
+/* Featured hero and section headings need a clearer typographic hierarchy. */
+.hero{height:auto;min-height:138px}
+.hero-content{padding:20px 27px}
+.hero .eyebrow{font-size:var(--ui-fs-caption);letter-spacing:1px;margin-bottom:9px}
+.hero h1{font-size:var(--ui-fs-hero);line-height:1.34;font-weight:780}
+.hero p{
+  font-size:var(--ui-fs-meta);line-height:1.65;
+  max-width:880px;margin-top:7px
+}
+.section-heading h2,.section-heading.smaller h2{
+  font-size:var(--ui-fs-heading);line-height:1.45;font-weight:750
+}
+.section-heading p,.section-heading.smaller p{
+  font-size:var(--ui-fs-small);line-height:1.6;margin-top:6px
+}
+.text-action{font-size:var(--ui-fs-small);font-weight:650}
+.section-heading,.section-heading.smaller{gap:14px;margin-bottom:14px}
+
+/* Dashboard metrics: labels and supporting copy are no longer 10px. */
+.stat{padding:19px 20px}
+.stat .top{font-size:var(--ui-fs-meta);line-height:1.45;font-weight:550}
+.stat strong{font-size:var(--ui-fs-metric);line-height:1.2;margin-top:13px}
+.stat small{font-size:var(--ui-fs-caption);line-height:1.55;margin-top:7px}
+.stat .icon{width:34px;height:34px}
+
+/* Application cards and server cards. Leave room for translated strings. */
+.project{gap:11px;padding:21px;min-height:240px;min-width:0}
+.project h3{font-size:var(--ui-fs-lead);line-height:1.4}
+.project p{
+  font-size:var(--ui-fs-meta);line-height:1.65;
+  min-height:0;overflow-wrap:anywhere
+}
+.project-kind{font-size:var(--ui-fs-caption);height:auto;min-height:26px}
+.project-footer{gap:10px;flex-wrap:wrap}
+.project-footer .btn{font-size:var(--ui-fs-small);min-height:37px;padding:8px 12px}
+.status{font-size:var(--ui-fs-caption);line-height:1.4}
+.host-card-top .host-title b{font-size:var(--ui-fs-lead);line-height:1.4}
+.host-card-open{font-size:var(--ui-fs-small)}
+.host-card-address{font-size:var(--ui-fs-body);line-height:1.6}
+.host-card-meta{font-size:var(--ui-fs-small);line-height:1.55}
+.host-card-hint,.host-installed-xui,.host-cert-detail{font-size:var(--ui-fs-small)}
+.host-card-delete{font-size:var(--ui-fs-small);min-height:34px}
+.host-main b,.job-main b{font-size:var(--ui-fs-body)}
+.host-main small,.job-main small{font-size:var(--ui-fs-small)}
+.host-actions .btn{font-size:var(--ui-fs-small);min-height:38px}
+.host-item,.job-item{min-width:0}
+.empty{font-size:var(--ui-fs-meta);line-height:1.65;min-height:140px}
+.empty-icon{font-size:27px}
+.chip{font-size:var(--ui-fs-caption);line-height:1.35}
+footer{font-size:var(--ui-fs-caption);line-height:1.6}
+
+/* All action buttons and fields are readable at 100% Windows zoom. */
+.btn{font-size:var(--ui-fs-meta);line-height:1.4;min-height:40px}
+.btn.subtle,.btn.ghost{font-size:var(--ui-fs-meta)}
+.topbar .btn{font-size:var(--ui-fs-small)}
+.form-group label,.login-box label,.xui-info-row>label{
+  font-size:var(--ui-fs-meta);line-height:1.55;font-weight:660
+}
+.form-group input,.form-group select,.form-group textarea,
+.login-box input,.xui-info-row>input{
+  font-size:var(--ui-fs-body);line-height:1.5;min-height:44px
+}
+.form-group input[type="checkbox"],.form-group input[type="radio"]{min-height:0}
+.helptext,.notice-list{font-size:var(--ui-fs-small);line-height:1.75}
+.modal h2,.login-box h1{font-size:calc(21px * var(--ui-font-scale));line-height:1.4}
+.modal h3{font-size:var(--ui-fs-lead);line-height:1.55}
+.login-box p,.login-tip{font-size:var(--ui-fs-meta);line-height:1.75}
+.modal-tip{font-size:var(--ui-fs-meta);line-height:1.75}
+.modal-actions{gap:11px;row-gap:11px}
+.modal-actions .btn{font-size:var(--ui-fs-meta)}
+.plan-primary-actions .btn.primary{font-size:var(--ui-fs-body)}
+.check,.step{font-size:var(--ui-fs-meta);line-height:1.65}
+.step .num{font-size:var(--ui-fs-caption);width:26px;height:26px}
+.step small,.mini,.external{font-size:var(--ui-fs-caption);line-height:1.6}
+.pre,.fingerprint-command,.xui-tunnel{
+  font-size:var(--ui-fs-small);line-height:1.65;
+  font-variant-ligatures:none
+}
+.log-status{font-size:var(--ui-fs-meta)}
+.toast{font-size:var(--ui-fs-meta);line-height:1.65;max-width:min(530px,calc(100vw - 44px))}
+
+/* VPS workspace, SSH fingerprint, certificate and network wizard. */
+.server-console-head h3{font-size:calc(21px * var(--ui-font-scale))}
+.server-console-head p{font-size:var(--ui-fs-meta);line-height:1.7}
+.server-eyebrow{font-size:var(--ui-fs-caption);letter-spacing:1px}
+.server-tab{font-size:var(--ui-fs-meta);line-height:1.4;padding:11px 15px;min-height:40px}
+.server-kpi span,.server-simple-status span{font-size:var(--ui-fs-small)}
+.server-kpi strong,.server-simple-status strong{font-size:var(--ui-fs-body);line-height:1.65}
+.server-history-item{font-size:var(--ui-fs-meta);line-height:1.55}
+.server-history-item small,.server-history-item .server-task-title small{
+  font-size:var(--ui-fs-caption);line-height:1.6
+}
+.server-history-item .server-task-title strong{font-size:var(--ui-fs-meta)}
+.server-history-item .server-task-next,.server-back{font-size:var(--ui-fs-small)}
+.server-project-choice strong{font-size:var(--ui-fs-lead)}
+.server-project-choice small,.project-choice-link{font-size:var(--ui-fs-small);line-height:1.6}
+.server-status-panel{font-size:var(--ui-fs-meta);line-height:1.65}
+.server-next-action h3,.plan-overview h3,.server-tab-intro h3{
+  font-size:var(--ui-fs-heading);line-height:1.45
+}
+.server-next-action p,.plan-overview p,.server-tab-intro p{
+  font-size:var(--ui-fs-meta);line-height:1.75
+}
+.server-next-kicker,.server-subheading p,.server-pending-shortcut strong,
+.server-advanced-actions summary{font-size:var(--ui-fs-small)}
+.server-subheading h3{font-size:var(--ui-fs-lead)}
+.server-next-action .btn,.server-pending-shortcut .btn{font-size:var(--ui-fs-meta)}
+.plan-technical>summary{font-size:var(--ui-fs-meta)}
+.xui-existing h3{font-size:var(--ui-fs-heading)}
+.xui-existing>p,.xui-port-config>p{font-size:var(--ui-fs-meta);line-height:1.75}
+.xui-info-row>.btn,.xui-info-row>.xui-note{font-size:var(--ui-fs-small)}
+.fingerprint-loading,.setup-loading,.xui-loading,.scan-state{font-size:var(--ui-fs-meta);line-height:1.7}
+.fingerprint-verdict strong{font-size:var(--ui-fs-body)}
+.fingerprint-verdict p,.fingerprint-label,.fingerprint-key-card.previous .fingerprint-value{
+  font-size:var(--ui-fs-meta);line-height:1.7
+}
+.fingerprint-value{font-size:var(--ui-fs-body);line-height:1.7}
+.fingerprint-guide>p,.fingerprint-guide strong,.fingerprint-guide>summary,
+.fingerprint-confirm{font-size:var(--ui-fs-meta);line-height:1.7}
+.setup-progress li{font-size:var(--ui-fs-small);line-height:1.4;min-height:42px}
+.setup-step-number{font-size:var(--ui-fs-caption)}
+.setup-result h3{font-size:var(--ui-fs-heading)}
+.setup-result p{font-size:var(--ui-fs-meta)}
+.setup-port-form-heading strong{font-size:var(--ui-fs-body)}
+.setup-port-form-heading span,.setup-port-row,.setup-port-result,
+.setup-port-error:not(:empty),.setup-batch-warning{
+  font-size:var(--ui-fs-meta);line-height:1.65
+}
+.cloud-firewall-help>summary{font-size:var(--ui-fs-body)}
+.cloud-firewall-help>p,.cloud-provider-links a,.cloud-provider-links a span{
+  font-size:var(--ui-fs-small);line-height:1.65
+}
+.firewall-toggle-panel h4{font-size:var(--ui-fs-lead)}
+.firewall-toggle-panel p{font-size:var(--ui-fs-meta);line-height:1.75}
+
+/* Theme menu remains compact while supporting a clear, accessible size picker. */
+.theme-menu{
+  width:342px;max-height:calc(100dvh - 93px);
+  overflow-y:auto;overscroll-behavior:contain
+}
+.theme-menu-head strong{font-size:var(--ui-fs-lead)}
+.theme-menu-head small{font-size:var(--ui-fs-caption)}
+.theme-caption{font-size:var(--ui-fs-meta)}
+.theme-choice{font-size:var(--ui-fs-small)}
+.theme-swatch{font-size:var(--ui-fs-caption);min-height:76px}
+.theme-menu-foot{font-size:var(--ui-fs-caption)}
+.theme-font-options{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px
+}
+.theme-font-choice{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  min-height:70px;padding:9px 5px;border:1px solid var(--theme-line);
+  border-radius:10px;background:var(--theme-panel-2);color:var(--theme-secondary);
+  font-size:var(--ui-fs-small);font-weight:700;transition:background .15s,border-color .15s
+}
+.theme-font-choice:hover{background:var(--theme-panel-3);color:var(--theme-title)}
+.theme-font-choice.selected,.theme-font-choice[aria-pressed="true"]{
+  background:color-mix(in srgb,var(--theme-action) 11%,var(--theme-panel));
+  color:var(--theme-accent);border-color:var(--theme-action)
+}
+.theme-font-choice .theme-font-symbol{font-weight:800;line-height:1}
+.theme-font-choice[data-theme-font="standard"] .theme-font-symbol{font-size:16px}
+.theme-font-choice[data-theme-font="comfortable"] .theme-font-symbol{font-size:21px}
+.theme-font-choice[data-theme-font="large"] .theme-font-symbol{font-size:26px}
+.theme-font-note{font-size:var(--ui-fs-caption);line-height:1.6;color:var(--theme-secondary);margin:9px 0 0}
+.theme-control .theme-menu{scrollbar-width:thin}
+
+/* Larger type should wrap rather than clip content or widen the viewport. */
+.project-grid,.stats,.server-panel-grid,.server-action-grid{min-width:0}
+.project,.stat,.server-kpi,.server-project-choice,.modal,
+.setup-port-row,.xui-info-row{min-width:0}
+.project p,.host-card-address,.host-card-meta,.server-kpi strong,.modal-tip{
+  overflow-wrap:anywhere
+}
+:root[data-font-size="large"] .project{min-height:267px}
+:root[data-font-size="large"] .stat{min-height:138px}
+:root[data-font-size="large"] .nav-item{min-height:49px}
+
+@media(max-width:850px){
+  /* The existing sidebar collapses to an icon rail below 850px. */
+  .nav-item{font-size:0}
+  .hero{height:auto;min-height:140px}
+  .hero-content{padding:21px 20px}
+  .server-tab{font-size:var(--ui-fs-small);padding:10px 9px}
+}
+@media(max-width:530px){
+  .hero{height:auto;min-height:146px}
+  .hero h1{font-size:calc(21px * var(--ui-font-scale))}
+  .hero p{font-size:var(--ui-fs-small)}
+  .section-heading h2,.section-heading.smaller h2{font-size:var(--ui-fs-lead)}
+  .host-card-top .host-title b{font-size:var(--ui-fs-body)}
+  .host-card-open{font-size:var(--ui-fs-caption)}
+  .project{min-height:215px}
+  .nav-item{font-size:0}
+  .topbar-add{font-size:var(--ui-fs-caption)!important}
+  .theme-menu{width:min(342px,calc(100vw - 24px))}
+}
+@media(max-width:420px){
+  .theme-menu{width:calc(100vw - 69px)}
+  .theme-font-choice{min-height:65px}
+}
+@media(prefers-reduced-motion:reduce){
+  .theme-font-choice{transition:none!important}
+}

@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/static/app.css"/>
 <link rel="stylesheet" href="/static/app-enhanced.css"/>
 <link rel="stylesheet" href="/static/theme.css"/>
+<link rel="stylesheet" href="/static/typography.css"/>
 </head>
 <body>
 <div id="login" class="login-overlay hidden">
@@ -63,9 +64,16 @@
       <button type="button" class="theme-swatch" data-theme-color="rose" aria-pressed="false"><span class="theme-swatch-dot" aria-hidden="true"></span>玫瑰粉</button>
       <button type="button" class="theme-swatch" data-theme-color="amber" aria-pressed="false"><span class="theme-swatch-dot" aria-hidden="true"></span>暖日橙</button>
     </div>
+    <p class="theme-caption" id="font-label">阅读字号</p>
+    <div class="theme-font-options" role="group" aria-labelledby="font-label">
+      <button type="button" class="theme-font-choice" data-theme-font="standard" aria-pressed="false"><span class="theme-font-symbol">A</span><span>标准</span></button>
+      <button type="button" class="theme-font-choice" data-theme-font="comfortable" aria-pressed="true"><span class="theme-font-symbol">A</span><span>舒适</span></button>
+      <button type="button" class="theme-font-choice" data-theme-font="large" aria-pressed="false"><span class="theme-font-symbol">A</span><span>大字</span></button>
+    </div>
+    <p class="theme-font-note">推荐「舒适」：标题醒目，正文清晰，表单更好阅读。</p>
     <div class="theme-menu-foot">当前：<span id="theme-status" role="status" aria-live="polite">暗黑 · 经典蓝</span></div>
   </section>
-</div><button class="btn primary topbar-add" data-action="add-host"><span aria-hidden="true">＋</span> 添加 VPS</button><span class="tag alpha">ALPHA v0.3.16</span><button id="refresh" class="icon-button" aria-label="刷新">⟳</button><div class="avatar">ND</div></div>
+</div><button class="btn primary topbar-add" data-action="add-host"><span aria-hidden="true">＋</span> 添加 VPS</button><span class="tag alpha">ALPHA v0.3.17</span><button id="refresh" class="icon-button" aria-label="刷新">⟳</button><div class="avatar">ND</div></div>
     </header>
     <main class="content">
       <section class="hero" id="hero">
@@ -82,7 +90,7 @@
       <div class="stats" id="stats"></div>
       <section class="section" id="projects-section"><div class="section-heading smaller"><div><h2>精选部署项目</h2><p>选择经过审核的安装模板，AI 仅提供只读诊断建议</p></div><button class="text-action" data-nav="projects">查看全部项目 →</button></div><div class="project-grid" id="project-grid"></div></section>
       <section class="section" id="jobs-section"><div class="section-heading smaller"><div><h2>最近部署任务</h2><p>审批、状态和日志都清楚可见</p></div><button class="text-action" data-nav="jobs">查看任务 →</button></div><div class="job-list" id="job-list"></div></section>
-      <footer>NetDeploy AI v0.3.16 · Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
+      <footer>NetDeploy AI v0.3.17 · Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
     </main>
   </div>
 </div>

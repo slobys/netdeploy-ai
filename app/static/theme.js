@@ -4,10 +4,14 @@
   'use strict';
   const MODES = new Set(['dark', 'light', 'system']);
   const COLORS = new Set(['blue', 'violet', 'teal', 'emerald', 'rose', 'amber']);
+  const FONT_SIZES = new Set(['standard', 'comfortable', 'large']);
   const MODE_KEY = 'netdeploy-ui-mode-v1';
   const COLOR_KEY = 'netdeploy-ui-color-v1';
+  const FONT_KEY = 'netdeploy-ui-font-size-v1';
   const DEFAULT_MODE = 'dark'; // Preserve the existing dark-blue appearance.
   const DEFAULT_COLOR = 'blue';
+  const DEFAULT_FONT_SIZE = 'comfortable'; // Readable 14–16px text for new and existing users.
+  const fontNames = {standard:'标准', comfortable:'舒适', large:'大字'};
   const names = {
     blue: '经典蓝', violet: '极光紫', teal: '海洋青',
     emerald: '翡翠绿', rose: '玫瑰粉', amber: '暖日橙'
@@ -29,6 +33,7 @@
   }
   let mode = read(MODE_KEY, MODES, DEFAULT_MODE);
   let color = read(COLOR_KEY, COLORS, DEFAULT_COLOR);
+  let fontSize = read(FONT_KEY, FONT_SIZES, DEFAULT_FONT_SIZE);
 
   function resolvedMode() {
     return mode === 'system' ? (media?.matches ? 'dark' : 'light') : mode;
@@ -37,6 +42,7 @@
     root.dataset.appearance = resolvedMode();
     root.dataset.themeMode = mode;
     root.dataset.accent = color;
+    root.dataset.fontSize = fontSize;
   }
   apply(); // Prevent flash of the old theme on reload.
 
@@ -49,6 +55,7 @@
 
     const modeButtons = [...panel.querySelectorAll('[data-theme-mode]')];
     const colorButtons = [...panel.querySelectorAll('[data-theme-color]')];
+    const fontButtons = [...panel.querySelectorAll('[data-theme-font]')];
     function sync() {
       modeButtons.forEach((item) => {
         const selected = item.dataset.themeMode === mode;
@@ -60,9 +67,14 @@
         item.setAttribute('aria-pressed', String(selected));
         item.classList.toggle('selected', selected);
       });
+      fontButtons.forEach((item) => {
+        const selected = item.dataset.themeFont === fontSize;
+        item.setAttribute('aria-pressed', String(selected));
+        item.classList.toggle('selected', selected);
+      });
       const modeText = mode === 'system' ? '跟随系统' : mode === 'light' ? '明亮' : '暗黑';
       status.textContent = modeText + ' · ' + names[color];
-      button.setAttribute('aria-label', '外观主题设置，当前' + status.textContent);
+      button.setAttribute('aria-label', '外观主题设置，当前' + status.textContent + ' · ' + fontNames[fontSize] + '字号');
     }
     function open(value, restoreFocus = false) {
       panel.hidden = !value;
@@ -91,6 +103,16 @@
         sync();
       });
     }
+    for (const item of fontButtons) {
+      item.addEventListener('click', () => {
+        const next = item.dataset.themeFont;
+        if (!FONT_SIZES.has(next)) return;
+        fontSize = next;
+        apply();
+        save(FONT_KEY, fontSize);
+        sync();
+      });
+    }
     document.addEventListener('pointerdown', (event) => {
       if (!panel.hidden && !control.contains(event.target)) open(false);
     });
@@ -112,9 +134,10 @@
       else if (typeof media.addListener === 'function') media.addListener(onSystemChange);
     }
     window.addEventListener('storage', (event) => {
-      if (event.key !== MODE_KEY && event.key !== COLOR_KEY && event.key !== null) return;
+      if (event.key !== MODE_KEY && event.key !== COLOR_KEY && event.key !== FONT_KEY && event.key !== null) return;
       mode = read(MODE_KEY, MODES, DEFAULT_MODE);
       color = read(COLOR_KEY, COLORS, DEFAULT_COLOR);
+      fontSize = read(FONT_KEY, FONT_SIZES, DEFAULT_FONT_SIZE);
       apply();
       sync();
     });
