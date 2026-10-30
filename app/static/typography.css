@@ -244,68 +244,73 @@ footer{font-size:var(--ui-fs-caption);line-height:1.6}
   .theme-font-choice{min-height:65px}
 }
 
-/* Dashboard featured templates: five short descriptions should not consume
-   two rows of 240–267px cards. Keep full-size cards in Project Center. */
-#projects-section.is-featured .project-grid{
+/* The Project Center already has its own page heading and description.
+   Hide the duplicate "精选部署项目 / 查看全部项目" section heading. */
+#projects-section.is-catalog>.section-heading{display:none}
+#projects-section.is-catalog .project-grid{margin-top:10px}
+
+/* Shared compact deployment cards for the dashboard and Project Center.
+   Remove the previous 240–267px minimum height and four-column ceiling. */
+#projects-section:is(.is-featured,.is-catalog) .project-grid{
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(min(100%,246px),1fr));
   gap:12px;
   align-items:stretch;
 }
-#projects-section.is-featured .project{
+#projects-section:is(.is-featured,.is-catalog) .project{
   min-height:0;
   padding:15px 16px;
   gap:7px;
   border-radius:14px;
   justify-content:flex-start;
 }
-#projects-section.is-featured .project-head{align-items:center;gap:8px}
-#projects-section.is-featured .project-icon{
+#projects-section:is(.is-featured,.is-catalog) .project-head{align-items:center;gap:8px}
+#projects-section:is(.is-featured,.is-catalog) .project-icon{
   width:36px;height:36px;border-radius:10px;font-size:20px;flex-shrink:0
 }
-#projects-section.is-featured .project-kind{
+#projects-section:is(.is-featured,.is-catalog) .project-kind{
   padding:4px 9px;min-height:25px;max-width:100%;
   display:inline-flex;align-items:center;white-space:nowrap
 }
-#projects-section.is-featured .project h3{
+#projects-section:is(.is-featured,.is-catalog) .project h3{
   margin-top:2px;
   font-size:var(--ui-fs-lead);
   line-height:1.35;
 }
-#projects-section.is-featured .project p{
+#projects-section:is(.is-featured,.is-catalog) .project p{
   min-height:0;
   font-size:var(--ui-fs-meta);
   line-height:1.55;
   margin:0;
   overflow-wrap:anywhere;
 }
-#projects-section.is-featured .project-footer{
+#projects-section:is(.is-featured,.is-catalog) .project-footer{
   margin-top:6px;
   padding-top:8px;
   border-top:1px solid var(--theme-line);
   gap:8px;
   flex-wrap:wrap;
 }
-#projects-section.is-featured .status{
+#projects-section:is(.is-featured,.is-catalog) .status{
   font-size:var(--ui-fs-caption);
   line-height:1.4;
 }
-#projects-section.is-featured .project-footer .btn{
+#projects-section:is(.is-featured,.is-catalog) .project-footer .btn{
   min-height:35px;
   margin-left:auto;
   padding:6px 10px;
   white-space:nowrap;
   font-size:var(--ui-fs-small);
 }
-#projects-section.is-featured .project:hover{
+#projects-section:is(.is-featured,.is-catalog) .project:hover{
   transform:translateY(-2px);
 }
 @media(max-width:600px){
-  #projects-section.is-featured .project-grid{gap:9px}
-  #projects-section.is-featured .project{padding:13px 14px}
+  #projects-section:is(.is-featured,.is-catalog) .project-grid{gap:9px}
+  #projects-section:is(.is-featured,.is-catalog) .project{padding:13px 14px}
 }
 @media(prefers-reduced-motion:reduce){
-  #projects-section.is-featured .project:hover{transform:none}
+  #projects-section:is(.is-featured,.is-catalog) .project:hover{transform:none}
 }
 
 @media(prefers-reduced-motion:reduce){

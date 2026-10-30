@@ -108,7 +108,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.19';
+let runtimeVersion='0.3.20';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -256,8 +256,8 @@ function fingerprintFor(label) {
 
 (async()=>{
   fill();
-  // Home featured cards should use a compact, fluid grid without affecting
-  // the full-size cards reached through Project Center.
+  // Dashboard and Project Center share a compact fluid grid. In Project
+  // Center, the redundant second heading and self-link are hidden.
   context.fixtures.featuredCatalog = {
     '3x-ui':{name:'3X-UI',subtitle:'Xray 可视化管理面板',category:'面板',deployment:'install'},
     's-ui':{name:'S-UI',subtitle:'sing-box 可视化管理面板',category:'面板',deployment:'install'},
@@ -275,17 +275,27 @@ function fingerprintFor(label) {
     'Dashboard should activate the compact featured presentation');
   assert(typographyCss.includes('repeat(auto-fit,minmax(min(100%,246px),1fr))'),
     'Five cards should flow into one row on wide screens and wrap naturally');
-  assert(typographyCss.includes('#projects-section.is-featured .project')&&
+  assert(typographyCss.includes('#projects-section:is(.is-featured,.is-catalog) .project')&&
     typographyCss.includes('min-height:0'),
-    'Featured cards must override the previous tall 240/267px minimum heights');
+    'Both project surfaces must override the old 240/267px minimum heights');
   assert(typographyCss.includes('var(--ui-fs-meta)')&&
     typographyCss.includes('var(--theme-line)'),
     'Compact cards must preserve comfortable typography and the current theme');
   evaluate('state.section="projects";renderSection();');
+  assert(made.get('#projects-section').classList.contains('is-catalog'),
+    'Project Center should use the compact layout instead of tall cards');
   assert(!made.get('#projects-section').classList.contains('is-featured'),
-    'Project Center must retain full-size detailed cards');
+    'The featured-only class must not remain on the catalog page');
+  assert(typographyCss.includes('#projects-section.is-catalog>.section-heading{display:none}'),
+    'Project Center must hide the duplicate 精选部署项目 heading and redundant self-link');
+  assert(made.get('#section-title').textContent==='项目中心');
+  assert(made.get('#section-subtitle').textContent.includes('共 5 个项目'));
+  assert.equal((made.get('#project-grid').innerHTML.match(/data-action="plan"/g)||[]).length,5,
+    'Catalog must retain every project action');
   evaluate('state.section="dashboard";renderSection();');
   assert(made.get('#projects-section').classList.contains('is-featured'));
+  assert(!made.get('#projects-section').classList.contains('is-catalog'),
+    'Dashboard heading/link must be visible again after leaving Project Center');
   fill();
 
   evaluate('openHostConsole(1)');
@@ -313,9 +323,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.19';
+  runtimeVersion='0.3.20';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.19');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.20');
   returnedJobs=null;
   evaluate("state.token=''");
 

@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.19 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.20 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.19';
+const CLIENT_VERSION = '0.3.20';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -103,13 +103,16 @@ function render(){
  renderSection();
 }
 function renderSection(){
- const navName={dashboard:['总览面板','运行概览','集中管理服务器与自动化部署任务'],projects:['项目中心','项目中心','所有项目均使用审计过的执行模板'],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','所有任务状态、审批和执行日志']};
+ const visibleProjects=Object.values(state.catalog).filter(p=>!p.internal).length;
+ const navName={dashboard:['总览面板','运行概览','集中管理服务器与自动化部署任务'],projects:['项目中心','项目中心',`共 ${visibleProjects} 个项目 · 选择经过审核的部署模板或查看方案`],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','所有任务状态、审批和执行日志']};
  const [title,heading,sub]=navName[state.section];el('#crumb-current').textContent=title;el('#section-title').textContent=heading;el('#section-subtitle').textContent=sub;
  document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('active',b.classList.contains('nav-item')&&b.dataset.nav===state.section));
  el('#hero').classList.toggle('hidden',state.section!=='dashboard');el('#stats').classList.toggle('hidden',state.section!=='dashboard');
  el('#projects-section').classList.toggle('hidden',!['dashboard','projects'].includes(state.section));
- // Only dashboard featured cards are condensed. Project Center keeps full-size cards.
+ // Both project surfaces share the readable compact cards. The Project Center
+ // hides its redundant second heading; dashboard keeps the curated heading/link.
  el('#projects-section').classList.toggle('is-featured',state.section==='dashboard');
+ el('#projects-section').classList.toggle('is-catalog',state.section==='projects');
  el('#hosts-section').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
  el('#jobs-section').classList.toggle('hidden',!['dashboard','jobs'].includes(state.section));
  el('#main-cta').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
