@@ -64,13 +64,16 @@ def test_installer_skips_existing_dependencies_and_waits_for_apt_locks():
     assert "test -s /etc/ssl/certs/ca-certificates.crt" in install["script"]
     assert "DPkg::Lock::Timeout=240" in install["script"]
     assert install["timeout"] > 240
-    cert=https_steps("45.32.35.195",24443)
-    assert "command -v certbot" in cert[1]["script"]
-    assert "DPkg::Lock::Timeout=240" in cert[1]["script"]
-    assert cert[1]["timeout"] > 240
-    assert "kill -9" not in install["script"] + cert[1]["script"]
-    assert "rm -f /var/lib/dpkg/lock" not in install["script"] + cert[1]["script"]
-    assert "unattended-upgrades" in cert[1]["script"]
+    ip_cert=https_steps("45.32.35.195",24443)
+    assert 'test -x "$client"' in ip_cert[1]["script"]
+    assert "certbot==5.8.0" in ip_cert[1]["script"]
+    assert "DPkg::Lock::Timeout=240" in ip_cert[1]["script"]
+    assert ip_cert[1]["timeout"] > 240
+    assert "kill -9" not in install["script"] + ip_cert[1]["script"]
+    assert "rm -f /var/lib/dpkg/lock" not in install["script"] + ip_cert[1]["script"]
+    domain_cert=https_steps("panel.example.com",24443)
+    assert "command -v certbot" in domain_cert[1]["script"]
+    assert "unattended-upgrades" in domain_cert[1]["script"]
 
 
 def test_tls_workflow_opens_only_required_ufw_ports():
@@ -207,4 +210,4 @@ def test_two_column_server_console_and_simple_plan_review():
     assert "请完整输入以下确认语句" not in js
     assert "plan-technical" in js
     assert "prefers-reduced-motion" in css
-    assert 'ALPHA v0.3.17' in html
+    assert 'ALPHA v0.3.18' in html

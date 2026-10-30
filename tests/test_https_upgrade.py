@@ -57,8 +57,20 @@ def test_https_workflow_is_approved_only_after_local_panel_and_cert(host,expecte
     assert "--preferred-profile shortlived" in scripts if expected_mode == "ip" else "-d \"panel.example.com\"" in scripts
     assert "__IDENTITY__" not in scripts and "__ISSUE_CMD__" not in scripts
     assert "trap restore_local_listener EXIT" in scripts
-    assert "systemctl is-active certbot.timer" in scripts
-    assert scripts.index("test -s \"/etc/letsencrypt/live") < scripts.index('"$panel_cli" setting -listenIP 0.0.0.0')
+    timer = "netdeploy-certbot-renew.timer" if expected_mode == "ip" else "certbot.timer"
+    root = "/etc/netdeploy/letsencrypt" if expected_mode == "ip" else "/etc/letsencrypt"
+    assert f"systemctl is-active {timer}" in scripts
+    assert scripts.index(f'test -s "{root}/live') < scripts.index('"$panel_cli" setting -listenIP 0.0.0.0')
+    if expected_mode == "ip":
+        assert "/opt/netdeploy-certbot/venv/bin/certbot" in scripts
+        assert "certbot==5.8.0" in scripts
+        assert "python3 -m venv" in scripts
+        assert "--config-dir /etc/netdeploy/letsencrypt" in scripts
+        assert "netdeploy-certbot-renew.service" in scripts
+        assert "apt-get remove certbot" not in scripts
+    else:
+        assert "/opt/netdeploy-certbot/" not in scripts
+        assert "certbot.timer" in scripts
 
     current = dict(BASE, XUI_PRESENT="yes")
     upgrade = build_plan("3x-ui-https", current, {

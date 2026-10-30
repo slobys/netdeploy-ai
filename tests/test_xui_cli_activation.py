@@ -149,7 +149,8 @@ def test_real_cli_used_and_failed_cert_restores_original_settings(
 
     script = https_steps("45.32.35.195", 24443)[3]["script"]
     script = script.replace('"/usr/local/x-ui/x-ui"', f'"{real_cli}"')
-    script = script.replace('/etc/letsencrypt/live/45.32.35.195', str(cert_dir))
+    # IP certificates live in NetDeploy's isolated Certbot config root.
+    script = script.replace('/etc/netdeploy/letsencrypt/live/45.32.35.195', str(cert_dir))
     script = script.replace('/etc/x-ui/install-result.env', str(install_file))
     env = os.environ.copy()
     env.update({

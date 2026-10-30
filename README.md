@@ -1,4 +1,4 @@
-# NetDeploy AI · v0.3.17 Alpha
+# NetDeploy AI · v0.3.18 Alpha
 
 > 一个以 VPS 为优先方向的 AI 辅助网络项目部署面板。2026-10-29 第一阶段原型（Windows SSH 主机指纹扫描修复）。 **不是生产稳定版，不要用重要 VPS 直接试错。**
 
@@ -11,6 +11,16 @@
 参考 NaiLink 的文档使用方式，新建独立的 GitHub Pages 中文手册，包含手机适配、章节导航、搜索和复制命令。仓库 `.github/workflows/docs.yml` 随 main 自动构建发布；首次需要在仓库 **Settings → Pages → Source → GitHub Actions** 启用 Pages。站点未启用前可先阅读 [文档源码](docs/site/README.md)。
 
 **谷歌云 root 密码操作：** 仅推荐交互执行 `sudo passwd root`，不在公共教程中固定密码。附加 [GCP root 辅助脚本](scripts/gcp-root-setup.sh) 默认不启用密码 SSH；可选模式属于高风险操作，请先阅读 [Google Cloud 专题](https://slobys.github.io/netdeploy-ai/google-cloud.html)。
+
+## v0.3.18：修复 Debian 13 的 IP 证书签发（Alpha）
+
+已确认 Debian 13 APT 默认 Certbot 4.0.0 不支持 `--ip-address`，导致新装 3X-UI / S-UI 的证书阶段退出 31。新版**不会因为系统存在旧 Certbot 就跳过升级**：IP 证书改用独立的 Python venv 安装经过版本固定的官方 **Certbot 5.8.0**，原有系统 Certbot、`certbot.timer` 和 `/etc/letsencrypt` 完全保留。
+
+- IP 证书：专用 `/opt/netdeploy-certbot/venv/bin/certbot` + 独立配置 `/etc/netdeploy/letsencrypt` + `netdeploy-certbot-renew.timer` 每 4 小时检查短期证书，避免系统 4.0.0 意外处理 IP 证书。外部 Python 包固定从官方 PyPI 下载，仅安装到隔离虚拟环境。
+- 域名证书：继续使用发行版的 Certbot 与原来的 `certbot.timer`，不改动已有网站的证书及续期服务。
+- 用户真实 VPS 已完成 3X-UI 5/9 步并因 Certbot 4.0 失败时，**不需要重装 3X-UI、不需要卸载 Debian Certbot**。更新本机 NetDeploy 后，进入已安装面板 → **继续完成 HTTPS** → 重新生成、审核 4 步证书方案，即会自动补齐新版 Certbot。
+- 安装依赖需要 VPS 能访问官方 PyPI（TCP 443），Let’s Encrypt HTTP-01 签发需要云平台放行公网 TCP 80，安装成功后公网面板管理端口仍需设置云安全组。`UFW_UNAVAILABLE` 只说明服务器没装 UFW，并非证书失败的根因。
+- 测试覆盖 Debian 13 旧版 Certbot、模拟 PyPI 安装失败后重试、隔离配置/定时器、3X-UI/S-UI IP 与域名安全回退。尚未在用户真实 VPS 上完成新证书实测，先在可恢复的测试 VPS 验收。
 
 ## v0.3.17：全界面舒适字号与阅读模式（Alpha）
 

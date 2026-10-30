@@ -10,6 +10,7 @@ from .firewall import acme_ufw_script, allow_port_script
 from .https_upgrade import https_steps as xui_https_steps, identify
 from .listening import PUBLIC_SOCKET_CHECK
 from .s_ui import HTTPS_STATUS_GUARD, LOCAL_LISTENER_GUARD, PORT
+from .certbot_runtime import cert_root, renew_timer
 
 
 PRECHECK = r"""set -eu
@@ -59,8 +60,8 @@ __HTTPS_GUARD__
 test "$(id -u)" = 0
 record='/var/lib/netdeploy/s-ui/install-result.env'
 db='/usr/local/s-ui/db/s-ui.db'
-cert='/etc/letsencrypt/live/__IDENTITY__/fullchain.pem'
-key='/etc/letsencrypt/live/__IDENTITY__/privkey.pem'
+cert='__CERT_ROOT__/live/__IDENTITY__/fullchain.pem'
+key='__CERT_ROOT__/live/__IDENTITY__/privkey.pem'
 test -f "$record" && test ! -L "$record"
 test "$(stat -c %u "$record")" = 0 && test "$(stat -c %a "$record")" = 600
 test -s "$db" && test -s "$cert" && test -s "$key"
@@ -68,8 +69,8 @@ systemctl is-active --quiet s-ui
 sui_local_listeners_only
 openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null
 openssl x509 -in "$cert" -noout -__CHECK__ '__IDENTITY__' | grep -Fq 'does match'
-test "$(systemctl is-enabled certbot.timer)" = enabled
-test "$(systemctl is-active certbot.timer)" = active
+test "$(systemctl is-enabled __RENEW_TIMER__)" = enabled
+test "$(systemctl is-active __RENEW_TIMER__)" = active
 web_path="$(sed -n 's/^SUI_WEB_BASE_PATH=//p' "$record")"
 printf '%s' "$web_path" | grep -Eq '^[a-f0-9]{24}$'
 
@@ -189,18 +190,19 @@ def https_steps(identity: str, ssh_ipv4: str | None = None) -> list[dict]:
             raise ValueError("S-UI SSH IPv4 binding requires a domain certificate")
         _, ssh_ipv4 = identify(ssh_ipv4)
     core = xui_https_steps(identity, PORT, ssh_ipv4)
+    root = cert_root(mode)
     dep = dict(core[1])
     issuer = dict(core[2])
-    old = """cat > /etc/letsencrypt/renewal-hooks/deploy/netdeploy-xui-reload.sh <<'RENEW_HOOK'
+    old = f"""cat > {root}/renewal-hooks/deploy/netdeploy-xui-reload.sh <<'RENEW_HOOK'
 #!/bin/sh
 set -eu
 systemctl try-restart x-ui >/dev/null
 RENEW_HOOK"""
-    new = """cat > /etc/letsencrypt/renewal-hooks/deploy/netdeploy-sui-reload.sh <<'RENEW_HOOK'
+    new = f"""cat > {root}/renewal-hooks/deploy/netdeploy-sui-reload.sh <<'RENEW_HOOK'
 #!/bin/sh
 set -eu
 # Restart only when this managed S-UI certificate was renewed.
-if [ "${RENEWED_LINEAGE:-}" = '/etc/letsencrypt/live/""" + identity + """' ]; then
+if [ "${{RENEWED_LINEAGE:-}}" = '{root}/live/{identity}' ]; then
     systemctl try-restart s-ui >/dev/null
 fi
 RENEW_HOOK"""
@@ -213,6 +215,7 @@ RENEW_HOOK"""
     issuer["script"] = script
     values = {
         "__IDENTITY__": identity, "__MODE__": mode,
+        "__CERT_ROOT__": root, "__RENEW_TIMER__": renew_timer(mode),
         "__SSH_IP__": ssh_ipv4 or "",
         "__CHECK__": "checkip" if mode == "ip" else "checkhost",
         "__WEB_DOMAIN__": identity if mode == "domain" else "",

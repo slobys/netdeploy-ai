@@ -14,6 +14,8 @@
 4. 在服务**首次启动前**完成随机管理员账户、密码、Web/订阅路径初始化；将管理 `2095` 和订阅 `2096` 的绑定地址限制为 `127.0.0.1`。凭据只保存在 VPS `0600` 受保护文件，不写入 NetDeploy 日志。
 5. 启动 systemd 服务，确认管理 2095/TCP、订阅 2096/TCP **均且仅**监听 IPv4 `127.0.0.1`（存在额外 `0.0.0.0` 或 IPv6 公网监听必须判为不安全），验证本机 Web 响应，失败时停止并禁用服务。不可在公网开放未经 TLS 验证的管理界面。
 6. 默认继续执行 **HTTPS 四步**：校验 VPS 公网 IPv4 与证书域名 DNS A、UFW 仅按需放行 ACME 80/TCP、复用受审核 Certbot IP/域名证书签发与续期模块、原生写入 S-UI `webCertFile`/`webKeyFile`/`webDomain` 并将 `webListen` 改为公网监听。
+   IP 证书由独立 Certbot 5.8.0 venv 与 `netdeploy-certbot-renew.timer` 续期，单独保存在 `/etc/netdeploy/letsencrypt`。域名证书使用原系统 Certbot；保留 Debian 13 旧版 APT Certbot 和其他站点的续期文件，失败后可以重新审批四步 HTTPS 续接，不重复安装 S-UI。
+
 7. 用真实 IPv4 TLS + 证书身份验证 2095 端口，订阅 2096 始终本机。只有验收通过才放行 UFW 2095 并记录安全 HTTPS 地址；任何后续失败优先停止服务、撤销公网配置并恢复本机，不得提供公网 HTTP 回退。
 
 ## 操作建议

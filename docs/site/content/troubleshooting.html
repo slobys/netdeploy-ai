@@ -12,6 +12,14 @@
 <p>确认 VPS 真正监听对应端口、已通过有效 HTTPS / TLS 配置、云安全组的入站规则确实作用于目标实例，以及源 IP 和协议正确。Google Cloud 和 AWS 的 VPC 规则属于另一层网络控制。</p>
 <h2 id="https">3X-UI HTTPS 签证书失败</h2>
 <p>检查域名是否解析到该 VPS 公网 IP、TCP 80 是否可从公网访问、Certbot 续期服务是否正常，以及 3X-UI 实际监听与证书配置。如果软件已装好但 HTTPS 阶段失败，应使用 <strong>继续完成 HTTPS</strong> 创建修复计划，不必覆盖现有 3X-UI。</p>
+<h2 id="certbot-debian13">Debian 13 Certbot 4.0：IP 证书不支持</h2>
+<p>如果看到 <code>Installed Certbot does not support IP certificates (requires recent Certbot 5.3+)</code>，说明旧流程错误地使用了 Debian 13 软件源中的 Certbot 4.0。<strong>3X-UI 安装与 IP 证书是两个独立阶段</strong>：日志第 5/9 步已经通过，代表面板安装成功，只是 HTTPS 尚未完成。<code>UFW_UNAVAILABLE</code> 仅提示本机没装 UFW，不是该报错原因。</p>
+<ol><li>关闭旧 NetDeploy 窗口，更新并启动 v{{version}} 或更新版本，浏览器强制刷新。</li><li>选择原 VPS 的 3X-UI 卡片 → <strong>查看已安装面板</strong> → <strong>继续完成 HTTPS</strong>；如果已有失败任务，请先重新生成当前版本的四步证书方案并审核。</li><li>系统自动从官方 PyPI 安装独立 Certbot 5.8.0，不会更改服务器原有的 <code>/usr/bin/certbot</code> 与系统续期计时器；IP 证书另用 <code>/etc/netdeploy/letsencrypt</code> 和 <code>netdeploy-certbot-renew.timer</code>。</li><li>确认 VPS 可通过 HTTPS 访问 PyPI、云厂商允许公网 TCP 80 进入 VPS，然后验收 HTTPS 面板访问及本机定时器运行。</li></ol>
+<p>如需在 VPS 控制台验证新环境是否准备完成，可运行以下只读命令；<strong>不要删除系统 Certbot、不要重装已经成功安装的面板</strong>。</p>
+<pre><code>sudo /opt/netdeploy-certbot/venv/bin/certbot --version
+sudo systemctl status netdeploy-certbot-renew.timer --no-pager
+sudo systemctl status x-ui --no-pager</code></pre>
+<p>若仍失败，记录新步骤的错误编号（例如 <code>ND_CERTBOT_PYPI_FAILED</code> 或 <code>LE_HTTP01_UNREACHABLE</code>）并检查出站 HTTPS、云厂商入站规则和 Let’s Encrypt 限流。</p>
 <h2 id="sui">S-UI 安装后从公网打不开</h2>
 <p>新安装会尝试签发公网 IP/域名证书，只有证书、续期及 HTTPS 验证通过才会让管理 2095/TCP 监听公网。先在<strong>查看 S-UI 面板信息</strong>确认显示 HTTPS 直连地址；否则证书尚未生效，仍为本机访问。检查 TCP 80 ACME 验证、DNS A、公网 IP、Certbot 版本、云厂商安全组入站 2095/TCP 和有效证书；不要开放明文 HTTP。</p>
 <p>如果 S-UI 已安装但 HTTPS 失败，保持原程序和凭据，到 S-UI 面板状态页点击<strong>继续完成 HTTPS</strong>即可创建四步证书修复任务，不必重新安装。订阅 2096/TCP 仍只监听本机。</p>

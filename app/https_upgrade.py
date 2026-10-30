@@ -12,6 +12,7 @@ import re
 from .three_x_ui import validate_port
 from .firewall import acme_ufw_script, allow_port_script
 from .listening import PUBLIC_SOCKET_CHECK
+from .certbot_runtime import IP_BOOTSTRAP, certbot_command, cert_root, renew_timer
 
 SAFE_DNS = re.compile(r"^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -79,7 +80,7 @@ else
 fi
 echo 'Public identity and local-only panel preflight passed; preparing local UFW for TCP 80'
 """ + acme_ufw_script() + "\n"
-    install = r"""set -eu
+    domain_install = r"""set -eu
 export DEBIAN_FRONTEND=noninteractive
 if command -v certbot >/dev/null 2>&1 && command -v openssl >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
     echo 'Certbot, OpenSSL and curl already available; skipping APT'
@@ -103,11 +104,12 @@ systemctl list-unit-files --no-legend certbot.timer | grep -q '^certbot[.]timer'
 }
 echo 'Certbot and renewal timer available'
 """
-    issue_cmd = (r"""certbot certonly --non-interactive --agree-tos --register-unsafely-without-email \
+    install = IP_BOOTSTRAP if mode == "ip" else domain_install
+    issue_cmd = (r"""__CERTBOT_CMD__ certonly --non-interactive --agree-tos --register-unsafely-without-email \
     --standalone --preferred-challenges http --http-01-port 80 --cert-name "__IDENTITY__" \
     --preferred-profile shortlived --ip-address "__IDENTITY__" """
                  if mode == "ip" else
-                 r"""certbot certonly --non-interactive --agree-tos --register-unsafely-without-email \
+                 r"""__CERTBOT_CMD__ certonly --non-interactive --agree-tos --register-unsafely-without-email \
     --standalone --preferred-challenges http --http-01-port 80 --cert-name "__IDENTITY__" \
     -d "__IDENTITY__" """)
     issue = r"""set -eu
@@ -143,7 +145,7 @@ explain_certbot_failure() {
 # If a valid certificate with the correct identity is already present, do
 # not request another one. This avoids needless CA rate-limit consumption.
 reuse_certificate=no
-existing_cert="/etc/letsencrypt/live/__IDENTITY__/fullchain.pem"
+existing_cert="__CERT_ROOT__/live/__IDENTITY__/fullchain.pem"
 if test -s "$existing_cert" &&
    openssl x509 -in "$existing_cert" -noout -checkend 86400 >/dev/null 2>&1 &&
    openssl x509 -in "$existing_cert" -noout -__CHECK__ "__IDENTITY__" 2>/dev/null | grep -Fq 'does match'; then
@@ -156,20 +158,20 @@ if [ "$reuse_certificate" = no ]; then
         exit 34
     fi
 fi
-test -s "/etc/letsencrypt/live/__IDENTITY__/fullchain.pem"
-test -s "/etc/letsencrypt/live/__IDENTITY__/privkey.pem"
-openssl x509 -in "/etc/letsencrypt/live/__IDENTITY__/fullchain.pem" -noout -checkend 86400
-openssl x509 -in "/etc/letsencrypt/live/__IDENTITY__/fullchain.pem" -noout -__CHECK__ "__IDENTITY__" | grep -Fq 'does match'
+test -s "__CERT_ROOT__/live/__IDENTITY__/fullchain.pem"
+test -s "__CERT_ROOT__/live/__IDENTITY__/privkey.pem"
+openssl x509 -in "__CERT_ROOT__/live/__IDENTITY__/fullchain.pem" -noout -checkend 86400
+openssl x509 -in "__CERT_ROOT__/live/__IDENTITY__/fullchain.pem" -noout -__CHECK__ "__IDENTITY__" | grep -Fq 'does match'
 # Renewal should be provided by the OS timer, not a foreground process.
-systemctl enable --now certbot.timer >/dev/null
-test "$(systemctl is-enabled certbot.timer)" = enabled
-install -d -m 755 /etc/letsencrypt/renewal-hooks/deploy
-cat > /etc/letsencrypt/renewal-hooks/deploy/netdeploy-xui-reload.sh <<'RENEW_HOOK'
+systemctl enable --now __RENEW_TIMER__ >/dev/null
+test "$(systemctl is-enabled __RENEW_TIMER__)" = enabled
+install -d -m 755 __CERT_ROOT__/renewal-hooks/deploy
+cat > __CERT_ROOT__/renewal-hooks/deploy/netdeploy-xui-reload.sh <<'RENEW_HOOK'
 #!/bin/sh
 set -eu
 systemctl try-restart x-ui >/dev/null
 RENEW_HOOK
-chmod 755 /etc/letsencrypt/renewal-hooks/deploy/netdeploy-xui-reload.sh
+chmod 755 __CERT_ROOT__/renewal-hooks/deploy/netdeploy-xui-reload.sh
 echo 'Trusted certificate issued, identity checked, automatic renewal configured'
 """
     activate = r"""set -eu
@@ -198,13 +200,13 @@ restore_local_listener() {
     fi
 }
 trap restore_local_listener EXIT
-cert="/etc/letsencrypt/live/__IDENTITY__/fullchain.pem"
-key="/etc/letsencrypt/live/__IDENTITY__/privkey.pem"
+cert="__CERT_ROOT__/live/__IDENTITY__/fullchain.pem"
+key="__CERT_ROOT__/live/__IDENTITY__/privkey.pem"
 test -s "$cert" && test -s "$key"
 openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null
 openssl x509 -in "$cert" -noout -__CHECK__ "__IDENTITY__" | grep -Fq 'does match'
-test "$(systemctl is-enabled certbot.timer)" = enabled
-test "$(systemctl is-active certbot.timer)" = active
+test "$(systemctl is-enabled __RENEW_TIMER__)" = enabled
+test "$(systemctl is-active __RENEW_TIMER__)" = active
 # Capture the prior settings for rollback. Flag readback uses the direct Go
 # binary, not the /usr/bin/x-ui menu wrapper.
 previous_cert_settings="$("$panel_cli" setting -getCert true 2>/dev/null || true)"
@@ -302,11 +304,14 @@ echo 'Public HTTPS is active; cloud security group must separately permit the se
 """
     label = "检查公网 IP 和 ACME 80 端口" if mode == "ip" else "检查域名解析和 ACME 80 端口"
     stages = [(label, preflight, 35),
-              ("检查 Certbot / 自动等待 Ubuntu APT 锁", install, 540),
+              ("检查/安装支持 IP 证书的独立 Certbot 及续期" if mode == "ip"
+               else "检查 Certbot / 自动等待 Ubuntu APT 锁", install, 600),
               ("申请证书、验证标识并配置自动续期", issue, 300),
               ("验证后开启 HTTPS 直连（失败回退本机监听）", activate, 60)]
     # Expand nested placeholders inside the installer command, too.
     values = {"__ISSUE_CMD__": issue_cmd.strip(), "__MODE__": mode,
+              "__CERTBOT_CMD__": certbot_command(mode),
+              "__CERT_ROOT__": cert_root(mode), "__RENEW_TIMER__": renew_timer(mode),
               "__IDENTITY__": identity, "__PORT__": str(port),
               "__SSH_IP__": ssh_ipv4 or "",
               "__PUBLIC_SOCKET_CHECK__": PUBLIC_SOCKET_CHECK,
@@ -326,7 +331,7 @@ def https_access_script(identity: str, port: int) -> str:
     script = r"""set -eu
 test "$(id -u)" = 0
 systemctl is-active --quiet x-ui
-test "$(systemctl is-active certbot.timer)" = active
+test "$(systemctl is-active __RENEW_TIMER__)" = active
 test -r /etc/x-ui/install-result.env
 test "$(stat -c %a /etc/x-ui/install-result.env)" = 600
 test "$(sed -n 's/^XUI_PANEL_PORT=//p' /etc/x-ui/install-result.env)" = "__PORT__"
@@ -334,7 +339,7 @@ __PUBLIC_SOCKET_CHECK__
 netdeploy_public_socket __PORT__ || {
     echo 'XUI_HTTPS_LISTENER_NOT_PUBLIC: no verified wildcard socket on panel TCP __PORT__' >&2; exit 37;
 }
-cert="/etc/letsencrypt/live/__IDENTITY__/fullchain.pem"
+cert="__CERT_ROOT__/live/__IDENTITY__/fullchain.pem"
 test -s "$cert"
 openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null
 openssl x509 -in "$cert" -noout -__CHECK__ "__IDENTITY__" | grep -Fq 'does match'
@@ -348,6 +353,7 @@ case "$http_code" in 200|301|302|303|307|308|401|403) ;; *) exit 38 ;; esac
 grep -E '^XUI_(USERNAME|PASSWORD|PANEL_PORT|WEB_BASE_PATH)=' /etc/x-ui/install-result.env
 """
     for key, value in {"__PORT__": str(port), "__IDENTITY__": identity,
+                       "__CERT_ROOT__": cert_root(mode), "__RENEW_TIMER__": renew_timer(mode),
                        "__PUBLIC_SOCKET_CHECK__": PUBLIC_SOCKET_CHECK,
                        "__CHECK__": "checkip" if mode == "ip" else "checkhost"}.items():
         script = script.replace(key, value)

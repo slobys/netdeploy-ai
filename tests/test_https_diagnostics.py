@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from app.https_upgrade import https_steps
+from app.certbot_runtime import IP_CERTBOT_BIN
 
 
 @pytest.mark.parametrize("host,type_label,flag", [
@@ -68,6 +69,9 @@ def test_failed_ip_issuance_emits_only_sanitized_actionable_error(tmp_path, fake
     env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
     env["FAKE_CERTBOT_ERROR"] = fake_error
     script = https_steps("45.32.35.195", 24443)[2]["script"]
+    # IP mode deliberately calls the isolated absolute Certbot path, not PATH.
+    # Redirect only that exact executable into the fake local binary.
+    script = script.replace(IP_CERTBOT_BIN, str(certbot))
     result = subprocess.run(["bash", "-se"], input=script, text=True,
                             capture_output=True, timeout=10, env=env, check=False)
     assert result.returncode == 34, result.stderr

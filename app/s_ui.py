@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 
 from .https_upgrade import identify
+from .certbot_runtime import IP_CONFIG_DIR, IP_RENEW_TIMER
 from .listening import PUBLIC_SOCKET_CHECK
 
 VERSION = "v1.6.6"
@@ -305,17 +306,21 @@ sui_https_verified() {
     case "$identity" in ''|*[!a-z0-9.-]*) return 1 ;; esac
     case "$mode" in
         ip) printf '%s' "$identity" | grep -Eq '^[0-9.]+$' || return 1
-            check=checkip ;;
+            check=checkip
+            cert_root='__IP_CERT_ROOT__'
+            timer='__IP_CERT_TIMER__' ;;
         domain) printf '%s' "$identity" | grep -Eq '^[a-z0-9.-]+[.]([a-z]{2,})$' || return 1
-                check=checkhost ;;
+                check=checkhost
+                cert_root='/etc/letsencrypt'
+                timer='certbot.timer' ;;
         *) return 1 ;;
     esac
     systemctl is-active --quiet s-ui || return 1
-    test "$(systemctl is-active certbot.timer)" = active || return 1
+    test "$(systemctl is-active "$timer")" = active || return 1
     test "$(ss -Hltn 'sport = :2096' | awk '{print $4}')" = "127.0.0.1:2096" || return 1
     netdeploy_public_socket 2095 || return 1
-    cert="/etc/letsencrypt/live/$identity/fullchain.pem"
-    key="/etc/letsencrypt/live/$identity/privkey.pem"
+    cert="$cert_root/live/$identity/fullchain.pem"
+    key="$cert_root/live/$identity/privkey.pem"
     test -s "$cert" && test -s "$key" || return 1
     openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null 2>&1 || return 1
     openssl x509 -in "$cert" -noout "-$check" "$identity" 2>/dev/null |
@@ -329,7 +334,9 @@ sui_https_verified() {
     case "$code" in 200|301|302|303|307|308|401|403) ;; *) return 1 ;; esac
     return 0
 }
-'''.replace("__PUBLIC_SOCKET_CHECK__", PUBLIC_SOCKET_CHECK)
+'''.replace("__PUBLIC_SOCKET_CHECK__", PUBLIC_SOCKET_CHECK).replace(
+    "__IP_CERT_ROOT__", IP_CONFIG_DIR
+).replace("__IP_CERT_TIMER__", IP_RENEW_TIMER)
 
 STATUS = r"""set -eu
 __LOCAL_GUARD__
@@ -384,9 +391,11 @@ test "$(grep -c '^SUI_WEB_BASE_PATH=' "$record")" = 1
 printf '%s' "$username" | grep -Eq '^nd_[a-f0-9]{12}$'
 printf '%s' "$password" | grep -Eq '^[a-f0-9]{48}$'
 printf '%s' "$path" | grep -Eq '^[a-f0-9]{24}$'
+if [ "$access_mode" = local ]; then
 code="$(curl --proto '=http' --noproxy '*' --silent --output /dev/null \
  --write-out '%{http_code}' --max-time 10 "http://127.0.0.1:2095/$path/")"
 case "$code" in 200|301|302|303|307|308|401) ;; *) exit 49;; esac
+fi
 printf 'SUI_PANEL_PORT=2095\nSUI_USERNAME=%s\nSUI_PASSWORD=%s\nSUI_WEB_BASE_PATH=%s\nSUI_ACCESS_MODE=%s\n' \
  "$username" "$password" "$path" "$access_mode"
 if [ "$access_mode" = https ]; then printf 'SUI_TLS_IDENTITY=%s\n' "$identity"; fi
