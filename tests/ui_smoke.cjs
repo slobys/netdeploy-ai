@@ -109,7 +109,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.28';
+let runtimeVersion='0.3.29';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -229,8 +229,12 @@ const context = vm.createContext({
       return {ok:true,status:200,json:async()=>({
         username:'InitialAdmin88',password:'InitialPassword88',port:24443,
         local_url:'http://127.0.0.1:24443/SecretRoute123',web_path:'SecretRoute123',
-        ssh_tunnel:'ssh -N -p 22 -L 24443:127.0.0.1:24443 root@45.32.35.195',
-        access_mode:'local'
+        ...(xuiStatus.access_mode==='http'?{
+          direct_url:'http://45.32.35.195:24443/SecretRoute123'
+        }:{
+          ssh_tunnel:'ssh -N -p 22 -L 24443:127.0.0.1:24443 root@45.32.35.195'
+        }),
+        access_mode:xuiStatus.access_mode
       })};
     }
     if(url==='/api/health')return {ok:true,status:200,json:async()=>({ok:true,version:runtimeVersion})};
@@ -368,9 +372,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.28';
+  runtimeVersion='0.3.29';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.28');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.29');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -481,7 +485,17 @@ function fingerprintFor(label) {
   assert(modal.innerHTML.includes('id="xui-password"'));
   assert(modal.innerHTML.includes('data-action="existing-xui-https"'));
   assert.equal(xuiReadRequests,1);
+  assert(modal.innerHTML.includes('data-action="xui-public-http"'),
+    'Existing localhost installation needs a way to enable public HTTP without reinstall');
   assert.equal(planCreations,0,'Existing installation must not create a new install task');
+  xuiStatus={installed:true,service:'active',managed:true,port:24443,access_mode:'http'};
+  await evaluate('showExistingXui(1)');
+  assert(modal.innerHTML.includes('http://45.32.35.195:24443/SecretRoute123'));
+  assert(modal.innerHTML.includes('直接打开 HTTP 面板'));
+  assert(!modal.innerHTML.includes('SSH 隧道命令'));
+  assert(!modal.innerHTML.includes('id="xui-tunnel"'));
+  assert(modal.innerHTML.includes('公网 HTTP 是明文访问'));
+  xuiStatus={installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 
   // S-UI is a selectable pinned project, but an already-installed instance
   // must show read-only localhost access rather than reinstall or expose HTTP.
@@ -523,7 +537,7 @@ function fingerprintFor(label) {
   fill(npmPlanUI);
   evaluate("showJob('a1b2c3d4e5f6a7b8')");
   assert(modal.innerHTML.includes('NPM 统一 HTTPS'));
-  assert(modal.innerHTML.includes('跳过 Certbot'));
+  assert(modal.innerHTML.includes('不会使用 Certbot'));
   assert(!modal.innerHTML.includes('一键安装 S-UI 并申请 IP/域名证书'));
   fill({...npmPlanUI,status:'completed'});
   evaluate("showJob('a1b2c3d4e5f6a7b8')");

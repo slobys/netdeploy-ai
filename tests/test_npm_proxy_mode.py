@@ -40,13 +40,18 @@ def test_npm_mode_installs_without_any_certbot_acme_or_tcp80(project, options, p
     scripts = "\n".join(s["script"] for s in plan["steps"])
     for forbidden in (
         "certbot certonly", "certbot.timer", "netdeploy-certbot-renew",
-        "ACME 80", "ufw allow 80/tcp", "ufw allow "+str(port)+"/tcp",
+        "ACME 80", "ufw allow 80/tcp",
         "--preferred-profile shortlived", "webCertFile", "webKeyFile",
         "netdeploy-xui-reload.sh", "netdeploy-sui-reload.sh",
     ):
         assert forbidden not in scripts
     assert f"127.0.0.1:{port}" in scripts
-    assert '0.0.0.0:'+str(port) not in scripts
+    if project == "3x-ui":
+        assert "netdeploy_public_socket "+str(port) in scripts
+        assert "ufw allow "+str(port)+"/tcp" in scripts
+        assert "Public HTTP listener verified" in scripts
+    else:
+        assert "0.0.0.0:"+str(port) not in scripts
     assert "127.0.0.1" in "；".join(plan["warnings"])
     assert "network_mode: host" in "；".join(plan["warnings"])
     assert "NPM" in "；".join(plan["warnings"])

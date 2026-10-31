@@ -24,7 +24,7 @@ sudo systemctl status x-ui --no-pager</code></pre>
 <p>新安装会尝试签发公网 IP/域名证书，只有证书、续期及 HTTPS 验证通过才会让管理 2095/TCP 监听公网。先在<strong>查看 S-UI 面板信息</strong>确认显示 HTTPS 直连地址；否则证书尚未生效，仍为本机访问。检查 TCP 80 ACME 验证、DNS A、公网 IP、Certbot 版本、云厂商安全组入站 2095/TCP 和有效证书；不要开放明文 HTTP。</p>
 <p>如果 S-UI 已安装但 HTTPS 失败，保持原程序和凭据，到 S-UI 面板状态页点击<strong>继续完成 HTTPS</strong>即可创建四步证书修复任务，不必重新安装。订阅 2096/TCP 仍只监听本机。</p>
 <h2 id="npm-proxy">3X-UI / S-UI 选择 NPM 后无法访问</h2>
-<p>检查安装计划是否选择「不申请证书，交给 NPM 反向代理」，此时不会运行 Certbot 或申请 IP/域名证书；面板只监听宿主机 <code>127.0.0.1</code>。如果 NPM 是 Docker 普通 bridge 网络，容器内的 127.0.0.1 不是 VPS 宿主机，代理会出现 502。请按 <a href="deployments.html#npm">NPM 统一 HTTPS 教程</a> 将 NPM 设置为 Linux host 网络（移除 Compose 中 ports），让它反代宿主机回环地址。NPM 拥有 80/443、管理端 81，注意端口冲突和云防火墙来源白名单。</p>
+<p>检查安装计划是否选择「不申请证书，交给 NPM 反向代理」，此时不会运行 Certbot 或申请 IP/域名证书。<strong>新安装的 3X-UI NPM 模式会按审批开启公网 HTTP 管理端口</strong>；如果是旧版安装且仍只监听 <code>127.0.0.1</code>，在「已安装面板」中点击<strong>开启公网 HTTP（不申请证书）</strong>创建两步变更计划，不需要重装。完成后显示公网 IP、端口和原有 Web 路径；若外部打不开，还需检查云安全组 TCP 入站。S-UI 仍只监听宿主机本机地址。如果 NPM 是 Docker 普通 bridge 网络，容器内的 127.0.0.1 不是 VPS 宿主机，代理会出现 502。请按 <a href="deployments.html#npm">NPM 统一 HTTPS 教程</a> 将 NPM 设置为 Linux host 网络（移除 Compose 中 ports），让它反代宿主机回环地址。NPM 拥有 80/443、管理端 81，注意端口冲突和云防火墙来源白名单。</p>
 <h2 id="dockge">Dockge Apps：Docker、端口与公网访问</h2>
 <p>新版本在没有 Docker 的干净 Debian/Ubuntu VPS 上，使用 <code>https://get.docker.com</code> 官方一键脚本安装 Docker，再验证 Compose v2。若存在旧数据、冲突软件包或非完整 Docker 环境，则停止自动安装以保护已有容器。</p>
 <p>管理端口留空自动随机生成，填写则按输入端口部署。遇到 <code>DOCKGE_PORT_BUSY</code> 或 <code>DOCKGE_ACCESS_PORT_BUSY</code>，可换一个端口后重新生成计划，不要强行结束其他服务。</p>

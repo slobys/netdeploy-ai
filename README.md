@@ -20,7 +20,7 @@
 
 | 项目 | 当前支持情况 |
 | --- | --- |
-| **3X-UI** | 自动安装，支持 IP / 域名 HTTPS |
+| **3X-UI** | 自动安装，支持 IP/域名 HTTPS 或 NPM 统一 SSL；NPM 模式可提供公网 HTTP 管理地址 |
 | **S-UI** | 自动安装，支持 IP / 域名 HTTPS |
 | **sing-box** | 自动安装内核，服务端配置需自行完成 |
 | **wg-easy** | Docker Compose 自动部署，需完成首次设置 |

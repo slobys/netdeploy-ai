@@ -2,11 +2,14 @@
 
 The official v3.11.0 unattended installer binds public HTTP when SSL is
 skipped. Verify the exact upstream installer SHA-256, then make a checked,
-narrowly scoped change enforcing localhost-only HTTP via SSH tunnel.
+narrowly scoped change enforcing localhost-only HTTP or an approved public HTTP listener.
 """
 from __future__ import annotations
 
 import re
+
+from .firewall import allow_port_script
+from .listening import PUBLIC_SOCKET_CHECK
 
 VERSION = "v3.11.0"
 INSTALLER_SHA256 = "9684bae4f769b2127fcceceb4f200045657381311867529e6ba76c6b58e2825d"
@@ -23,8 +26,10 @@ def validate_port(port: object) -> int:
     return port
 
 
-def deployment_steps(port: int) -> list[dict]:
+def deployment_steps(port: int, public_http: bool = False) -> list[dict]:
     validate_port(port)
+    if type(public_http) is not bool:
+        raise ValueError('是否公开 HTTP 必须是布尔值')
     scripts = [
         (
             "检查 root / systemd / 现有 3X-UI 和 TCP 端口",
@@ -74,7 +79,7 @@ fi
             540,
         ),
         (
-            f"下载并校验官方 {VERSION} 安装器，强制管理端仅本机访问",
+            f"下载并校验官方 {VERSION} 安装器及受审查的监听配置",
             r"""set -eu
 umask 077
 install -d -m 700 __STAGING__
@@ -86,10 +91,9 @@ printf '%s  %s\n' '__INSTALL_SHA256__' "$tmp" | sha256sum -c - >/dev/null
 # Official unattended HTTP mode binds all interfaces; require EXACTLY one known line.
 count="$(grep -Ec '^[[:space:]]*bind_local="n"$' "$tmp" || true)"
 test "$count" = 1 || { echo 'Upstream script safety patch location changed; aborting' >&2; exit 16; }
-sed -i 's/^\([[:space:]]*\)bind_local="n"$/\1bind_local="y"/' "$tmp"
-grep -Eq '^[[:space:]]*bind_local="y"$' "$tmp"
+__LISTEN_INSTALL_POLICY__
 install -m 700 "$tmp" __INSTALL_FILE__
-echo 'Pinned installer verified and configured for localhost-only HTTP'
+echo '__BIND_NOTICE__'
 """,
             120,
         ),
@@ -124,18 +128,12 @@ echo 'Official installer finished; sensitive credentials kept on VPS only'
             900,
         ),
         (
-            "验收服务运行与本机监听；失败则停止服务",
+            "验收服务运行与预期监听；失败则停止服务",
             r"""set -eu
 if ! systemctl is-active --quiet x-ui; then
     echo '3X-UI service is not active' >&2; exit 19
 fi
-addresses="$(ss -Hltn 'sport = :__PORT__' | awk '{print $4}')"
-if ! printf '%s\n' "$addresses" | grep -Fxq '127.0.0.1:__PORT__' || \
-   printf '%s\n' "$addresses" | grep -Ev '^127[.]0[.]0[.]1:__PORT__$' | grep -q .; then
-    systemctl stop x-ui >/dev/null 2>&1 || true
-    echo 'Panel binding is not localhost-only; service stopped to prevent insecure public access' >&2
-    exit 20
-fi
+__LISTENER_CHECK__
 test -s /etc/x-ui/install-result.env
 grep -Fxq 'XUI_PANEL_PORT=__PORT__' /etc/x-ui/install-result.env
 web_path="$(sed -n 's/^XUI_WEB_BASE_PATH=//p' /etc/x-ui/install-result.env)"
@@ -148,17 +146,39 @@ for attempt in 1 2 3 4 5; do
 done
 case "$http_code" in
     200|301|302|303|307|308|401|403) echo 'Local web endpoint responded';;
-    *) echo '3X-UI local HTTP endpoint not ready; inspect service manually' >&2; exit 24;;
+    *) __HTTP_FAILURE_ACTION__
+       echo '3X-UI HTTP health check failed' >&2; exit 24;;
 esac
-echo '3X-UI __VERSION__ service active; panel bound to 127.0.0.1:__PORT__'
-echo 'Use an SSH tunnel to access the panel. Login details are available on explicit request.'
+__ALLOW_PORT__
+echo '__SUCCESS_MESSAGE__'
 """,
             45,
         ),
     ]
-    values = {"__PORT__": str(port), "__STAGING__": STAGING,
-              "__INSTALL_FILE__": INSTALL_FILE, "__INSTALL_URL__": INSTALL_URL,
-              "__INSTALL_SHA256__": INSTALLER_SHA256, "__VERSION__": VERSION}
+    local_install = r"""sed -i 's/^\([[:space:]]*\)bind_local="n"$/\1bind_local="y"/' "$tmp"
+grep -Eq '^[[:space:]]*bind_local="y"$' "$tmp" """
+    public_install = """grep -Eq '^[[:space:]]*bind_local="n"$' "$tmp" """
+    local_listener = """addresses="$(ss -Hltn 'sport = :__PORT__' | awk '{print $4}')"
+if ! printf '%s\n' "$addresses" | grep -Fxq '127.0.0.1:__PORT__' ||
+   printf '%s\n' "$addresses" | grep -Ev '^127[.]0[.]0[.]1:__PORT__$' | grep -q .; then
+    systemctl stop x-ui >/dev/null 2>&1 || true
+    echo 'XUI_LOCAL_LISTENER_MISSING: expected only localhost' >&2; exit 20
+fi"""
+    public_listener = PUBLIC_SOCKET_CHECK + """
+netdeploy_public_socket __PORT__ || {
+    systemctl stop x-ui >/dev/null 2>&1 || true
+    echo 'XUI_PUBLIC_HTTP_LISTENER_MISSING: not bound to wildcard IP' >&2; exit 20
+}"""
+    values = {
+        "__LISTEN_INSTALL_POLICY__": public_install if public_http else local_install,
+        "__BIND_NOTICE__": "Official installer validated for public HTTP" if public_http else "Official installer patched to localhost HTTP",
+        "__LISTENER_CHECK__": public_listener if public_http else local_listener,
+        "__ALLOW_PORT__": allow_port_script(port, "tcp") if public_http else "",
+        "__HTTP_FAILURE_ACTION__": "systemctl stop x-ui >/dev/null 2>&1 || true" if public_http else "",
+        "__SUCCESS_MESSAGE__": "Public HTTP listener verified; cloud firewall may still block this TCP port" if public_http else "Only localhost HTTP verified; use SSH tunnel",
+        "__PORT__": str(port), "__STAGING__": STAGING,
+        "__INSTALL_FILE__": INSTALL_FILE, "__INSTALL_URL__": INSTALL_URL,
+        "__INSTALL_SHA256__": INSTALLER_SHA256, "__VERSION__": VERSION}
     result = []
     for label, script, timeout in scripts:
         for marker, value in values.items():

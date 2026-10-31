@@ -6,7 +6,7 @@ GOOD = {"OS_ID":"debian", "ARCH":"x86_64", "UID":"0", "FREE_KB":"3000000", "DOCK
 
 
 def test_catalog_has_four_known_projects():
-    assert set(CATALOG) == {"3x-ui", "3x-ui-https", "sing-box", "hysteria2", "wg-easy", "s-ui", "s-ui-https", "dockge", "dockge-access"}
+    assert set(CATALOG) == {"3x-ui", "3x-ui-https", "sing-box", "hysteria2", "wg-easy", "s-ui", "s-ui-https", "dockge", "dockge-access", "3x-ui-http"}
 
 
 def test_supported_recipes_executable():

@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.28 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.29 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.28';
+const CLIENT_VERSION = '0.3.29';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -574,14 +574,16 @@ async function showExistingXui(id,known=null){
    }
    const active=status.service==='active', managed=status.managed;
    const local=status.access_mode==='local', https=status.access_mode==='https';
+   const http=status.access_mode==='http';
+   const npmManaged=(local||http)&&state.jobs.some(j=>j.project==='3x-ui'&&j.host_id===id&&j.status==='completed'&&j.plan?.options?.access_mode==='npm');
    let content='';
-   if(active&&managed&&(local||https)){
+   if(active&&managed&&(local||https||http)){
      try{
        const result=await api('/hosts/'+id+'/3x-ui/access');
        const url=result.direct_url||result.local_url;
        const urlLink=result.direct_url?
-         '<a class="btn primary" href="'+escapeHtml(result.direct_url)+'" rel="noopener noreferrer" target="_blank">直接打开 HTTPS 面板 ↗</a>':
-         '<span class="xui-note">当前仅监听 VPS 本机。直接公网访问需先完成 HTTPS。</span>';
+         '<a class="btn primary" href="'+escapeHtml(result.direct_url)+'" rel="noopener noreferrer" target="_blank">直接打开 '+(result.access_mode==='http'?'HTTP':'HTTPS')+' 面板 ↗</a>':
+         '<span class="xui-note">当前仅监听 VPS 本机。可在审批后启用公网 HTTP 或申请 HTTPS。</span>';
        content='<div class="xui-info-grid">'+
          '<div class="xui-info-row"><label>面板地址</label><input id="xui-url" readonly autocomplete="off" value="'+escapeHtml(url)+'"/>' +
            '<button class="btn subtle" data-action="copy-xui-url">复制地址</button>'+urlLink+'</div>'+
@@ -590,7 +592,7 @@ async function showExistingXui(id,known=null){
          '<div class="xui-info-row"><label>初始管理员密码</label><input id="xui-password" type="password" readonly autocomplete="off" value="'+escapeHtml(result.password)+'"/>' +
            '<button class="btn subtle" data-action="toggle-xui-password">显示 / 隐藏</button>'+
            '<button class="btn subtle" data-action="copy-xui-password">复制密码</button></div>';
-       if(result.ssh_tunnel){
+       if(result.ssh_tunnel&&!npmManaged){
          content+='<div class="xui-info-row"><label>本机访问需要的 SSH 隧道命令</label><code class="xui-tunnel">'+escapeHtml(result.ssh_tunnel)+'</code>'+
            '<textarea id="xui-tunnel" hidden>'+escapeHtml(result.ssh_tunnel)+'</textarea>'+
            '<button class="btn subtle" data-action="copy-xui-tunnel">复制 SSH 命令</button></div>';
@@ -605,8 +607,8 @@ async function showExistingXui(id,known=null){
    }else{
      content='<div class="modal-tip warning">已安装面板的监听地址或 TLS 证书尚未通过校验，不能生成不安全的直连链接。</div>';
    }
-   const npmManaged=local&&state.jobs.some(j=>j.project==='3x-ui'&&j.host_id===id&&j.status==='completed'&&j.plan?.options?.access_mode==='npm');
-   const scheme=https?'已验证 HTTPS':npmManaged?'NPM 反向代理上游（HTTP 本机）':local?'本机监听 / SSH 隧道':'访问方式待核验';
+   const scheme=https?'已验证 HTTPS':http?'NPM 上游 / 公网 HTTP 直连':npmManaged?'NPM 上游（本机 HTTP）':local?'本机监听 / SSH 隧道':'访问方式待核验';
+   const httpUpgrade=active&&managed&&local?'<button class="btn subtle" data-action="xui-public-http" data-id="'+id+'">开启公网 HTTP（不申请证书）</button>':'';
    const upgrade=active&&managed&&local&&!npmManaged?
      '<button class="btn primary" data-action="existing-xui-https" data-id="'+id+'">继续完成 HTTPS →</button>':'';
    const html=modalHead('3X-UI · 已安装面板')+'<section class="xui-existing">'+
@@ -614,14 +616,28 @@ async function showExistingXui(id,known=null){
       (managed?'<span class="chip">安装记录可读取</span>':'<span class="chip warn">原始凭据未找到</span>')+'</div>'+
      '<h3>3X-UI 已安装，无需重新部署</h3><p>查看面板信息属于只读操作，不需要安装审批。</p>'+
      (status.port?'<p class="xui-existing-meta">安装端口：'+status.port+' / TCP · '+scheme+'</p>':'')+
-     (npmManaged?'<div class="modal-tip"><b>NPM 上游配置</b>：Forward Scheme 为 http；Forward Host 为 127.0.0.1；Forward Port 为 '+escapeHtml(status.port)+'。NPM 容器须使用 host 网络模式并开启 WebSockets Support。不要放行面板原始端口，SSL 证书由 NPM 申请。</div>':'')+
-     content+'<div class="modal-actions xui-existing-actions"><button class="btn ghost" data-action="back-host" data-id="'+id+'">返回服务器</button>'+upgrade+'</div></section>';
+     (npmManaged?'<div class="modal-tip"><b>NPM 上游配置</b>：Forward Scheme 为 http；Forward Host 为 127.0.0.1；Forward Port 为 '+escapeHtml(status.port)+'。NPM 容器须使用 host 网络模式并开启 WebSockets Support。SSL 证书由 NPM 申请。</div>':'')+
+     (npmManaged&&local?'<div class="modal-tip warning">当前是旧版本安装的本机 HTTP 面板，必须先审核并执行下方「开启公网 HTTP」任务，才能使用公网 IP + 端口直接访问。这里不显示无法直接使用的本机地址作为公网链接。</div>':'')+
+     (http?'<div class="modal-tip warning"><b>公网 HTTP 是明文访问。</b>面板已验证监听所选 TCP 端口，但云安全组仍须单独放行并限制为自己的管理 IP。建议通过 NPM 的 HTTPS 域名登录，避免泄露管理员密码。</div>':'')+
+     content+'<div class="modal-actions xui-existing-actions"><button class="btn ghost" data-action="back-host" data-id="'+id+'">返回服务器</button>'+httpUpgrade+upgrade+'</div></section>';
    dialog(html);
  }catch(err){
    dialog(modalHead('无法读取现有 3X-UI')+'<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>'+
      '<div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="'+id+'">返回</button></div>');
    toast(err.message,true);
  }
+}
+async function enableXuiHttp(id){
+ const host=state.hosts.find(h=>h.id===id);if(!host)return;
+ toast('正在验证现有 3X-UI 监听状态，准备公网 HTTP 审批方案…');
+ try{
+   const existing=state.jobs.find(j=>j.project==='3x-ui-http'&&j.host_id===id&&
+     ['planned','queued','running'].includes(j.status)&&!planNeedsUpdate(j));
+   if(existing){showJob(existing.id);return;}
+   const job=await api('/jobs',{method:'POST',body:JSON.stringify({host_id:id,project:'3x-ui-http'})});
+   await loadAll(true);if(!state.jobs.some(j=>j.id===job.id))state.jobs.unshift(job);
+   showJob(job.id);
+ }catch(err){toast(err.message,true);}
 }
 async function continueExistingXuiHttps(id){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
@@ -1160,16 +1176,17 @@ function showJob(id){
    const isXui=job.project==='3x-ui'||job.project==='3x-ui-https';
    const dockerPrep=job.project==='dockge'&&p.steps.length>4;
    const npmPlan=['3x-ui','s-ui'].includes(job.project)&&p.options?.access_mode==='npm';
+   const publicXuiNote=job.project==='3x-ui-http'?`<div class="modal-tip warning"><b>高风险：将已安装 3X-UI 改为公网明文 HTTP。</b>开放的是 TCP ${escapeHtml(p.options.panel_port)}，不是 80。管理员用户名和密码通过 HTTP 发送，可能被窃听；必须先限制云安全组来源为自己的管理 IP。确认后不重装软件，失败会恢复本机监听。</div>`:'';
    const dockerNote=dockerPrep?'<div class="modal-tip warning"><b>将自动先安装缺少的 Docker / Compose / Git。</b>仅在通过安全检查且你审批后执行。Docker Engine 可能修改 iptables 及容器转发规则；部分容器端口可能绕过 UFW。已有 Docker 或数据冲突不会被强制覆盖，随后继续 Dockge Apps 安装。</div>':'';
    const dockgePublicNote=job.project==='dockge'&&p.options?.access_mode==='public'?'<div class="modal-tip warning"><b>本次部署将把 Dockge Apps 管理端口直接绑定至服务器公网 IP。</b>目标端口 '+escapeHtml(p.options.panel_port)+'/TCP；访问地址将是 http://'+escapeHtml(host?.hostname||p.hostname)+':'+escapeHtml(p.options.panel_port)+'/ 。该地址是未加密 HTTP，且 Dockge 通过 Docker Socket 可管理整台 VPS。<b>首次管理员创建前，任何能访问端口的人都可能抢先注册。</b>请确保云防火墙仅允许可信管理 IP，或先使用 SSH-only 模式完成初始化。只有点击下方的明确审批按钮才会执行公网部署。</div>':'';
-   const npmNote=npmPlan?`<div class="modal-tip"><b>交给 NPM 统一 HTTPS · 不申请 IP/域名证书</b><p>面板会只监听 VPS 本机 HTTP ${escapeHtml(p.npm_proxy.host)}:${escapeHtml(p.npm_proxy.port)}，跳过 Certbot、ACME TCP 80 与自动续期。NPM 若运行在 Docker 容器中，需要使用 host 网络模式以访问宿主机 127.0.0.1。NPM 的 SSL 证书由 NPM 自行申请、续期。</p></div>`:'';
+   const npmNote=npmPlan?`<div class="modal-tip warning"><b>交给 NPM 统一 HTTPS · 本面板不申请证书</b><p>3X-UI 将开启 VPS 公网 HTTP ${escapeHtml(host?.hostname||p.hostname)}:${escapeHtml(p.npm_proxy.port)}，这是明文管理登录，请先在云安全组仅允许自己的管理 IP。NPM 仍可通过宿主机 127.0.0.1:${escapeHtml(p.npm_proxy.port)} 反代，并为独立域名申请 SSL。S-UI 则仍然只在本机监听。NPM Docker 容器应使用 host 网络模式。不会使用 Certbot 或 ACME TCP 80。</p></div>`:'';
    html+=`<div class="plan-overview"><h3>${job.project==='3x-ui-https'?'继续配置已安装的 3X-UI HTTPS（不重装）':job.project==='s-ui-https'?'继续配置已安装的 S-UI HTTPS（不重装）':job.project==='s-ui'&&p.options?.access_mode==='https'?'一键安装 S-UI 并申请 IP/域名证书':npmPlan?`安装 ${escapeHtml(p.name)}（无需申请证书，由 NPM 统一 HTTPS）`:isXui?'一键安装 3X-UI 并配置 HTTPS':'准备部署 '+escapeHtml(p.name)}</h3>
      <p>目标：${escapeHtml(host?.hostname||p.hostname)} · ${p.steps.length} 个受控执行阶段 · 风险：${escapeHtml(p.risk)}</p>
-     ${dockerNote}${dockgePublicNote}${npmNote}<div class="modal-tip warning">审批一次后将执行已固定的安装步骤；包括 APT 依赖处理、证书签发（如果需要）和所需的本机 UFW 端口规则。云厂商安全组仍需另行放行；建议先备份 VPS。</div></div>
+     ${dockerNote}${dockgePublicNote}${npmNote}${publicXuiNote}<div class="modal-tip warning">审批一次后将执行已固定的安装步骤；包括 APT 依赖处理、证书签发（如果需要）和所需的本机 UFW 端口规则。云厂商安全组仍需另行放行；建议先备份 VPS。</div></div>
      <form id="approve-form"><div class="modal-actions plan-primary-actions">
        <button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>
        <button type="button" class="btn ghost" data-action="close-modal">暂不部署</button>
-       <button class="btn primary" type="submit">${['3x-ui-https','s-ui-https'].includes(job.project)?'确认继续 HTTPS（不重装）':dockgePublicNote?'确认公网开放并部署 Dockge Apps':dockerPrep?'确认安装依赖并部署 Dockge Apps':'确认并一键部署'}</button>
+       <button class="btn primary" type="submit">${['3x-ui-https','s-ui-https'].includes(job.project)?'确认继续 HTTPS（不重装）':publicXuiNote?'确认开启公网 HTTP（不申请证书）':dockgePublicNote?'确认公网开放并部署 Dockge Apps':dockerPrep?'确认安装依赖并部署 Dockge Apps':'确认并一键部署'}</button>
      </div></form>`;
  }else if(isExistingXuiPlan(job)&&!stale){
    html+=`<section class="server-next-action is-ready"><span class="server-next-kicker">已安装 · 无需审批</span>
@@ -1196,6 +1213,7 @@ function showJob(id){
        ${['dockge','dockge-access'].includes(job.project)&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-dockge" data-id="${job.host_id}">${p.name==='Dockge'?'查看旧版 Dockge 状态':'查看 Dockge Apps 面板信息'}</button>`:''}
        ${job.project==='s-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成 S-UI HTTPS 方案</button>`:''}
        ${job.project==='3x-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看 HTTPS 面板信息</button>`:''}
+       ${job.project==='3x-ui-http'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看公网 HTTP 面板</button>`:''}
        ${job.project==='3x-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成证书方案</button>`:''}
        <button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读排障</button>
        ${['queued','running'].includes(job.status)?'':`<button class="btn danger" data-action="delete-job" data-id="${escapeHtml(job.id)}">删除记录</button>`}
@@ -1308,12 +1326,14 @@ async function xuiAccess(id){
    const res=await api(`/jobs/${id}/access`);
    const url=res.direct_url||res.local_url;
    const npmPlan=state.jobs.find(j=>j.id===id)?.plan?.options?.access_mode==='npm';
-   const tip=res.direct_url
+   const tip=res.access_mode==='http'
+     ? `<div class="modal-tip warning">已验证 3X-UI 在 VPS 公网接口监听 HTTP，管理地址是 ${escapeHtml(res.direct_url)}。这是未加密的管理登录；请在云安全组限制来源为自己的管理 IP，并优先使用 NPM 的 HTTPS 域名访问。无需 SSH 隧道。</div>`
+     : res.direct_url
      ? `<div class="modal-tip">HTTPS 证书及续期服务已经通过 VPS 本机校验。可直接点击打开管理面板；若外部访问失败，请检查云安全组是否允许 TCP ${escapeHtml(res.port)}。建议设置 2FA 和来源 IP 白名单。</div>`
-     : npmPlan?`<div class="modal-tip"><b>NPM 负责 HTTPS，本面板无需证书。</b>在 NPM 新建 Proxy Host：Forward Scheme <code>http</code>、Forward Host <code>127.0.0.1</code>、Forward Port <code>${escapeHtml(res.port)}</code>，开启 WebSockets Support；NPM 的 Docker 容器应使用 host 网络模式，证书由 NPM 申请。面板原始 HTTP 端口不对公网开放。</div>`
+     : npmPlan?`<div class="modal-tip warning"><b>NPM 负责 HTTPS，本面板无需证书。</b>当前安装仍仅监听本机。请从「已安装面板」审核并执行「开启公网 HTTP」任务，再显示可用的公网 IP 链接；NPM 可通过 host 网络模式反代 127.0.0.1:${escapeHtml(res.port)}。</div>`
      : `<div class="modal-tip warning">面板目前仅绑定 VPS 127.0.0.1，暂未启用公网 HTTPS。请先运行 SSH 隧道，或返回已完成安装任务点击“启用 HTTPS 直连”。</div>`;
-   const tunnel=res.ssh_tunnel?`<div class="form-group"><label>SSH 隧道命令（在另一个 PowerShell 窗口执行）</label><div class="pre">${escapeHtml(res.ssh_tunnel)}</div><button class="btn subtle" data-action="copy-xui-tunnel">复制 SSH 命令</button><textarea id="xui-tunnel" hidden>${escapeHtml(res.ssh_tunnel)}</textarea></div>`:'';
-   const openText=res.direct_url?'直接打开 HTTPS 管理面板 ↗':'建立 SSH 隧道后打开本机面板 ↗';
+   const tunnel=res.ssh_tunnel&&!npmPlan?`<div class="form-group"><label>SSH 隧道命令（在另一个 PowerShell 窗口执行）</label><div class="pre">${escapeHtml(res.ssh_tunnel)}</div><button class="btn subtle" data-action="copy-xui-tunnel">复制 SSH 命令</button><textarea id="xui-tunnel" hidden>${escapeHtml(res.ssh_tunnel)}</textarea></div>`:'';
+   const openText=res.direct_url?'直接打开 '+(res.access_mode==='http'?'HTTP':'HTTPS')+' 管理面板 ↗':npmPlan?'先开启公网 HTTP，再打开管理面板':'建立 SSH 隧道后打开本机面板 ↗';
    dialog(modalHead('3X-UI 登录信息')+tip+tunnel+`<div class="form-group"><label>管理面板地址</label><input id="xui-url" readonly autocomplete="off" value="${escapeHtml(url)}"/><div class="modal-actions"><button class="btn subtle" data-action="copy-xui-url">复制面板地址</button><a class="external" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${openText}</a></div></div>
    <div class="form-group"><label>管理员用户名</label><input id="xui-username" readonly autocomplete="off" value="${escapeHtml(res.username)}"/><button class="btn subtle" data-action="copy-xui-username">复制用户名</button></div>
    <div class="form-group"><label>管理员密码（仅本次弹窗显示）</label><input id="xui-password" type="password" readonly autocomplete="off" value="${escapeHtml(res.password)}"/></div>
@@ -1347,7 +1367,7 @@ document.addEventListener('click',async e=>{
  const t=e.target.closest('[data-action],[data-nav]');if(!t)return;
  if(t.dataset.nav){go(t.dataset.nav);return;}
  const id=t.dataset.id,act=t.dataset.action;
- const asyncActions=new Set(['installed-xui','installed-sui','sui-upgrade','existing-xui-https','install-new-xui','fingerprint','trust','preflight','host-check','setup-firewall','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel']);
+ const asyncActions=new Set(['installed-xui','installed-sui','sui-upgrade','existing-xui-https','xui-public-http','install-new-xui','fingerprint','trust','preflight','host-check','setup-firewall','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel']);
  if(t.dataset.busy==='1')return;
  const busy=asyncActions.has(act)||act==='apply-ufw-toggle';
  if(busy){t.dataset.busy='1';t.disabled=true;t.classList.add('is-loading');t.setAttribute('aria-busy','true');}
@@ -1378,6 +1398,7 @@ document.addEventListener('click',async e=>{
   else if(act==='copy-sui-tunnel')await copyXuiField('sui-tunnel','S-UI SSH 隧道命令');
   else if(act==='installed-xui')await showExistingXui(Number(id));
   else if(act==='existing-xui-https')await continueExistingXuiHttps(Number(id));
+  else if(act==='xui-public-http')await enableXuiHttp(Number(id));
   else if(act==='install-new-xui')await createHostPlan(Number(id),'3x-ui');
   else if(act==='server-install')await createHostPlan(Number(id),t.dataset.project);
   else if(act==='add-host')addHost();

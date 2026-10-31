@@ -26,7 +26,8 @@ from .https_upgrade import identify, https_access_script, https_url
 from .firewall import (PortRule, FirewallBatch, STATUS_SCRIPT, allow_port_script,
                        allow_ports_script, parse_firewall_batch_output,
                        FirewallToggle, firewall_toggle_script)
-from .xui_existing import status_script, parse_status, public_access_script, direct_url
+from .xui_existing import (status_script, parse_status, public_access_script, direct_url,
+                           public_http_access_script, public_http_url)
 from .s_ui import (PORT as SUI_PORT, STATUS as SUI_STATUS_SCRIPT, ACCESS as SUI_ACCESS_SCRIPT,
                    parse_status as parse_sui_status, parse_access as parse_sui_access)
 from .dockge import (PORT as DOCKGE_PORT, STATUS as DOCKGE_STATUS_SCRIPT,
@@ -45,7 +46,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.28")
+app = FastAPI(title="NetDeploy AI", version="0.3.29")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -192,7 +193,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.28", "security": "local-only"}
+    return {"ok": True, "version": "0.3.29", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -437,6 +438,8 @@ def xui_existing_access(id: int):
     try:
         if status["access_mode"] == "https":
             script = public_access_script(tls_identity(host), port)
+        elif status["access_mode"] == "http":
+            script = public_http_access_script(port)
         elif status["access_mode"] == "local":
             script = ACCESS_SCRIPT
         else:
@@ -447,6 +450,9 @@ def xui_existing_access(id: int):
     if status["access_mode"] == "https":
         result["direct_url"] = direct_url(tls_identity(host), port, result["web_path"])
         result["access_mode"] = "https"
+    elif status["access_mode"] == "http":
+        result["direct_url"] = public_http_url(host["hostname"], port, result["web_path"])
+        result["access_mode"] = "http"
     else:
         result["ssh_tunnel"] = (
             f"ssh -N -p {host['port']} -L {port}:127.0.0.1:{port} "
@@ -696,7 +702,11 @@ def new_job(body: NewJob):
         if body.access_mode == "https":
             options.update({"access_mode": "https", **tls_options(host)})
         elif body.access_mode == "npm":
-            # NPM terminates TLS externally; the managed panel stays loopback-only.
+            # No certificate is requested; install a verified public HTTP listener.
+            try:
+                public_http_url(host["hostname"], options["panel_port"], "PanelPath")
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
             options["access_mode"] = "npm"
         elif body.access_mode not in {None, "local"}:
             raise HTTPException(status_code=422, detail="3X-UI 不支持该证书配置模式")
@@ -766,6 +776,18 @@ def new_job(body: NewJob):
                 raise HTTPException(status_code=409, detail="只允许修改已运行且端口已验证的受管理 Dockge Apps")
         options = {"panel_port": host_port, "access_mode": mode,
                    "public_confirmed": bool(body.confirm_public or public_default_plan)}
+    elif body.project == "3x-ui-http":
+        if body.access_mode is not None or body.panel_port is not None or body.source_job_id:
+            raise HTTPException(status_code=422, detail="现有 3X-UI HTTP 监听修改不允许覆盖端口或证书选项")
+        status = read_existing_xui(host)
+        if not (status["installed"] and status["managed"] and status["service"] == "active"
+                and status["access_mode"] == "local"):
+            raise HTTPException(status_code=409, detail="仅允许已验证的本机 HTTP 3X-UI 开启公网监听，不重装面板")
+        try:
+            public_http_url(host["hostname"], status["port"], "PanelPath")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        options = {"panel_port": status["port"]}
     elif body.project == "3x-ui-https":
         if body.access_mode or body.panel_port is not None:
             raise HTTPException(status_code=422, detail="现有面板的 HTTPS 升级端口由服务器实际配置决定，不能手工覆盖")
@@ -869,6 +891,10 @@ def approve_job(id: str, body: Approval):
     if current != host["facts"]:
         store.save_facts(host["id"], current)
         host["facts"] = current
+    public_xui = (job["project"] == "3x-ui-http" or
+                  (job["project"] == "3x-ui" and job["plan"].get("options", {}).get("access_mode") == "npm"))
+    if public_xui and not body.confirmed_risk:
+        raise HTTPException(status_code=409, detail="公网明文 HTTP 存在管理员凭据泄露风险，必须在审批时明确确认")
     if job["project"] in {"dockge", "dockge-access"} and job["plan"].get("options", {}).get("access_mode") == "public" and not body.confirmed_risk:
         raise HTTPException(status_code=409, detail="公网 Dockge Apps 部署必须在审阅安全提示后明确点击风险确认，不接受旧版文本代替")
     if not body.confirmed_risk and body.confirmation != runner.approval_text(job, host):
@@ -905,14 +931,30 @@ def job_access(id: str):
         identity = job["plan"]["options"]["tls_identity"]
     elif upgrade is not None and upgrade["plan"]["options"]["panel_port"] == port:
         identity = upgrade["plan"]["options"]["tls_identity"]
-    script = https_access_script(identity, port) if identity else ACCESS_SCRIPT
+    npm = job["plan"].get("options", {}).get("access_mode") == "npm"
+    status = read_existing_xui(host) if npm and not identity else None
+    if status and (not status["managed"] or status["service"] != "active" or status["port"] != port):
+        raise HTTPException(status_code=409, detail="当前面板真实监听或端口状态未通过安全验证")
+    if identity:
+        script = https_access_script(identity, port)
+    elif status and status["access_mode"] == "http":
+        script = public_http_access_script(port)
+    elif status and status["access_mode"] == "local":
+        script = ACCESS_SCRIPT
+    elif status:
+        raise HTTPException(status_code=409, detail="公网 HTTP 尚未验收，不能显示无法使用的公网地址")
+    else:
+        script = ACCESS_SCRIPT
     try:
         result = parse_access_result(executor.run(host, script, timeout=25), port)
     except (SSHError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail="无法验证远端面板或 TLS 证书，请检查服务、证书有效期和自动续期") from exc
+        raise HTTPException(status_code=422, detail="无法核验 3X-UI 监听、网页或安装记录，请检查 VPS") from exc
     if identity:
         result["direct_url"] = https_url(identity, port, result["web_path"])
         result["access_mode"] = "https"
+    elif status and status["access_mode"] == "http":
+        result["direct_url"] = public_http_url(host["hostname"], port, result["web_path"])
+        result["access_mode"] = "http"
     else:
         result["ssh_tunnel"] = (
             f"ssh -N -p {host['port']} -L {port}:127.0.0.1:{port} "

@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from .three_x_ui import DEFAULT_PORT, VERSION as XUI_VERSION, deployment_steps, validate_port
+from .xui_public_http import http_upgrade_steps
 from .https_upgrade import identify, https_steps
 from .s_ui import VERSION as SUI_VERSION, steps as sui_steps
 from .sui_https import https_steps as sui_https_steps
@@ -30,6 +31,13 @@ CATALOG = {
         "docs": "https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability",
         "summary": "对现有 3X-UI 开通公网可信 HTTPS；只有证书验证和续期配置成功才更改监听。",
         "requires": ["已完成并运行的 3X-UI", "域名 A 记录或公网 IPv4", "公网上 TCP 80 可访问", "支持 IP 证书的 Certbot", "云防火墙放行管理端口"],
+    },
+    "3x-ui-http": {
+        "name": "3X-UI 公网 HTTP 直连", "subtitle": "启用已安装面板的公网 HTTP（不申请 SSL）",
+        "category": "HTTP", "icon": "globe", "deployment": "install", "risk": "高", "internal": True,
+        "docs": "https://slobys.github.io/netdeploy-ai/deployments.html#npm",
+        "summary": "已有本机监听的 3X-UI 无需重装；经明确审批后开放指定端口的 HTTP，验证失败回退。",
+        "requires": ["NetDeploy 管理并正在运行的 3X-UI", "原始 HTTP 仅本机监听", "用户批准明文 HTTP 风险", "云安全组管理 IP 白名单"],
     },
     "s-ui": {
         "name": "S-UI", "subtitle": "sing-box 可视化管理面板", "category": "面板",
@@ -205,7 +213,7 @@ def compatibility(project: str, facts: dict[str, Any], options: dict | None = No
         issues.append("第一阶段只允许以已验证的 root SSH 身份执行变更操作")
     if arch not in SUPPORTED_ARCHS:
         issues.append(f"当前 CPU 架构 {arch or '未知'} 尚未通过第一阶段验证")
-    if project in {"3x-ui", "3x-ui-https"}:
+    if project in {"3x-ui", "3x-ui-https", "3x-ui-http"}:
         if os_id not in {"debian", "ubuntu"}:
             issues.append("3X-UI 一键部署目前仅对 Ubuntu/Debian 开放")
         if arch not in {"x86_64", "aarch64"}:
@@ -214,9 +222,9 @@ def compatibility(project: str, facts: dict[str, Any], options: dict | None = No
             issues.append("3X-UI 需要可用的 systemd")
         if facts.get("SS_AVAILABLE") != "yes":
             issues.append("无法可靠检测面板 TCP 端口，请先安装 iproute2 并重新环境检测")
-        expected = "yes" if project == "3x-ui-https" else "no"
+        expected = "yes" if project in {"3x-ui-https", "3x-ui-http"} else "no"
         if facts.get("XUI_PRESENT") != expected:
-            issues.append("HTTPS 升级要求已安装 x-ui，且已完成冲突检测" if project == "3x-ui-https" else "已存在 x-ui 安装，或尚未完成新版 x-ui 冲突检测；禁止覆盖")
+            issues.append("管理端监听变更要求已安装 x-ui，且已完成冲突检测" if project in {"3x-ui-https", "3x-ui-http"} else "已存在 x-ui 安装，或尚未完成新版 x-ui 冲突检测；禁止覆盖")
     if project in {"s-ui", "s-ui-https"}:
         if os_id not in {"debian", "ubuntu"}:
             issues.append("S-UI 自动安装目前仅对 Debian/Ubuntu 开放")
@@ -309,6 +317,10 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             if "tls_identity" in options or "certificate_type" in options or "ssh_ipv4" in options:
                 raise ValueError("仅 HTTPS 模式可填写证书标识")
             options = {"panel_port": port, "access_mode": "npm"} if access_mode == "npm" else {"panel_port": port}
+    elif project == "3x-ui-http":
+        if set(options) != {"panel_port"}:
+            raise ValueError("HTTP 公网升级仅允许填写已核验的面板端口")
+        options = {"panel_port": validate_port(options["panel_port"])}
     elif project in {"s-ui", "s-ui-https"}:
         allowed = {"access_mode", "tls_identity", "certificate_type", "ssh_ipv4"}
         if project == "s-ui-https":
@@ -387,9 +399,11 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
     if meta["deployment"] == "guided":
         issues.append("此项目暂采用人工确认的引导模式；第一阶段不执行远程安装命令")
     if runnable and project == "3x-ui":
-        steps = deployment_steps(options["panel_port"])
+        steps = deployment_steps(options["panel_port"], public_http=options.get("access_mode") == "npm")
         if options.get("access_mode") == "https":
             steps = steps + https_steps(options["tls_identity"], options["panel_port"], options.get("ssh_ipv4"))
+    elif runnable and project == "3x-ui-http":
+        steps = http_upgrade_steps(options["panel_port"])
     elif runnable and project == "3x-ui-https":
         steps = https_steps(options["tls_identity"], options["panel_port"], options.get("ssh_ipv4"))
     elif runnable and project == "s-ui":
@@ -448,6 +462,12 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             ],
             "wg-easy": ["需预先安装 Docker 且 Docker 网络不可与 10.42.42.0/24 冲突；不会自动修改防火墙", "Web 管理端只绑定 VPS 的 localhost，必须使用 SSH 隧道或安全反代", "容器镜像使用 v15 主版本标签，不是不可变 digest", "首次访问还需设置管理员账户及公网地址"],
             "3x-ui": [f"固定官方 {XUI_VERSION} 安装器 SHA-256 后执行，二进制由上游发布的 .sha256 校验；安装依赖可能需要联网和更改 APT 包", "自动生成账户、密码和随机 Web 路径；只在安装后明确点击查看时读取，不存入 NetDeploy 数据库或任务日志", "先将面板绑定本机 127.0.0.1；选择 HTTPS 时自动按公网 IPv4 / 域名签发证书并验证，成功后才开放公网 HTTPS，失败不开放明文 HTTP", "不会自动覆盖已有安装；失败可能留下部分文件，需要人工检查，不能盲目重试"],
+            "3x-ui-http": [
+                "只更改已安装受管理 3X-UI 的监听地址，不重装软件、不改管理员或证书设置",
+                "即使不申请证书，也会把面板原始 HTTP 端口暴露公网；明文密码可能被窃听",
+                "请先在云安全组限制来源为自己的管理公网 IP，再审批本机 UFW 放行指定 TCP 端口",
+                "执行后需校验真实公网监听和本机 HTTP 响应；如果失败会尝试恢复本机监听",
+            ],
             "3x-ui-https": ["公网 TCP 80 必须允许 Let’s Encrypt HTTP-01 验证（本机空闲不代表云安全组开放）；域名证书要求 DNS A 正确，公网 IP 证书使用 shortlived", "IP 证书有效期约 160 小时，必须保持 netdeploy-certbot-renew.timer 活跃（独立续期）；域名证书使用系统 certbot.timer；失败不开放公网面板",  "公网 HTTPS 管理面板属于高敏感服务，请启用强密码、双因素认证和云防火墙 IP 白名单"],
             "hysteria2": ["需要单独实现 TLS 证书、身份认证和服务器配置"],
         }[project],
@@ -460,10 +480,10 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         }
         plan["warnings"] = [
             "已选择不申请 IP/域名证书：不会运行 Certbot、ACME HTTP-01、TCP 80 预检或证书续期配置",
-            f"面板仅绑定 VPS 的 127.0.0.1:{upstream_port}，不会向公网开放未加密 HTTP；请勿放行面板原始端口",
+            f"3X-UI 原始 HTTP 将在公网 TCP {upstream_port} 监听；NPM 仍可通过宿主机 127.0.0.1:{upstream_port} 反代。S-UI 仍仅本机监听" if project == "3x-ui" else f"S-UI 仅在本机 127.0.0.1:{upstream_port} 监听，不开放原始管理端口",
             "NPM 需要能够访问宿主机 loopback；Docker bridge 模式无法直接连接 127.0.0.1，建议 NPM 使用 network_mode: host（需去掉 ports 映射）",
             "由 NPM 使用独立域名申请和续期 SSL，Proxy Host 使用 http + 127.0.0.1 + 面板端口；3X-UI 请开启 WebSocket Support",
             "请先确认 NPM 的 80/443 可用并正确设置域名 DNS A、云防火墙和 81 管理端访问白名单",
-            "由于 NPM 终止 TLS，面板本身仍是 HTTP。只有反向代理/SSH 隧道可以访问它，避免直接公网登录。",
+            "3X-UI 若启用公网 HTTP，必须只允许可信来源访问并尽快通过 NPM 的 HTTPS 域名登录；原始 HTTP 明文会暴露管理员凭据" if project == "3x-ui" else "S-UI 仅允许 NPM/SSH 隧道连接原始 HTTP 上游，避免公网明文登录",
         ]
     return plan

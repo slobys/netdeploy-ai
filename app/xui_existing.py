@@ -7,6 +7,7 @@ Only root-owned mode-0600 install-result.env files may supply credentials.
 from __future__ import annotations
 
 import re
+import ipaddress
 from .three_x_ui import validate_port
 from .https_upgrade import identify, https_url
 from .listening import PUBLIC_SOCKET_CHECK
@@ -74,6 +75,17 @@ elif netdeploy_public_socket "$port"; then
             ;;
         esac
     fi
+    # A non-TLS NPM deployment may intentionally expose direct HTTP.
+    # Require a verified wildcard socket AND real localhost HTTP response.
+    code="$(curl -4 --noproxy '*' --proto '=http' --silent \
+      --output /dev/null --write-out '%{http_code}' --max-time 7 \
+      "http://127.0.0.1:$port/$web_path" 2>/dev/null)" || code=000
+    case "$code" in
+      200|301|302|303|307|308|401|403)
+        echo 'XUI_LISTENER=http'
+        exit 0
+        ;;
+    esac
     echo 'XUI_LISTENER=public_unverified'
 else
     echo 'XUI_LISTENER=unknown'
@@ -111,7 +123,7 @@ def parse_status(raw: str) -> dict:
     port = int(values["XUI_PORT"]) if re.fullmatch(r"[0-9]{1,5}", values["XUI_PORT"]) else -1
     if not 1 <= port <= 65535:
         raise ValueError("3X-UI 安装记录端口非法")
-    if values["XUI_LISTENER"] not in {"local", "https", "public_unverified", "unknown"}:
+    if values["XUI_LISTENER"] not in {"local", "http", "https", "public_unverified", "unknown"}:
         raise ValueError("3X-UI 端口监听信息不可识别")
     return {"installed": True, "service": values["XUI_SERVICE"], "managed": True,
             "access_mode": values["XUI_LISTENER"], "port": port}
@@ -152,3 +164,45 @@ def public_access_script(hostname: str, port: int) -> str:
 
 def direct_url(hostname: str, port: int, web_path: str) -> str:
     return https_url(hostname, port, web_path)
+
+HTTP_ACCESS_TEMPLATE = r"""set -eu
+test "$(id -u)" = 0
+systemctl is-active --quiet x-ui
+test -f /etc/x-ui/install-result.env && test ! -L /etc/x-ui/install-result.env
+test "$(stat -c %u /etc/x-ui/install-result.env)" = 0
+test "$(stat -c %a /etc/x-ui/install-result.env)" = 600
+grep -Fxq 'XUI_PANEL_PORT=__PORT__' /etc/x-ui/install-result.env
+__PUBLIC_SOCKET_CHECK__
+netdeploy_public_socket __PORT__ || {
+  echo 'XUI_HTTP_SOCKET_NOT_PUBLIC: no wildcard TCP listener' >&2; exit 60
+}
+path="$(sed -n 's/^XUI_WEB_BASE_PATH=//p' /etc/x-ui/install-result.env)"
+printf '%s' "$path" | grep -Eq '^[A-Za-z0-9_-]{4,80}$'
+code="$(curl -4 --noproxy '*' --proto '=http' --silent \
+  --output /dev/null --write-out '%{http_code}' --max-time 7 \
+  "http://127.0.0.1:__PORT__/$path" 2>/dev/null)" || code=000
+case "$code" in 200|301|302|303|307|308|401|403) ;; *)
+  echo 'XUI_PUBLIC_HTTP_HEALTH_FAILED: cannot verify local HTTP response' >&2; exit 60 ;;
+esac
+grep -E '^XUI_(USERNAME|PASSWORD|PANEL_PORT|WEB_BASE_PATH)=' /etc/x-ui/install-result.env
+"""
+
+
+def public_http_access_script(port: int) -> str:
+    """Read credentials after verifying actual HTTP wildcard binding."""
+    validate_port(port)
+    return (HTTP_ACCESS_TEMPLATE.replace("__PUBLIC_SOCKET_CHECK__", PUBLIC_SOCKET_CHECK)
+            .replace("__PORT__", str(port)))
+
+
+def public_http_url(hostname: str, port: int, web_path: str) -> str:
+    validate_port(port)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{4,80}", web_path):
+        raise ValueError("3X-UI Web 路径非法")
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError as exc:
+        raise ValueError("公网 HTTP 需要 VPS SSH 地址是直接的公网 IPv4") from exc
+    if not isinstance(address, ipaddress.IPv4Address) or not address.is_global:
+        raise ValueError("SSH 地址不是公网 IPv4，拒绝生成虚假的直连地址")
+    return f"http://{address}:{port}/{web_path}"

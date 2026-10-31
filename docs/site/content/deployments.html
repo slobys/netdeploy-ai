@@ -11,9 +11,9 @@
 <h2 id="three-x-ui">3X-UI · Xray 面板</h2>
 <ol>
 <li>在项目中心选择 <strong>3X-UI</strong>，选择目标 VPS 和面板端口；默认示例端口 <code>24443/TCP</code>，也可以自定义。</li>
-<li>选择「自动申请证书」时：填了 HTTPS 域名按域名签发，否则尝试公网 IPv4 证书（需 TCP 80）。选择「由 NPM 统一 HTTPS」则<strong>不申请证书、不使用 TCP 80 做 ACME 验证</strong>，面板保持本机 HTTP。</li>
-<li>检查兼容性与固定脚本，审核批准部署。部署成功且证书验收通过后才可作为公网 HTTPS 地址使用。</li>
-<li>已装 3X-UI 时优先点击 <strong>查看已安装面板</strong>；如果 HTTPS 阶段失败，走 <strong>继续完成 HTTPS</strong>，不要覆盖重装。</li>
+<li>选择「自动申请证书」时：填了 HTTPS 域名按域名签发，否则尝试公网 IPv4 证书（需 TCP 80）。选择「由 NPM 统一 HTTPS」则<strong>不申请证书、不使用 TCP 80 做 ACME 验证</strong>，3X-UI 在审核后以公网 HTTP 监听所选面板端口，同时 NPM 仍可通过本机 127.0.0.1 反代。公网 HTTP 是明文，请只向自己的管理 IP 放行该面板端口。</li>
+<li>检查兼容性与固定脚本，审核批准部署。原生 HTTPS 要在证书验收通过后使用；NPM 模式会先验证真实公网 HTTP 监听和本机网页响应，再显示 <code>http://服务器公网IP:面板端口/实际Web路径</code>，不需要 SSH 隧道，但云厂商安全组仍需单独放行并限制来源。</li>
+<li>已装 3X-UI 时优先点击 <strong>查看已安装面板</strong>。如果旧 NPM 模式只显示本机地址，点击<strong>「开启公网 HTTP（不申请证书）」</strong>，审批独立的两步监听变更任务即可，<strong>无需重装、无需重新申请证书</strong>。失败会尝试恢复原本机监听。</li>
 </ol>
 <p>IP 证书有效期可能为约 160 小时，需要保持续期服务有效。公网面板建议开启强密码、双因素认证与云防火墙管理 IP 白名单。</p>
 <div class="callout"><strong>Debian 13 IP 证书安装修复</strong><p>Debian 13 自带 Certbot 4.0 无法申请 IP 证书。NetDeploy v{{version}} 会在 IP 模式下自动创建独立 Python 虚拟环境、安装 Certbot 5.8.0，并配置专用续期服务 <code>netdeploy-certbot-renew.timer</code>；不会卸载系统旧 Certbot。曾在「步骤 7/9」失败的用户，请更新 NetDeploy 后点击<strong>继续完成 HTTPS</strong>，仅重试四步证书配置，不要覆盖重装 3X-UI。</p></div>
@@ -30,16 +30,16 @@ ssh -N -p 22 -L 2095:127.0.0.1:2095 root@YOUR_VPS_IP</code></pre>
 
 <h2 id="npm">3X-UI / S-UI：交给 NPM 统一申请 HTTPS（不单独申请证书）</h2>
 <p>同一台 VPS 上部署 3X-UI、S-UI、IT-Tools 和 MyIP 时，可以统一用 <strong>Nginx Proxy Manager (NPM)</strong> 管理域名与 SSL。在 NetDeploy 的 3X-UI 或 S-UI 安装页面，把「面板 HTTPS 处理方式」选成<strong>「不申请证书，交给 NPM 反向代理提供 HTTPS」</strong>。</p>
-<p>这个模式只有 <strong>5 步基础安装</strong>：面板仅监听 VPS <code>127.0.0.1</code> 的 HTTP，不调用 Certbot，不为面板签 IP/域名证书，<strong>不会检查、占用或自动放行 ACME TCP 80</strong>。TCP 80/443 留给 NPM 使用，面板自身端口不应该公网开放。</p>
+<p>该模式只执行 <strong>5 步基础安装</strong>：不调用 Certbot、不为面板签 IP/域名证书、<strong>不占用或放行 ACME TCP 80</strong>。3X-UI 经审批后监听公网 HTTP 面板端口，完成真实监听验证后显示 VPS 公网 IP + 端口 + 登录路径；S-UI 仍只监听本机 HTTP。原始 HTTP 管理端口必须通过云安全组限制为自己的管理 IP，实际访问仍优先使用 NPM 的 HTTPS 域名。</p>
 <div class="table-wrap"><table><thead><tr><th>项目</th><th>反向代理上游</th><th>NPM 选项</th></tr></thead><tbody>
 <tr><td>3X-UI</td><td><code>http://127.0.0.1:24443</code>（端口可编辑；保留实际随机 Web 路径）</td><td>Scheme = http，WebSockets Support = 开启</td></tr>
 <tr><td>S-UI</td><td><code>http://127.0.0.1:2095</code>（保留实际 Web 路径）</td><td>Scheme = http；订阅 2096 仍只监听本机</td></tr>
 </tbody></table></div>
-<div class="callout warn"><strong>特别注意 NPM 的 Docker 网络模式</strong><p>上面的管理服务绑定的是 <code>127.0.0.1</code>，普通 Docker 桥接网络里的 NPM 容器的 <code>127.0.0.1</code> 指向容器自己，<strong>不能直接反代宿主机</strong>。要使用这些上游地址，需要将 NPM 的 Compose 服务设置为 <code>network_mode: host</code>，同时删除该服务原来的 <code>ports:</code> 映射再重建容器。Linux 的 host 网络容器与宿主机共用网络，可以连接到 <code>127.0.0.1:24443</code> 或 <code>127.0.0.1:2095</code>。但 NPM 的 HTTP 80、HTTPS 443、管理 81 也会成为宿主机端口，<strong>必须在云安全组限制 NPM 81 管理入口</strong>。</p></div>
+<div class="callout warn"><strong>特别注意 NPM 的 Docker 网络模式</strong><p>上游地址仍使用宿主机 <code>127.0.0.1</code>；普通 Docker 桥接网络里的 NPM 容器的 <code>127.0.0.1</code> 指向容器自己，<strong>不能直接反代宿主机</strong>。要使用这些上游地址，需要将 NPM 的 Compose 服务设置为 <code>network_mode: host</code>，同时删除该服务原来的 <code>ports:</code> 映射再重建容器。Linux 的 host 网络容器与宿主机共用网络，可以连接到 <code>127.0.0.1:24443</code> 或 <code>127.0.0.1:2095</code>。但 NPM 的 HTTP 80、HTTPS 443、管理 81 也会成为宿主机端口，<strong>必须在云安全组限制 NPM 81 管理入口</strong>。</p></div>
 <ol>
 <li>检查 NPM 已正确监听 80/443、域名 DNS A 指向该 VPS，云平台放行 TCP 80/443 用于 NPM 的证书申请。</li>
 <li>在 NPM 中创建 <strong>Proxy Host</strong>，每个服务使用独立域名（如 <code>xui.example.com</code>、<code>tools.example.com</code>）。Forward Host 填 <code>127.0.0.1</code>，Forward Port 按上表，Scheme 选 <code>http</code>。3X-UI 还需要开启 WebSockets Support。</li>
-<li>切换到 NPM 的 SSL 标签，由 NPM 申请、续期证书并开启 Force SSL。测试 <code>https://你的域名/实际面板路径</code>，不要直接把面板 HTTP 原始端口开放公网。</li>
+<li>切换到 NPM 的 SSL 标签，由 NPM 申请、续期证书并开启 Force SSL。测试 <code>https://你的域名/实际面板路径</code>。如果还使用 3X-UI 公网 HTTP 直连，务必在云安全组限制原始端口的来源 IP。</li>
 <li>其他 Docker 应用（如 IT-Tools、MyIP）可以通过它们已发布到宿主机的端口作为上游；如果它们只在 Docker 内部网络提供服务，需要按实际容器网络重新配置 NPM 上游。</li>
 </ol>
 <p><strong>已有原生 HTTPS 模式不受影响：</strong>选择自动申请证书时，3X-UI、S-UI 仍可继续使用现有 IP/域名 Certbot 流程。这个选项只决定新安装如何处理 HTTPS；不会自动安装或修改 NPM，不会覆盖已安装的面板。</p>
