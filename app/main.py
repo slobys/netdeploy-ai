@@ -45,7 +45,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.26")
+app = FastAPI(title="NetDeploy AI", version="0.3.27")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -192,7 +192,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.26", "security": "local-only"}
+    return {"ok": True, "version": "0.3.27", "security": "local-only"}
 
 
 @app.get("/api/local-session")

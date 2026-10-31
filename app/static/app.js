@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.26 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.27 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.26';
+const CLIENT_VERSION = '0.3.27';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -431,7 +431,7 @@ async function showExistingDockge(id,known=null){
        '管理页当前只监听 VPS 本机。先在 Dockge 创建管理员，再根据需要开启公网 IP + 端口直连。')+'</div>'+
      '<div class="xui-info-grid">'+
        row(direct?'服务器公网管理地址':'本机管理地址','dockge-url',actual,'copy-dockge-url')+
-       row('Windows PowerShell SSH 隧道（备用）','dockge-tunnel',access.ssh_tunnel,'copy-dockge-tunnel')+
+       (direct?'':row('Windows PowerShell SSH 隧道','dockge-tunnel',access.ssh_tunnel,'copy-dockge-tunnel'))+
      '</div>'+
      '<p class="helptext">Dockge Apps 包含 Nginx Proxy Manager、IT-Tools、MyIP 应用中心，可在其中编辑应用端口；NetDeploy 不预设管理员密码。</p>'+
      '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button>'+

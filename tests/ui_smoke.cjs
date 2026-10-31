@@ -109,7 +109,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.26';
+let runtimeVersion='0.3.27';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -368,9 +368,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.26';
+  runtimeVersion='0.3.27';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.26');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.27');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -521,6 +521,8 @@ function fingerprintFor(label) {
   assert(modal.innerHTML.includes('Dockge Apps 已安装，无需重新部署'));
   assert(modal.innerHTML.includes('id="dockge-url"'));
   assert(modal.innerHTML.includes('id="dockge-tunnel"'));
+  assert(modal.innerHTML.includes('Windows PowerShell SSH 隧道'),
+    'SSH-only installation needs its tunnel instructions');
   assert(modal.innerHTML.includes('http://127.0.0.1:5001/'));
   assert(modal.innerHTML.includes('先在 Dockge 创建管理员'));
   assert(!modal.innerHTML.includes('id="approve-form"'));
@@ -532,6 +534,13 @@ function fingerprintFor(label) {
     'Public mode must display the VPS IPv4 and verified custom port');
   assert(modal.innerHTML.includes('data-action="dockge-config"'));
   assert(modal.innerHTML.includes('服务器公网管理地址'));
+  assert(!modal.innerHTML.includes('id="dockge-tunnel"'),
+    'Public-IP mode must not render a redundant SSH tunnel card');
+  assert(!modal.innerHTML.includes('Windows PowerShell SSH 隧道'),
+    'Public mode should have only the direct URL card');
+  assert(!modal.innerHTML.includes('data-action="copy-dockge-tunnel"'));
+  assert(modal.innerHTML.includes('id="dockge-url"'));
+  assert(modal.innerHTML.includes('data-action="copy-dockge-url"'));
   await evaluate('configureDockgeAccess(1)');
   assert(modal.innerHTML.includes('name="port"'));
   assert(modal.innerHTML.includes('value="37123"'));
