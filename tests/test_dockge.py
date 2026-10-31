@@ -23,7 +23,7 @@ FACTS = {
     "XUI_PRESENT":"no","SUI_PRESENT":"no","UDP_51820":"free",
     "DOCKGE_PRESENT":"no","DOCKGE_TCP_5001":"free",
 }
-HOST={"name":"Dockge test","hostname":"203.0.113.22","username":"root","port":22}
+HOST={"name":"Dockge test","hostname":"8.8.8.8","username":"root","port":22}
 
 
 def test_reviewed_fork_source_recipe_and_local_port():
@@ -57,7 +57,7 @@ def test_reviewed_fork_source_recipe_and_local_port():
     assert "DOCKGE_STACKS_DIR: /opt/stacks" in scripts
     assert 'docker compose -f "$root/compose.yaml" config -q' in scripts
     assert 'docker compose -f "$root/compose.yaml" up -d --no-build' in scripts
-    assert "DOCKGE_APPS_LOCAL_READY" in scripts
+    assert "DOCKGE_APPS_READY" in scripts
     assert "DOCKGE_EXISTS" in scripts and "DOCKGE_PORT_BUSY" in scripts
     assert "netdeploy-dockge-apps" in scripts
     # Refuse an upstream Dockge running under a nonstandard container name.
@@ -109,14 +109,15 @@ def test_status_parser_only_reports_verified_local_access():
             parse_status(bad)
     assert "DOCKGE_ACCESS=local" in STATUS
     assert "dockge_local_only" in STATUS
-    assert 'HostIp":"127.0.0.1"' in BINDING_GUARD
+    assert "dockge_access_settings" in BINDING_GUARD
+    assert "dockge_bind=127.0.0.1" in BINDING_GUARD
     assert "docker container inspect" in STATUS
 
 
 def test_access_contains_no_generated_admin_credentials():
     result=local_access(HOST)
     assert result["local_url"]=="http://127.0.0.1:5001/"
-    assert result["ssh_tunnel"]=="ssh -N -p 22 -L 5001:127.0.0.1:5001 root@203.0.113.22"
+    assert result["ssh_tunnel"]=="ssh -N -p 22 -L 5001:127.0.0.1:5001 root@8.8.8.8"
     assert result["access_mode"]=="local"
     assert result["first_run_setup"] is True
     assert not any(k in result for k in ("password","username","token","secret"))
@@ -194,7 +195,7 @@ def test_api_creates_approval_only_not_automatic_install(dockge_api):
     assert job["plan"]["executable"] and len(job["plan"]["steps"])==4
     assert not fake.seen,"Creating a plan must not execute the Dockge install"
     assert store.job(job["id"])["status"]=="planned"
-    assert client.post("/api/jobs",headers=AUTH,json={"host_id":host["id"],"project":"dockge","panel_port":5001}).status_code==422
+    assert client.post("/api/jobs",headers=AUTH,json={"host_id":host["id"],"project":"dockge","panel_port":5001}).status_code==200
     assert client.get(f"/api/hosts/{host['id']}/dockge").status_code==401
 
 
@@ -262,10 +263,90 @@ def test_access_rejected_if_dockge_unmanaged_or_public(dockge_api):
 
 def test_no_docker_or_busy_port_prevents_reviewable_install(dockge_api):
     client,store,host,fake=dockge_api
-    for change in ({"DOCKER":"no"},{"COMPOSE":"no"},{"DOCKGE_TCP_5001":"busy"}):
+    for change in ({"DOCKER":"no"},{"COMPOSE":"no"}):
         fake.facts={**FACTS,**change}
         resp=client.post("/api/jobs",headers=AUTH,json={"host_id":host["id"],"project":"dockge"})
         assert resp.status_code==200,resp.text
         assert not resp.json()["plan"]["executable"]
         assert resp.json()["plan"]["steps"]==[]
         assert resp.json()["plan"]["issues"]
+
+def test_optional_port_is_random_custom_and_rejects_public_without_consent(dockge_api):
+    client, store, host, fake = dockge_api
+    auto = client.post("/api/jobs", headers=AUTH,
+                       json={"host_id":host["id"],"project":"dockge"})
+    assert auto.status_code == 200, auto.text
+    port = auto.json()["plan"]["options"]["panel_port"]
+    assert 20000 <= port <= 59999
+    assert port != host["port"]
+    assert f"127.0.0.1:{port}:5001/tcp" in auto.json()["plan"]["steps"][2]["script"]
+
+    custom = client.post("/api/jobs", headers=AUTH,
+                         json={"host_id":host["id"],"project":"dockge","panel_port":31828,
+                               "access_mode":"public","confirm_public":True})
+    assert custom.status_code == 200, custom.text
+    plan = custom.json()["plan"]
+    assert plan["options"]["panel_port"] == 31828
+    assert plan["options"]["access_mode"] == "public"
+    assert '0.0.0.0:31828:5001/tcp' in plan["steps"][2]["script"]
+    assert "DOCKGE_HOST_PORT=31828" in plan["steps"][2]["script"]
+    assert "DOCKGE_BIND=0.0.0.0" in plan["steps"][2]["script"]
+    assert "sport = :31828" in plan["steps"][0]["script"]
+    assert "DOCKGE_APPS_READY" in plan["steps"][3]["script"]
+    denied = client.post("/api/jobs",headers=AUTH,json={
+        "host_id":host["id"],"project":"dockge","access_mode":"public"})
+    assert denied.status_code == 422
+    conflict = client.post("/api/jobs",headers=AUTH,json={
+        "host_id":host["id"],"project":"dockge","panel_port":22})
+    assert conflict.status_code == 422
+
+
+def test_existing_managed_dockge_access_reconfiguration(dockge_api):
+    client, store, host, fake = dockge_api
+    fake.facts["DOCKGE_PRESENT"] = "yes"
+    fake.status = ("DOCKGE_INSTALLED=yes\nDOCKGE_MANAGED=yes\n"
+                   "DOCKGE_RUNNING=yes\nDOCKGE_PORT=5001\nDOCKGE_ACCESS=local\n")
+    resp = client.post("/api/jobs",headers=AUTH,json={
+        "host_id":host["id"],"project":"dockge-access","panel_port":45800,
+        "access_mode":"public","confirm_public":True})
+    assert resp.status_code == 200, resp.text
+    plan = resp.json()["plan"]
+    assert len(plan["steps"]) == 2
+    assert "0.0.0.0:45800:5001/tcp" in plan["steps"][1]["script"]
+    assert "restore" in plan["steps"][1]["script"]
+    assert store.job(resp.json()["id"])["status"] == "planned"
+    assert len(fake.seen) == 1, "Access task must only verify status during plan creation"
+    bad = client.post("/api/jobs",headers=AUTH,json={
+        "host_id":host["id"],"project":"dockge-access","access_mode":"public"})
+    assert bad.status_code == 422
+
+
+
+def test_remote_access_change_uses_reviewed_shell_and_rollback():
+    from app.dockge import reconfigure_steps, BINDING_GUARD
+    tasks = reconfigure_steps(37123, "public")
+    assert len(tasks) == 2
+    check, change = (x["script"] for x in tasks)
+    assert "dockge_local_only" in check
+    assert "sport = :37123" in check
+    assert '0.0.0.0:37123:5001/tcp' in change
+    assert 'trap restore EXIT' in change
+    assert 'cp -p "$backup_compose"' in change
+    assert 'docker compose -f "$root/compose.yaml" up -d --no-build' in change
+    assert "docker system prune" not in change
+    assert "docker compose down" not in change
+    assert "__NEW_PORT__" not in check + change
+    for stage in tasks:
+        result = subprocess.run(["bash", "-n"], input=stage["script"],
+                                capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+
+def test_remote_public_port_is_reported_as_direct_ipv4():
+    from app.dockge import parse_status, local_access
+    raw = "DOCKGE_INSTALLED=yes\nDOCKGE_MANAGED=yes\nDOCKGE_RUNNING=yes\nDOCKGE_PORT=44222\nDOCKGE_ACCESS=public\n"
+    status = parse_status(raw)
+    assert status["port"] == 44222
+    assert status["access_mode"] == "public"
+    url = local_access({**HOST, "hostname":"8.8.8.8"}, status)
+    assert url["direct_url"] == "http://8.8.8.8:44222/"
+    assert url["ssh_tunnel"] == "ssh -N -p 22 -L 44222:127.0.0.1:44222 root@8.8.8.8"

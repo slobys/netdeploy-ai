@@ -13,6 +13,7 @@
 <tr><td>24443（默认示例）</td><td>TCP</td><td>3X-UI 管理面板。实际端口可在安装时自定义，必须确认 HTTPS 有效后才开放。</td></tr>
 <tr><td>2095</td><td>TCP</td><td>S-UI 管理：仅在可信 HTTPS 验收成功后由本机 UFW 放行；云安全组建议只允许你的管理 IP。</td></tr>
 <tr><td>2096</td><td>TCP</td><td>S-UI 订阅端口，NetDeploy 保持 <code>127.0.0.1</code>，<strong>不开放公网</strong>。</td></tr>
+<tr><td>随机或自定义</td><td>TCP</td><td>Dockge Apps 管理端口。仅在选择公网模式后开放给可信管理 IP；SSH-only 模式不需要公网入站。</td></tr>
 <tr><td>51820</td><td>UDP</td><td>wg-easy WireGuard 隧道，需按实际使用场景放行。</td></tr>
 <tr><td>51821</td><td>TCP</td><td>wg-easy Web 管理界面默认本机监听，不直接开放公网。</td></tr>
 </tbody></table></div>

@@ -6,11 +6,14 @@ Existing upstream/manual installations and stack data are never overwritten.
 """
 from __future__ import annotations
 
+import ipaddress
+import re
+
 VERSION = "1.5.0-apps.1"
 SOURCE_REPO = "https://github.com/slobys/dockge-apps.git"
 SOURCE_SHA = "66aec693a974bd980f632f643586deab16932531"
 IMAGE = f"netdeploy/dockge-apps:{SOURCE_SHA[:12]}"
-PORT = 5001
+PORT = 5001  # The upstream container port stays fixed; host port is configurable.
 ROOT_DIR = "/opt/netdeploy/dockge"
 SOURCE_DIR = f"{ROOT_DIR}/source"
 STACKS_DIR = "/opt/stacks"
@@ -52,9 +55,9 @@ if docker container inspect dockge >/dev/null 2>&1 ||
      grep -Eq '(^|/)(louislam/dockge|dockge-apps|netdeploy/dockge-apps)(:|@)'; then
   echo 'DOCKGE_CONTAINER_EXISTS: refusing to replace a pre-existing Dockge image/container' >&2; exit 29
 fi
-if ss -Hltn 'sport = :5001' | grep -q . ||
-   test -n "$(docker ps -q --filter 'publish=5001/tcp')"; then
-  echo 'DOCKGE_PORT_BUSY: TCP 5001 already in use' >&2; exit 30
+if ss -Hltn 'sport = :__HOST_PORT__' | grep -q . ||
+   test -n "$(docker ps -q --filter 'publish=__HOST_PORT__/tcp')"; then
+  echo 'DOCKGE_PORT_BUSY: TCP __HOST_PORT__ already in use' >&2; exit 30
 fi
 echo 'DOCKGE_PREFLIGHT_OK: source build prerequisites, 5001/TCP free, no existing Dockge'
 """
@@ -134,7 +137,7 @@ services:
     container_name: netdeploy-dockge-apps
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5001:5001/tcp"
+      - "__HOST_BIND__:__HOST_PORT__:5001/tcp"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/netdeploy/dockge/data:/app/data
@@ -144,6 +147,11 @@ services:
       DOCKGE_ENABLE_CONSOLE: "false"
 NETDEPLOY_DOCKGE_APPS_COMPOSE
 chmod 600 "$root/compose.yaml"
+cat > "$root/access.conf" <<'NETDEPLOY_DOCKGE_ACCESS'
+DOCKGE_HOST_PORT=__HOST_PORT__
+DOCKGE_BIND=__HOST_BIND__
+NETDEPLOY_DOCKGE_ACCESS
+chmod 600 "$root/access.conf"
 docker compose -f "$root/compose.yaml" config -q
 # Build the actual fork source, NOT the upstream louislam/dockge application.
 # Dockerfile.apps itself uses an upstream base image (mutable), disclosed in docs.
@@ -153,14 +161,32 @@ case "$(uname -m):$actual" in
   x86_64:linux/amd64|aarch64:linux/arm64|arm64:linux/arm64) ;;
   *) echo 'DOCKGE_FORK_IMAGE_ARCH_MISMATCH' >&2; exit 32 ;;
 esac
-echo 'DOCKGE_APPS_BUILD_READY: source-built fork, localhost 5001, Apps Center enabled'
+echo 'DOCKGE_APPS_BUILD_READY: source-built fork, host port __HOST_PORT__, Apps Center enabled'
 """
 
 
-# Real Docker HostConfig binding and the exact locally built image are required.
-BINDING_GUARD = r"""dockge_local_only() {
+# Read only the two allowlisted values; NEVER source a remote config as shell.
+ACCESS_SETTINGS = r"""dockge_access_settings() {
+  record=/opt/netdeploy/dockge/access.conf
+  dockge_host_port=5001
+  dockge_bind=127.0.0.1
+  if test -e "$record" || test -L "$record"; then
+    test -f "$record" && test ! -L "$record" || return 1
+    test "$(stat -c %u "$record")" = 0 && test "$(stat -c %a "$record")" = 600 || return 1
+    test "$(grep -c '^DOCKGE_HOST_PORT=' "$record")" = 1 || return 1
+    test "$(grep -c '^DOCKGE_BIND=' "$record")" = 1 || return 1
+    dockge_host_port="$(sed -n 's/^DOCKGE_HOST_PORT=//p' "$record")"
+    dockge_bind="$(sed -n 's/^DOCKGE_BIND=//p' "$record")"
+  fi
+  case "$dockge_host_port" in *[!0-9]*|'') return 1;; esac
+  test "$dockge_host_port" -ge 1024 && test "$dockge_host_port" -le 65535 || return 1
+  case "$dockge_bind" in 127.0.0.1|0.0.0.0) ;; *) return 1;; esac
+}
+"""
+BINDING_GUARD = ACCESS_SETTINGS + r"""dockge_local_only() {
+  dockge_access_settings || return 1
   portmap="$(docker container inspect -f '{{json .HostConfig.PortBindings}}' netdeploy-dockge-apps 2>/dev/null)" || return 1
-  test "$portmap" = '{"5001/tcp":[{"HostIp":"127.0.0.1","HostPort":"5001"}]}' || return 1
+  test "$portmap" = "{\"5001/tcp\":[{\"HostIp\":\"$dockge_bind\",\"HostPort\":\"$dockge_host_port\"}]}" || return 1
   docker container inspect -f '{{.Config.Image}}' netdeploy-dockge-apps 2>/dev/null |
     grep -Fxq 'netdeploy/dockge-apps:66aec693a974' || return 1
 }
@@ -182,7 +208,7 @@ for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
   if test "$(docker container inspect -f '{{.State.Running}}' netdeploy-dockge-apps 2>/dev/null)" = true &&
      dockge_local_only; then
     response="$(curl -4 --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' --max-time 7 \
-      'http://127.0.0.1:5001/' 2>/dev/null)" || response=000
+      "http://127.0.0.1:$dockge_host_port/" 2>/dev/null)" || response=000
     case "$response" in
       200|301|302|303|307|308|401|403) ready=yes; break ;;
     esac
@@ -197,7 +223,7 @@ if test "$ready" != yes; then
   echo 'DOCKGE_VERIFY_FAILED: inspect dockge-apps logs and localhost 5001' >&2
   exit 33
 fi
-echo 'DOCKGE_APPS_LOCAL_READY: source-built Dockge Apps running on localhost 5001'
+echo 'DOCKGE_APPS_READY: source-built Dockge Apps running on TCP __HOST_PORT__, bind __HOST_BIND__'
 echo 'App Center includes Nginx Proxy Manager, IT-Tools and MyIP with editable ports'
 """
 
@@ -235,10 +261,11 @@ else
   echo 'DOCKGE_RUNNING=no'
 fi
 if dockge_local_only; then
+  printf 'DOCKGE_PORT=%s\n' "$dockge_host_port"
   code="$(curl -4 --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' --max-time 6 \
-    'http://127.0.0.1:5001/' 2>/dev/null)" || code=000
+    "http://127.0.0.1:$dockge_host_port/" 2>/dev/null)" || code=000
   case "$code" in
-    200|301|302|303|307|308|401|403) echo 'DOCKGE_ACCESS=local' ;;
+    200|301|302|303|307|308|401|403) if test "$dockge_bind" = 0.0.0.0; then echo 'DOCKGE_ACCESS=public'; else echo 'DOCKGE_ACCESS=local'; fi ;;
     *) echo 'DOCKGE_ACCESS=unverified' ;;
   esac
 else
@@ -251,13 +278,142 @@ for _name in ("VERIFY", "STATUS"):
     globals()[_name] = globals()[_name].replace("__BINDING_GUARD__", BINDING_GUARD)
 
 
-def steps() -> list[dict]:
+def validate_port(port: int) -> int:
+    if type(port) is not int or not 1024 <= port <= 65535:
+        raise ValueError("Dockge Apps 宿主机端口应为 1024–65535")
+    return port
+
+
+def steps(host_port: int = PORT, access_mode: str = "local") -> list[dict]:
+    host_port = validate_port(host_port)
+    if access_mode not in {"local", "public"}:
+        raise ValueError("未知的 Dockge Apps 访问模式")
+    bind = "0.0.0.0" if access_mode == "public" else "127.0.0.1"
+    check = CHECK.replace("__HOST_PORT__", str(host_port))
+    configure = CONFIGURE.replace("__HOST_PORT__", str(host_port)).replace("__HOST_BIND__", bind)
+    verify = VERIFY.replace("__HOST_PORT__", str(host_port)).replace("__HOST_BIND__", bind)
     return [
-        {"label": "检查 Docker、Compose、Git、5001 端口及已有 Dockge", "script": CHECK, "timeout": 45},
+        {"label": "检查 Docker、Compose、Git、目标端口及已有 Dockge", "script": check, "timeout": 45},
         {"label": "从 GitHub 下载并校验 Dockge Apps 固定源码版本", "script": FETCH, "timeout": 240},
-        {"label": "构建 Dockge Apps 镜像并生成本机受保护 Compose", "script": CONFIGURE, "timeout": 1200},
-        {"label": "启动 Dockge Apps、验证 Docker 端口和本机 Web", "script": VERIFY, "timeout": 180},
+        {"label": f"构建 Dockge Apps 并配置宿主机 {host_port}/TCP", "script": configure, "timeout": 1200},
+        {"label": f"验证 Dockge Apps {host_port}/TCP 与真实 Docker 端口绑定", "script": verify, "timeout": 180},
     ]
+
+
+
+# Only change a previously managed, live Dockge Apps instance. Existing data,
+# application source, images, stacks and credentials remain untouched.
+RECONFIGURE_CHECK = r"""set -eu
+__BINDING_GUARD__
+test "$(id -u)" = 0
+test -f /opt/netdeploy/dockge/.netdeploy-managed && test -f /opt/netdeploy/dockge/compose.yaml
+grep -Fxq 'NetDeploy managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' \
+  /opt/netdeploy/dockge/.netdeploy-managed
+test "$(docker inspect -f '{{.State.Running}}' netdeploy-dockge-apps)" = true
+dockge_local_only || {
+  echo 'DOCKGE_ACCESS_BASELINE_CHANGED: current Docker binding is not verified' >&2; exit 50
+}
+if test "$dockge_host_port" != '__NEW_PORT__'; then
+  if ss -Hltn 'sport = :__NEW_PORT__' | grep -q . ||
+     test -n "$(docker ps -q --filter 'publish=__NEW_PORT__/tcp')"; then
+    echo 'DOCKGE_ACCESS_PORT_BUSY: requested host port unavailable' >&2; exit 51
+  fi
+fi
+echo 'DOCKGE_ACCESS_CHANGE_READY: existing managed Dockge Apps verified'
+"""
+
+RECONFIGURE_APPLY = r"""set -eu
+__BINDING_GUARD__
+root=/opt/netdeploy/dockge
+test "$(id -u)" = 0
+grep -Fxq 'NetDeploy managed Dockge Apps 66aec693a974bd980f632f643586deab16932531' \
+  "$root/.netdeploy-managed" || exit 50
+dockge_local_only || exit 50
+test "$(docker inspect -f '{{.State.Running}}' netdeploy-dockge-apps)" = true || exit 50
+if test "$dockge_host_port" != '__NEW_PORT__'; then
+  if ss -Hltn 'sport = :__NEW_PORT__' | grep -q . ||
+     test -n "$(docker ps -q --filter 'publish=__NEW_PORT__/tcp')"; then
+    echo 'DOCKGE_ACCESS_PORT_BUSY' >&2; exit 51
+  fi
+fi
+old='      - "'$dockge_bind':'$dockge_host_port':5001/tcp"'
+new='      - "__NEW_BIND__:__NEW_PORT__:5001/tcp"'
+test "$(grep -Fxc "$old" "$root/compose.yaml")" = 1 || {
+  echo 'DOCKGE_COMPOSE_CHANGED: current published port must be reviewed' >&2; exit 52
+}
+test ! -L "$root/access.conf" && test ! -L "$root/compose.yaml" || exit 52
+backup_compose="$(mktemp "$root/.old-compose.XXXXXXXX")"
+backup_access="$(mktemp "$root/.old-access.XXXXXXXX")"
+cp -p "$root/compose.yaml" "$backup_compose"
+if test -f "$root/access.conf"; then
+  cp -p "$root/access.conf" "$backup_access"
+else
+  : > "$backup_access"
+fi
+umask 077
+edited="$(mktemp "$root/.new-compose.XXXXXXXX")"
+rollback=yes
+restore() {
+  if test "$rollback" = yes; then
+    cp -p "$backup_compose" "$root/compose.yaml" || true
+    if test -s "$backup_access"; then
+      cp -p "$backup_access" "$root/access.conf" || true
+    else
+      rm -f "$root/access.conf"
+    fi
+    docker compose -f "$root/compose.yaml" up -d --no-build >/dev/null 2>&1 ||
+      docker compose -f "$root/compose.yaml" stop >/dev/null 2>&1 || true
+  fi
+  rm -f "$backup_compose" "$backup_access" "$edited"
+}
+trap restore EXIT
+awk -v old="$old" -v new="$new" '
+  $0 == old { count++; print new; next }
+  { print }
+  END { if (count != 1) exit 52 }
+' "$root/compose.yaml" > "$edited" || {
+  echo 'DOCKGE_COMPOSE_UNEXPECTED: no config changed' >&2; exit 52
+}
+chmod 600 "$edited"
+mv -f "$edited" "$root/compose.yaml"
+printf 'DOCKGE_HOST_PORT=__NEW_PORT__\nDOCKGE_BIND=__NEW_BIND__\n' > "$root/access.conf"
+chmod 600 "$root/access.conf"
+docker compose -f "$root/compose.yaml" config -q
+docker compose -f "$root/compose.yaml" up -d --no-build
+ready=no
+for count in 1 2 3 4 5 6 7 8 9 10; do
+  if dockge_local_only && test "$(docker inspect -f '{{.State.Running}}' netdeploy-dockge-apps)" = true; then
+    code="$(curl -4 --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+      --max-time 7 'http://127.0.0.1:__NEW_PORT__/' 2>/dev/null)" || code=000
+    case "$code" in 200|301|302|303|307|308|401|403) ready=yes; break;; esac
+  fi
+  sleep 2
+done
+test "$ready" = yes || {
+  echo 'DOCKGE_ACCESS_VERIFY_FAILED: restoring previous binding' >&2; exit 53
+}
+rollback=no
+echo 'DOCKGE_ACCESS_CHANGE_VERIFIED: __NEW_BIND__:__NEW_PORT__'
+"""
+
+
+def reconfigure_steps(host_port: int, access_mode: str) -> list[dict]:
+    host_port = validate_port(host_port)
+    if access_mode not in {"local", "public"}:
+        raise ValueError("无效的 Dockge Apps 访问模式")
+    bind = "0.0.0.0" if access_mode == "public" else "127.0.0.1"
+    values = {"__NEW_PORT__": str(host_port), "__NEW_BIND__": bind,
+              "__BINDING_GUARD__": BINDING_GUARD}
+    output = []
+    for label, body, timeout in (
+        ("核对已安装 Dockge Apps 与目标端口", RECONFIGURE_CHECK, 45),
+        ("更新 Docker 端口映射、验证服务与安全回退", RECONFIGURE_APPLY, 110),
+    ):
+        for old, new in values.items():
+            body = body.replace(old, new)
+        output.append({"label": label, "script": body, "timeout": timeout})
+    return output
+
 
 
 def parse_status(raw: str) -> dict:
@@ -267,7 +423,10 @@ def parse_status(raw: str) -> dict:
             key, value = line.split("=", 1)
             if key in values:
                 raise ValueError("重复的 Dockge 状态字段")
-            if value not in {"yes", "no", "local", "unverified"}:
+            if key == "DOCKGE_PORT":
+                if not value.isascii() or not value.isdecimal() or not 1024 <= int(value) <= 65535:
+                    raise ValueError("Dockge 宿主机端口不合法")
+            elif value not in {"yes", "no", "local", "public", "unverified"}:
                 raise ValueError("Dockge 状态字段内容不合法")
             values[key] = value
     if values.get("DOCKGE_INSTALLED") == "no":
@@ -278,26 +437,37 @@ def parse_status(raw: str) -> dict:
         raise ValueError("Dockge 状态不完整")
     managed = values["DOCKGE_MANAGED"] == "yes"
     running = values["DOCKGE_RUNNING"] == "yes"
-    local = values["DOCKGE_ACCESS"] == "local"
+    mode = values["DOCKGE_ACCESS"]
+    port = int(values.get("DOCKGE_PORT", PORT))
     return {
         "installed": True, "managed": managed, "service": "active" if running else "inactive",
-        "access_mode": "local" if managed and running and local else "unverified",
-        "port": PORT,
+        "access_mode": mode if managed and running and mode in {"local", "public"} else "unverified",
+        "port": port,
     }
 
 
-def local_access(host: dict) -> dict:
-    """Only call after successful status verification via pinned SSH identity."""
+
+def local_access(host: dict, status: dict | None = None) -> dict:
+    """Generate routes after live SSH status checked the real Docker binding."""
     from .executor import validate_host
     validate_host(host["hostname"], host["username"], int(host["port"]))
-    ssh_port = int(host["port"])
+    status = status or {"port": PORT, "access_mode": "local"}
+    port = validate_port(status["port"])
+    mode = status["access_mode"]
+    if mode not in {"local", "public"}:
+        raise ValueError("Dockge Apps 监听未经验证")
     hostname = host["hostname"]
-    user = host["username"]
-    return {
-        "local_url": f"http://127.0.0.1:{PORT}/",
-        "ssh_tunnel": f"ssh -N -p {ssh_port} -L {PORT}:127.0.0.1:{PORT} {user}@{hostname}",
-        "access_mode": "local",
-        "port": PORT,
-        "first_run_setup": True,
-        "warning": "Dockge Apps 可以通过 Docker Socket 管理主机容器；不要公开 5001/TCP。首次进入页面请设置管理员账户。",
+    ssh_port = int(host["port"])
+    ssh_user = host["username"]
+    result = {
+        "local_url": f"http://127.0.0.1:{port}/",
+        "ssh_tunnel": f"ssh -N -p {ssh_port} -L {port}:127.0.0.1:{port} {ssh_user}@{hostname}",
+        "access_mode": mode, "port": port, "first_run_setup": True,
+        "warning": "Dockge Apps 能操作 Docker Socket；公网直连仅适合管理员初始化完成并限定来源的环境。",
     }
+    if mode == "public":
+        ip = ipaddress.ip_address(hostname)
+        if not isinstance(ip, ipaddress.IPv4Address) or not ip.is_global:
+            raise ValueError("公网直连地址要求 VPS SSH 地址是可路由的公网 IPv4")
+        result["direct_url"] = f"http://{ip}:{port}/"
+    return result

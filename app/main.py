@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import ipaddress
 import secrets
 from pathlib import Path
 from typing import Literal
@@ -44,7 +45,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.24")
+app = FastAPI(title="NetDeploy AI", version="0.3.25")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -110,7 +111,8 @@ class NewJob(BaseModel):
     host_id: int
     project: str
     panel_port: StrictInt | None = Field(default=None, ge=1024, le=65535)
-    access_mode: Literal["local", "https"] | None = None
+    access_mode: Literal["local", "https", "public"] | None = None
+    confirm_public: bool = False
     source_job_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{16}$")
 
 
@@ -190,7 +192,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.24", "security": "local-only"}
+    return {"ok": True, "version": "0.3.25", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -512,9 +514,9 @@ def dockge_access(id: int):
     status = read_existing_dockge(host)
     if not status["installed"]:
         raise HTTPException(status_code=409, detail="此 VPS 尚未安装 Dockge Apps")
-    if not status["managed"] or status["service"] != "active" or status["access_mode"] != "local":
-        raise HTTPException(status_code=409, detail="Dockge Apps 未验证为受管理的本机监听服务；不会生成不安全的访问地址")
-    return dockge_local_access(host)
+    if not status["managed"] or status["service"] != "active" or status["access_mode"] not in {"local", "public"}:
+        raise HTTPException(status_code=409, detail="Dockge Apps 访问端口或监听状态未通过安全校验")
+    return dockge_local_access(host, status)
 
 
 @app.get("/api/hosts/{id}/firewall", dependencies=[Depends(authorized)])
@@ -724,13 +726,34 @@ def new_job(body: NewJob):
         options = {**tls_options(host)}
         if body.source_job_id:
             options["source_job_id"] = body.source_job_id
-    elif body.project == "dockge":
-        if body.panel_port is not None or body.access_mode or body.source_job_id:
-            raise HTTPException(status_code=422, detail="Dockge Apps 使用固定的本机管理端口 5001，不支持这些部署参数")
-        if int(host["port"]) == DOCKGE_PORT:
-            raise HTTPException(status_code=422, detail="Dockge Apps 管理端口 5001 与 SSH 端口相同，请先调整服务器连接端口")
-        if host["facts"].get("DOCKGE_PRESENT") != "no":
-            raise HTTPException(status_code=409, detail="检测到已有原版 Dockge、Dockge Apps 或未完成的安装；不会自动迁移或覆盖")
+    elif body.project in {"dockge", "dockge-access"}:
+        if body.source_job_id:
+            raise HTTPException(status_code=422, detail="Dockge Apps 端口配置不接受原安装任务编号")
+        host_port = body.panel_port if body.panel_port is not None else secrets.randbelow(40000) + 20000
+        if host_port == int(host["port"]):
+            raise HTTPException(status_code=422, detail="Dockge Apps 管理端口不能和 SSH 端口相同")
+        mode = body.access_mode or "local"
+        if mode not in {"public", "local"}:
+            raise HTTPException(status_code=422, detail="Dockge Apps 不支持该访问方式")
+        if mode == "public":
+            if not body.confirm_public:
+                raise HTTPException(status_code=422, detail="公网直连需要明确确认 Docker 高权限、HTTP 风险及管理员初始化状态")
+            try:
+                ipv4 = ipaddress.ip_address(host["hostname"])
+                if not isinstance(ipv4, ipaddress.IPv4Address) or not ipv4.is_global:
+                    raise ValueError("not public")
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="公网直连要求 SSH 主机地址为公网 IPv4；请先更新服务器地址") from exc
+        if body.project == "dockge":
+            if host["facts"].get("DOCKGE_PRESENT") != "no":
+                raise HTTPException(status_code=409, detail="检测到已有原版 Dockge、Dockge Apps 或不完整安装；不会重装或覆盖数据")
+        else:
+            current_dockge = read_existing_dockge(host)
+            if (not current_dockge["installed"] or not current_dockge["managed"] or
+                    current_dockge["service"] != "active" or
+                    current_dockge["access_mode"] not in {"local", "public"}):
+                raise HTTPException(status_code=409, detail="只允许修改已运行且端口已验证的受管理 Dockge Apps")
+        options = {"panel_port": host_port, "access_mode": mode, "public_confirmed": bool(body.confirm_public)}
     elif body.project == "3x-ui-https":
         if body.access_mode or body.panel_port is not None:
             raise HTTPException(status_code=422, detail="现有面板的 HTTPS 升级端口由服务器实际配置决定，不能手工覆盖")

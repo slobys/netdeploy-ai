@@ -10,8 +10,8 @@ import pytest
 
 from app.catalog import build_plan
 from app.docker_runtime import (
-    PRISTINE, ENV_CHECK, OS_GUARD, KEY_FPR, APT_REPOSITORY,
-    ENGINE_INSTALL, extra_steps, setup_mode,
+    PRISTINE, ENV_CHECK, OS_GUARD, DOWNLOAD_OFFICIAL, RUN_OFFICIAL,
+    extra_steps, setup_mode,
 )
 from app.executor import SSHExecutor
 
@@ -34,14 +34,18 @@ def test_pristine_vps_combines_full_bootstrap_and_dockge_with_one_approval():
     assert "Docker Engine" in labels[2] and "Compose v2" in labels[2]
     assert "Dockge" in labels[-1]
     combined = "\n".join(step["script"] for step in plan["steps"])
-    assert "download.docker.com/linux/$ID/gpg" in combined
-    assert KEY_FPR in combined
-    assert "docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin" in combined
+    assert "https://get.docker.com" in combined
+    assert "sh -n" in combined and "--dry-run" in combined
+    assert 'sh "$script"' in combined
+    assert "sha256sum -c --status" in combined
+    assert "docker-compose-plugin" in combined
     assert "docker compose version" in combined
     assert "docker buildx version" in combined
     assert "docker compose" in combined
-    assert "DOCKGE_APPS_LOCAL_READY" in combined
+    assert "DOCKGE_APPS_READY" in combined
     assert "curl --proto '=https'" in combined
+    assert "https://get.docker.com" in DOWNLOAD_OFFICIAL
+    assert "netdeploy_docker_pristine" in RUN_OFFICIAL
     assert "netdeploy_docker_pristine" in combined
     assert "ND_DOCKER_APT_REMOVAL_BLOCKED" in combined
     for forbidden in ("curl -fsSL https://get.docker.com | bash",
@@ -160,6 +164,6 @@ def test_every_generated_step_parses_as_bash():
             r = subprocess.run(["bash", "-n"], input=stage["script"],
                                capture_output=True, text=True)
             assert r.returncode == 0, (stage["label"], r.stderr)
-    for raw in (PRISTINE, ENV_CHECK, OS_GUARD, APT_REPOSITORY, ENGINE_INSTALL):
+    for raw in (PRISTINE, ENV_CHECK, OS_GUARD, DOWNLOAD_OFFICIAL, RUN_OFFICIAL):
         r = subprocess.run(["bash", "-n"], input=raw, capture_output=True, text=True)
         assert r.returncode == 0, r.stderr

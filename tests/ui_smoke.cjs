@@ -109,7 +109,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.24';
+let runtimeVersion='0.3.25';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -198,9 +198,10 @@ const context = vm.createContext({
     if(url==='/api/hosts/1/dockge/access'){
       dockgeAccessReads++;
       return {ok:true,status:200,json:async()=>({
-        local_url:'http://127.0.0.1:5001/',
-        ssh_tunnel:'ssh -N -p 22 -L 5001:127.0.0.1:5001 root@45.32.35.195',
-        first_run_setup:true,access_mode:'local',port:5001
+        local_url:'http://127.0.0.1:'+dockgeStatus.port+'/',
+        ...(dockgeStatus.access_mode==='public'?{direct_url:'http://45.32.35.195:'+dockgeStatus.port+'/'}:{}),
+        ssh_tunnel:'ssh -N -p 22 -L '+dockgeStatus.port+':127.0.0.1:'+dockgeStatus.port+' root@45.32.35.195',
+        first_run_setup:true,access_mode:dockgeStatus.access_mode,port:dockgeStatus.port
       })};
     }
     if(url==='/api/hosts/1/s-ui'){
@@ -367,9 +368,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.24';
+  runtimeVersion='0.3.25';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.24');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.25');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -505,21 +506,38 @@ function fingerprintFor(label) {
   evaluate("state.catalog={'dockge':{name:'Dockge Apps',subtitle:'Docker Compose 与应用中心',category:'容器',deployment:'install'}};render();");
   assert(made.get('#project-grid').innerHTML.includes('Dockge'));
   assert(made.get('#project-grid').innerHTML.includes('data-project="dockge"'));
+  evaluate("chooseHost('dockge')");
+  assert(modal.innerHTML.includes('name="dockge_port"'));
+  assert(modal.innerHTML.includes('name="dockge_mode"'));
+  assert(modal.innerHTML.includes('name="dockge_confirm_public"'));
+  assert(modal.innerHTML.includes('get.docker.com'));
+  assert(modal.innerHTML.includes('留空自动随机分配'));
   dockgeStatus={installed:true,managed:true,service:'active',access_mode:'local',port:5001};
   await evaluate("createHostPlan(1,'dockge')");
-  assert(modal.innerHTML.includes('Dockge Apps 已安装，无需重复部署'));
+  assert(modal.innerHTML.includes('Dockge Apps 已安装，无需重新部署'));
   assert(modal.innerHTML.includes('id="dockge-url"'));
   assert(modal.innerHTML.includes('id="dockge-tunnel"'));
   assert(modal.innerHTML.includes('http://127.0.0.1:5001/'));
-  assert(modal.innerHTML.includes('首次打开请在 Dockge Apps 页面创建管理员'));
+  assert(modal.innerHTML.includes('先在 Dockge 创建管理员'));
   assert(!modal.innerHTML.includes('id="approve-form"'));
   assert.equal(dockgeStatusReads,1);
   assert.equal(dockgeAccessReads,1);
+  dockgeStatus={installed:true,managed:true,service:'active',access_mode:'public',port:37123};
+  await evaluate('showExistingDockge(1)');
+  assert(modal.innerHTML.includes('http://45.32.35.195:37123/'),
+    'Public mode must display the VPS IPv4 and verified custom port');
+  assert(modal.innerHTML.includes('data-action="dockge-config"'));
+  assert(modal.innerHTML.includes('服务器公网管理地址'));
+  await evaluate('configureDockgeAccess(1)');
+  assert(modal.innerHTML.includes('name="port"'));
+  assert(modal.innerHTML.includes('value="37123"'));
+  assert(modal.innerHTML.includes('name="confirm_public"'));
+
   dockgeStatus={installed:true,managed:false,service:'active',access_mode:'unverified',port:5001};
   await evaluate('showExistingDockge(1)');
-  assert(modal.innerHTML.includes('不会覆盖重装'));
+  assert(modal.innerHTML.includes('不会覆盖已有容器'));
   assert(!modal.innerHTML.includes('id="dockge-url"'));
-  assert.equal(dockgeAccessReads,1,'Unmanaged Dockge cannot retrieve an access route');
+  assert.equal(dockgeAccessReads,2,'Unmanaged Dockge cannot retrieve an access route');
   dockgeStatus={installed:false,managed:false,service:'absent',access_mode:'unavailable',port:5001};
 
   // A running job becoming completed via polling must immediately grow its

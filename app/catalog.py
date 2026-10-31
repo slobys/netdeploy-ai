@@ -12,7 +12,7 @@ from .three_x_ui import DEFAULT_PORT, VERSION as XUI_VERSION, deployment_steps, 
 from .https_upgrade import identify, https_steps
 from .s_ui import VERSION as SUI_VERSION, steps as sui_steps
 from .sui_https import https_steps as sui_https_steps
-from .dockge import VERSION as DOCKGE_VERSION, steps as dockge_steps
+from .dockge import VERSION as DOCKGE_VERSION, steps as dockge_steps, reconfigure_steps as dockge_reconfigure_steps, validate_port as dockge_validate_port
 from .docker_runtime import setup_mode as docker_setup_mode, extra_steps as docker_extra_steps
 
 CATALOG = {
@@ -64,9 +64,16 @@ CATALOG = {
         "name": "Dockge Apps", "subtitle": "Docker Compose 管理与一键应用中心", "category": "容器",
         "icon": "container", "deployment": "install", "risk": "高",
         "docs": "https://github.com/slobys/dockge-apps",
-        "summary": "从固定 Git 提交构建 slobys/dockge-apps，内置 Nginx Proxy Manager、IT-Tools、MyIP 应用中心；管理页仅本机访问。",
-        "requires": ["Debian/Ubuntu root VPS", "x86_64/ARM64", "缺少 Docker/Compose 时可自动安装官方签名 APT 版本",
-                     "Docker Socket 可用", "5001/TCP 未占用", "新装环境至少 4GB 空间", "不会覆盖原版 Dockge 或已有二开", "仅本机访问"],
+        "summary": "二开应用中心，Docker 可使用官方一键脚本安装；管理端口支持随机/自定义，公网 IP 直连需明确确认。",
+        "requires": ["Debian/Ubuntu root VPS", "x86_64/ARM64", "缺少 Docker 时使用官方 get.docker.com 一键脚本",
+                     "Docker Socket 在部署前可用", "可选择随机或指定宿主机端口", "新装环境至少 4GB 空间", "不会覆盖已有 Dockge", "公网访问需确认安全风险"],
+    },
+    "dockge-access": {
+        "name": "Dockge Apps 端口与访问设置", "subtitle": "修改管理端口或访问模式（不重装）",
+        "category": "容器", "icon": "lock", "deployment": "install", "internal": True, "risk": "高",
+        "docs": "https://slobys.github.io/netdeploy-ai/deployments.html#dockge",
+        "summary": "只修改已受管理的 Dockge Apps 端口映射；失败自动回退原配置。",
+        "requires": ["已有 NetDeploy Dockge Apps", "管理端已初始化", "SSH 信任正确", "TCP 端口空闲"],
     },
     "wg-easy": {
         "name": "wg-easy", "subtitle": "WireGuard + Web 管理界面", "category": "VPN",
@@ -190,7 +197,7 @@ docker compose -f /opt/netdeploy/wg-easy/compose.yaml config -q
 ]
 
 
-def compatibility(project: str, facts: dict[str, Any]) -> tuple[bool, list[str]]:
+def compatibility(project: str, facts: dict[str, Any], options: dict | None = None) -> tuple[bool, list[str]]:
     issues: list[str] = []
     os_id = str(facts.get("OS_ID", "")).lower()
     arch = str(facts.get("ARCH", "")).lower()
@@ -228,37 +235,50 @@ def compatibility(project: str, facts: dict[str, Any]) -> tuple[bool, list[str]]
             issues.append("未检测到 Docker Compose v2")
         if facts.get("UDP_51820") != "free":
             issues.append("UDP 51820 端口已占用，或无法可靠检测端口占用状态")
-    if project == "dockge":
+    if project in {"dockge", "dockge-access"}:
         if os_id not in {"debian", "ubuntu"}:
-            issues.append("Dockge Apps 自动安装目前仅对已验证的 Debian/Ubuntu VPS 开放")
-        docker_mode = docker_setup_mode(facts)
-        if docker_mode == "blocked":
-            issues.append("Docker/Compose 安装不完整、来源不明或存在冲突；为保护已有容器，不会自动覆盖。请检查环境后重新检测")
-        if docker_mode in {"fresh", "compose", "git"}:
-            supported = {"debian": {"12", "13"}, "ubuntu": {"22.04", "24.04", "26.04", "26.10"}}
-            if str(facts.get("OS_VERSION", "")) not in supported.get(os_id, set()):
-                issues.append("自动安装 Docker 仅支持官方已覆盖的 Debian 12/13、Ubuntu 22.04/24.04/26.04/26.10")
-            if facts.get("SYSTEMD") != "yes":
-                issues.append("Docker 自动安装需要 systemd")
-            if docker_mode == "fresh" and facts.get("GIT_AVAILABLE") not in {"yes", "no"}:
-                issues.append("无法确认 Git 状态，请更新环境检测")
-        elif facts.get("GIT_AVAILABLE") != "yes":
-            issues.append("无法确认 Git 状态")
+            issues.append("Dockge Apps 仅支持已验证的 Debian/Ubuntu VPS")
         if facts.get("SS_AVAILABLE") != "yes":
-            issues.append("缺少 ss，无法可靠判断 5001/TCP 端口占用")
-        if facts.get("DOCKGE_PRESENT") != "no":
-            issues.append("检测到已有 Dockge、Dockge Apps 或旧版检测结果不完整；不自动覆盖/迁移数据")
-        if facts.get("DOCKGE_TCP_5001") != "free":
-            issues.append("5001/TCP 已占用或状态未知，禁止未经确认的安装")
+            issues.append("需要 ss 检测管理端口状态")
+        if project == "dockge-access":
+            if facts.get("DOCKGE_PRESENT") != "yes":
+                issues.append("只能修改已安装的 Dockge Apps")
+            if facts.get("DOCKER") != "yes" or facts.get("COMPOSE") != "yes":
+                issues.append("必须有运行正常的 Docker 和 Compose")
+        else:
+            if os_id not in {"debian", "ubuntu"}:
+                issues.append("Dockge Apps 自动安装目前仅对已验证的 Debian/Ubuntu VPS 开放")
+            docker_mode = docker_setup_mode(facts)
+            if docker_mode == "blocked":
+                issues.append("Docker/Compose 安装不完整、来源不明或存在冲突；为保护已有容器，不会自动覆盖。请检查环境后重新检测")
+            if docker_mode in {"fresh", "compose", "git"}:
+                supported = {"debian": {"12", "13"}, "ubuntu": {"22.04", "24.04", "26.04", "26.10"}}
+                if str(facts.get("OS_VERSION", "")) not in supported.get(os_id, set()):
+                    issues.append("自动安装 Docker 仅支持官方已覆盖的 Debian 12/13、Ubuntu 22.04/24.04/26.04/26.10")
+                if facts.get("SYSTEMD") != "yes":
+                    issues.append("Docker 自动安装需要 systemd")
+                if docker_mode == "fresh" and facts.get("GIT_AVAILABLE") not in {"yes", "no"}:
+                    issues.append("无法确认 Git 状态，请更新环境检测")
+            elif facts.get("GIT_AVAILABLE") != "yes":
+                issues.append("无法确认 Git 状态")
+            if facts.get("SS_AVAILABLE") != "yes":
+                issues.append("缺少 ss，无法可靠判断 5001/TCP 端口占用")
+            if facts.get("DOCKGE_PRESENT") != "no":
+                issues.append("检测到已有 Dockge、Dockge Apps 或旧版检测结果不完整；不自动覆盖/迁移数据")
+            if (not options or options.get("panel_port", 5001) == 5001) and facts.get("DOCKGE_TCP_5001") != "free":
+                issues.append("默认端口 5001/TCP 已占用，请使用自定义或随机端口")
     if project == "hysteria2" and facts.get("SYSTEMD") != "yes":
         issues.append("Hysteria2 官方安装脚本需要 systemd")
-    minimum_kb = ((4_000_000 if docker_setup_mode(facts) == "fresh" else 3_000_000)
+    minimum_kb = (100_000 if project == "dockge-access" else
+                  (4_000_000 if docker_setup_mode(facts) == "fresh" else 3_000_000)
                   if project == "dockge" else
                   600_000 if project in {"3x-ui", "s-ui"} else 400_000)
     if not str(facts.get("FREE_KB", "")).isdigit():
         issues.append("无法确认根分区可用空间")
     elif int(facts["FREE_KB"]) < minimum_kb:
-        minimum_text = ("4 GB" if minimum_kb == 4_000_000 else "3 GB") if project == "dockge" else ("600 MB" if minimum_kb == 600_000 else "400 MB")
+        minimum_text = ("100 MB" if project == "dockge-access" else
+                        ("4 GB" if minimum_kb == 4_000_000 else "3 GB") if project == "dockge" else
+                        ("600 MB" if minimum_kb == 600_000 else "400 MB"))
         issues.append(f"根分区可用空间不足（至少需要 {minimum_text}）")
     return not issues, issues
 
@@ -325,6 +345,19 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
                 if "source_job_id" in options:
                     normalized["source_job_id"] = options["source_job_id"]
             options = normalized
+    elif project in {"dockge", "dockge-access"}:
+        allowed = {"panel_port", "access_mode", "public_confirmed"}
+        if set(options) - allowed:
+            raise ValueError("Dockge Apps 端口配置包含无效参数")
+        port = dockge_validate_port(options.get("panel_port", 5001))
+        mode = options.get("access_mode", "local")
+        if mode not in {"public", "local"}:
+            raise ValueError("Dockge Apps 管理方式只支持本机或公网")
+        consent = options.get("public_confirmed", False)
+        if type(consent) is not bool or (mode == "public" and not consent):
+            raise ValueError("公网模式需要明确确认 Docker 高权限与明文 HTTP 风险")
+        if options:
+            options = {"panel_port": port, "access_mode": mode, "public_confirmed": consent}
     elif project == "3x-ui-https":
         # Recovery after task history was cleared is allowed only when the API
         # independently verifies the *live* managed localhost installation.
@@ -349,7 +382,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
     elif options:
         raise ValueError("此项目暂不支持自定义部署选项")
     meta = CATALOG[project]
-    eligible, issues = compatibility(project, facts)
+    eligible, issues = compatibility(project, facts, options)
     runnable = eligible and meta["deployment"] == "install"
     if meta["deployment"] == "guided":
         issues.append("此项目暂采用人工确认的引导模式；第一阶段不执行远程安装命令")
@@ -370,7 +403,9 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
     elif runnable and project == "wg-easy":
         steps = WGEASY_STEPS
     elif runnable and project == "dockge":
-        steps = docker_extra_steps(facts) + dockge_steps()
+        steps = docker_extra_steps(facts) + dockge_steps(options.get("panel_port", 5001), options.get("access_mode", "local"))
+    elif runnable and project == "dockge-access":
+        steps = dockge_reconfigure_steps(options["panel_port"], options["access_mode"])
     else:
         steps = []
     return {
@@ -397,14 +432,19 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             "sing-box": ["安装的是内核，不会自动配置对外监听或打开端口", "APT 仓库密钥来自官方 HTTPS 地址，初版尚未固定密钥指纹", "APT 变更不会自动回滚"],
             "dockge": [
                 f"从用户二开项目 slobys/dockge-apps 固定 Git 提交构建 {DOCKGE_VERSION}；并非直接使用原版镜像",
-                "全新 Debian/Ubuntu VPS 缺少 Docker/Compose 时可在同一审批方案中自动安装官方签名 APT 软件包；不会执行在线 curl|bash 脚本",
+                "全新 VPS 缺少 Docker 时从 https://get.docker.com 下载官方一键安装脚本并做本地校验后执行；不使用 curl | bash 管道",
                 "已安装 Docker Engine 只缺 Compose 时仅对可识别的官方版本补装插件；异常、旧数据或来源不明则拒绝自动覆盖",
                 "安装 Docker 会启用服务并可能改变 iptables/容器网络规则；发布的容器端口可能绕过 UFW，请先备份并审查云防火墙",
                 "GitHub、npm、Docker Hub 和 Docker 官方 APT 软件源需可访问，APT 安装失败可能留下需要人工核对的部分状态",
-                "管理页仅绑定 VPS 127.0.0.1:5001，须建立 SSH 隧道访问；不开放公网明文 5001/TCP",
+                "宿主机端口留空随机分配，可自定义；默认 127.0.0.1，本人明确确认后可启用公网 IP:端口 HTTP，云安全组需另行限制来源",
                 "Docker Socket 具有近似 root 的管理权限；Dockge Apps 可管理 /opt/stacks 中的 Compose 栈",
                 "二开应用中心内置 Nginx Proxy Manager、IT-Tools、MyIP，可自定义端口；首次登录需创建管理员，不生成预设密码",
                 "已有原版 Dockge 或 Dockge Apps 实例不会自动迁移或替换，需手动备份及迁移；保留旧数据和容器",
+            ],
+            "dockge-access": [
+                "仅更改受管理 Dockge Apps 的 Compose 端口映射，不重建镜像、不删 Docker 数据；验证失败时还原配置",
+                "公网 HTTP 可被他人访问；确认管理员已经初始化并建议将云安全组来源限制为自己的公网 IP",
+                "Docker Socket 拥有高权限；公网开放前必须明确确认安全风险，不能把未初始化的管理页面公开",
             ],
             "wg-easy": ["需预先安装 Docker 且 Docker 网络不可与 10.42.42.0/24 冲突；不会自动修改防火墙", "Web 管理端只绑定 VPS 的 localhost，必须使用 SSH 隧道或安全反代", "容器镜像使用 v15 主版本标签，不是不可变 digest", "首次访问还需设置管理员账户及公网地址"],
             "3x-ui": [f"固定官方 {XUI_VERSION} 安装器 SHA-256 后执行，二进制由上游发布的 .sha256 校验；安装依赖可能需要联网和更改 APT 包", "自动生成账户、密码和随机 Web 路径；只在安装后明确点击查看时读取，不存入 NetDeploy 数据库或任务日志", "先将面板绑定本机 127.0.0.1；选择 HTTPS 时自动按公网 IPv4 / 域名签发证书并验证，成功后才开放公网 HTTPS，失败不开放明文 HTTP", "不会自动覆盖已有安装；失败可能留下部分文件，需要人工检查，不能盲目重试"],

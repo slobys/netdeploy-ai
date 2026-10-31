@@ -1,8 +1,8 @@
 """Audited Docker Engine + Compose plugin prerequisites for Dockge Apps.
 
-slobys/docker is the usability reference. It calls a remote curl|bash script
-and downloads standalone x86_64 Compose, so NetDeploy instead uses Docker's
-official signed Debian/Ubuntu APT repository and Docker Compose CLI plugin.
+For a pristine VPS, NetDeploy downloads the official get.docker.com
+convenience script into a local reviewed file, checks it before execution,
+and verifies Docker Engine, Buildx and the Compose v2 CLI plugin.
 Never purge, remove, upgrade, or adopt an existing Docker installation.
 """
 from __future__ import annotations
@@ -78,69 +78,78 @@ netdeploy_docker_pristine || {
 test "$(df -Pk / | awk 'NR==2 {print $4}')" -ge 4000000 || {
   echo 'ND_DOCKER_DISK_LOW: at least 4 GB free for the combined deployment' >&2; exit 43;
 }
-echo 'ND_DOCKER_CLEAN: safe to prepare an official signed APT repository'
+echo 'ND_DOCKER_CLEAN: new VPS can use the Docker official convenience installer'
 """
 
-APT_REPOSITORY = "set -eu\n" + OS_GUARD + r"""
+# The official Docker convenience script is supplied by docker/docker-install.
+# Retrieve it over TLS and execute the inspected local copy, NOT curl | bash.
+# Docker warns that this is for testing/provisioning, not unattended production.
+SCRIPT_DIR = "/var/lib/netdeploy/docker-setup"
+DOWNLOAD_OFFICIAL = r"""set -eu
 test "$(id -u)" = 0
-netdeploy_docker_supported_os || exit 41
-export DEBIAN_FRONTEND=noninteractive LC_ALL=C
-for path in /etc/apt/sources.list.d/docker.sources /etc/apt/sources.list.d/docker.list \
-            /etc/apt/keyrings/docker.asc /etc/apt/keyrings/docker.gpg; do
-  if test -e "$path" || test -L "$path"; then
-    echo 'ND_DOCKER_APT_CONFLICT: existing Docker repository or key'; exit 44
-  fi
-done
-apt-get -o DPkg::Lock::Timeout=240 update -q
-apt-get -o DPkg::Lock::Timeout=240 install -y -q ca-certificates curl gnupg git
-install -d -m 0755 /etc/apt/keyrings
-key="$(mktemp /etc/apt/keyrings/.netdeploy-docker.XXXXXXXX)"
-trap 'rm -f -- "$key"' EXIT
-. /etc/os-release
-curl --proto '=https' --tlsv1.2 -fsSL --max-time 45 \
-  "https://download.docker.com/linux/$ID/gpg" -o "$key"
-fingerprint="$(gpg --batch --with-colons --show-keys "$key" 2>/dev/null |
-  awk -F: '$1 == "fpr" {print $10; exit}')"
-test "$fingerprint" = '__KEY_FPR__' || {
-  echo 'ND_DOCKER_SIGNING_KEY_MISMATCH: refusing to trust unsigned packages' >&2; exit 45
+test ! -L /var/lib/netdeploy && test ! -L /var/lib/netdeploy/docker-setup || exit 48
+install -d -m 0700 /var/lib/netdeploy/docker-setup
+script=/var/lib/netdeploy/docker-setup/get-docker.sh
+test ! -e "$script" && test ! -L "$script" || {
+  echo 'ND_DOCKER_SCRIPT_EXISTS: review existing setup before retrying' >&2; exit 48
 }
-install -m 0644 "$key" /etc/apt/keyrings/docker.asc
-suite="$VERSION_CODENAME"
-cat > /etc/apt/sources.list.d/docker.sources <<NETDEPLOY_DOCKER_REPO
-# NetDeploy-managed Docker stable repository
-Types: deb
-URIs: https://download.docker.com/linux/$ID
-Suites: $suite
-Components: stable
-Architectures: $(dpkg --print-architecture)
-Signed-By: /etc/apt/keyrings/docker.asc
-NETDEPLOY_DOCKER_REPO
-chmod 644 /etc/apt/sources.list.d/docker.sources
-apt-get -o DPkg::Lock::Timeout=240 update -q
-echo 'ND_DOCKER_OFFICIAL_REPO_READY: verified signing fingerprint, source configured'
-""".replace("__KEY_FPR__", KEY_FPR)
+tmp="$(mktemp /var/lib/netdeploy/docker-setup/.get-docker.XXXXXXXX)"
+trap 'rm -f "$tmp"' EXIT
+curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --max-time 65 \
+  https://get.docker.com -o "$tmp" || {
+  echo 'ND_DOCKER_SCRIPT_DOWNLOAD_FAILED: cannot reach Docker official installer' >&2; exit 49
+}
+test "$(wc -c < "$tmp")" -ge 5000 || {
+  echo 'ND_DOCKER_SCRIPT_TOO_SMALL' >&2; exit 49
+}
+grep -Fq 'docker' "$tmp" && grep -Fq 'apt-get' "$tmp" || {
+  echo 'ND_DOCKER_SCRIPT_UNEXPECTED: manual review needed' >&2; exit 49
+}
+sh -n "$tmp" || {
+  echo 'ND_DOCKER_SCRIPT_SYNTAX: official script validation failed' >&2; exit 49
+}
+sh "$tmp" --dry-run >/dev/null || {
+  echo 'ND_DOCKER_SCRIPT_DRY_RUN_FAILED: do not execute unchecked script' >&2; exit 49
+}
+install -m 0700 "$tmp" "$script"
+(cd /var/lib/netdeploy/docker-setup && sha256sum get-docker.sh > get-docker.sha256)
+chmod 0600 /var/lib/netdeploy/docker-setup/get-docker.sha256
+echo 'ND_DOCKER_OFFICIAL_SCRIPT_READY: https://get.docker.com downloaded and dry-run validated'
+sha256sum "$script"
+"""
 
-ENGINE_INSTALL = r"""set -eu
+RUN_OFFICIAL = PRISTINE + r"""set -eu
 test "$(id -u)" = 0
-test -r /etc/apt/sources.list.d/docker.sources &&
-  grep -Fxq '# NetDeploy-managed Docker stable repository' /etc/apt/sources.list.d/docker.sources
-test -r /etc/apt/keyrings/docker.asc
-fingerprint="$(gpg --batch --with-colons --show-keys /etc/apt/keyrings/docker.asc 2>/dev/null |
-  awk -F: '$1 == "fpr" {print $10; exit}')"
-test "$fingerprint" = '__KEY_FPR__' || {
-  echo 'ND_DOCKER_SIGNING_KEY_MISMATCH: package installation denied' >&2; exit 45;
+netdeploy_docker_pristine || {
+  echo 'ND_DOCKER_EXISTING_INSTALL: refusing to overwrite an existing engine' >&2; exit 48
 }
-export DEBIAN_FRONTEND=noninteractive LC_ALL=C
-simulation="$(apt-get -s -o DPkg::Lock::Timeout=240 install __PACKAGES__)" || {
-  echo 'ND_DOCKER_APT_SIMULATION_FAILED: inspect package conflicts' >&2; exit 46;
+script=/var/lib/netdeploy/docker-setup/get-docker.sh
+test -f "$script" && test ! -L "$script" &&
+  test "$(stat -c %u "$script")" = 0 &&
+  test "$(stat -c %a "$script")" = 700 || exit 49
+(cd /var/lib/netdeploy/docker-setup && sha256sum -c --status get-docker.sha256) || {
+  echo 'ND_DOCKER_SCRIPT_HASH_CHANGED: do not run altered installer' >&2; exit 49
 }
-if printf '%s\n' "$simulation" | grep -Eq '^Remv[[:space:]]'; then
-  echo 'ND_DOCKER_APT_REMOVAL_BLOCKED: package plan would remove existing packages' >&2; exit 46
+sh -n "$script"
+sh "$script" --dry-run >/dev/null
+# Official Docker installer. No remote code is piped to a shell.
+sh "$script"
+# Some distributions may omit Docker's CLI plugins from the convenience bundle.
+# Fill only the missing official Docker plugin packages, never remove the engine.
+missing=''
+docker compose version >/dev/null 2>&1 || missing="$missing docker-compose-plugin"
+docker buildx version >/dev/null 2>&1 || missing="$missing docker-buildx-plugin"
+command -v git >/dev/null 2>&1 || missing="$missing git"
+if test -n "$missing"; then
+  simulation="$(apt-get -s -o DPkg::Lock::Timeout=240 install $missing)" || exit 46
+  if printf '%s\n' "$simulation" | grep -Eq '^Remv[[:space:]]'; then
+    echo 'ND_DOCKER_APT_REMOVAL_BLOCKED' >&2; exit 46
+  fi
+  apt-get -o DPkg::Lock::Timeout=240 install -y -q $missing
 fi
-apt-get -o DPkg::Lock::Timeout=240 install -y -q __PACKAGES__
 systemctl enable --now docker
-echo 'ND_DOCKER_ENGINE_READY: official Docker Engine, Buildx, Compose CLI plugin installed'
-""".replace("__KEY_FPR__", KEY_FPR).replace("__PACKAGES__", PKGS)
+echo 'ND_DOCKER_ENGINE_READY: official Docker script and Compose v2 validated'
+"""
 
 COMPOSE_CHECK = "set -eu\n" + OS_GUARD + r"""
 test "$(id -u)" = 0
@@ -225,8 +234,8 @@ def extra_steps(facts: dict) -> list[dict]:
     if mode == "fresh":
         return [
             {"label": "确认 VPS 没有旧 Docker 数据及软件包冲突", "script": FRESH_CHECK, "timeout": 50},
-            {"label": "添加 Docker 官方签名软件源并准备 Git", "script": APT_REPOSITORY, "timeout": 600},
-            {"label": "安装 Docker Engine、Buildx、Compose v2 插件", "script": ENGINE_INSTALL, "timeout": 900},
+            {"label": "下载并校验 Docker 官方 get.docker.com 一键脚本", "script": DOWNLOAD_OFFICIAL, "timeout": 150},
+            {"label": "运行已校验的 Docker Engine 官方一键脚本并补齐 Compose v2", "script": RUN_OFFICIAL, "timeout": 900},
             {"label": "检查 Docker、Compose、Buildx 与 Git 是否正常", "script": VERIFY, "timeout": 65},
         ]
     if mode == "compose":
