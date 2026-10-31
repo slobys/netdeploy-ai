@@ -134,6 +134,59 @@ class SSHExecutor:
             raise SSHError(f"远端执行退出代码 {res.returncode}：{output[-1400:]}")
         return output
 
+    def _connect_password_with_retry(self, paramiko, host: dict, password: str, deadline: float):
+        """Reconnect only before a remote command begins, under pinned SSH trust.
+
+        A temporary SSH banner/KEX reset immediately after package installation
+        must not cause the installer (or any remote command) to run twice.
+        Authentication failures, host-key changes and algorithm mismatches are
+        never retried or accepted automatically.
+        """
+        for attempt in range(3):
+            remaining = deadline - time.monotonic()
+            if remaining <= 1:
+                raise SSHError("SSH_CONNECT_TIMEOUT：SSH 重连耗尽执行时限，尚未执行远端命令")
+            client = paramiko.SSHClient()
+            try:
+                client.load_host_keys(self.config.known_hosts)
+                client.set_missing_host_key_policy(paramiko.RejectPolicy())
+                connect_timeout = min(8, max(1, remaining - 1))
+                client.connect(
+                    hostname=host["hostname"], port=int(host["port"]), username=host["username"],
+                    password=password, look_for_keys=False, allow_agent=False,
+                    timeout=connect_timeout, auth_timeout=connect_timeout,
+                    banner_timeout=connect_timeout,
+                )
+                return client
+            except (paramiko.AuthenticationException, paramiko.BadHostKeyException):
+                client.close()
+                raise
+            except paramiko.SSHException as exc:
+                client.close()
+                msg = str(exc).lower()
+                if any(reason in msg for reason in (
+                    "not found in known_hosts", "not found in known hosts",
+                    "incompatible ssh peer", "no matching", "unable to negotiate",
+                    "host key verification",
+                )):
+                    raise
+                if attempt == 2:
+                    raise
+            except (socket.timeout, TimeoutError, ConnectionResetError, EOFError):
+                client.close()
+                if attempt == 2:
+                    raise
+            except Exception:
+                client.close()
+                raise
+            # Short bounded pause permits sshd/MaxStartups to recover. Do not
+            # spend the deadline needed by the subsequent remote verification.
+            pause = (1, 2)[attempt]
+            if deadline - time.monotonic() <= pause + 2:
+                raise SSHError("SSH_CONNECT_TIMEOUT：SSH 短暂断连后重连时间不足，请只读检查 VPS")
+            time.sleep(pause)
+        raise SSHError("SSH_HANDSHAKE_FAILED：SSH 握手重试后仍失败")
+
     def _run_password(self, host: dict, script: str, timeout: int) -> str:
         """Paramiko password authentication; no shell, env, disk or DB password.
 
@@ -147,21 +200,15 @@ class SSHExecutor:
             import paramiko
         except ImportError as exc:
             raise SSHError("缺少 Paramiko 依赖，请更新安装包并执行 pip install -r requirements.txt") from exc
-        client = paramiko.SSHClient()
+        client = None
         deadline = time.monotonic() + timeout
         try:
-            client.load_host_keys(self.config.known_hosts)
-            client.set_missing_host_key_policy(paramiko.RejectPolicy())
-            connect_timeout = min(8, max(1, timeout))
-            client.connect(
-                hostname=host["hostname"], port=int(host["port"]), username=host["username"],
-                password=password, look_for_keys=False, allow_agent=False,
-                timeout=connect_timeout, auth_timeout=connect_timeout, banner_timeout=connect_timeout,
-            )
+            # Retry only the SSH connection. Never repeat the submitted script.
+            client = self._connect_password_with_retry(paramiko, host, password, deadline)
             transport = client.get_transport()
             if transport is None or not transport.is_active():
                 raise SSHError("SSH 会话未建立")
-            channel = transport.open_session(timeout=connect_timeout)
+            channel = transport.open_session(timeout=min(8, max(1, deadline - time.monotonic())))
             channel.exec_command("bash -se")
             channel.sendall(script.encode("utf-8"))
             channel.shutdown_write()
@@ -205,7 +252,8 @@ class SSHExecutor:
         except (OSError, EOFError) as exc:
             raise SSHError("SSH_NETWORK_ERROR：SSH 网络连接中断，请检查服务器地址、端口、防火墙及 sshd") from exc
         finally:
-            client.close()
+            if client is not None:
+                client.close()
 
     def preflight(self, host: dict) -> dict[str, str]:
         script = """set -eu

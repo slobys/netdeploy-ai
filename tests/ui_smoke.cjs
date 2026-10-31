@@ -109,7 +109,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.29';
+let runtimeVersion='0.3.30';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -372,9 +372,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.29';
+  runtimeVersion='0.3.30';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.29');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.30');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -402,6 +402,29 @@ function fingerprintFor(label) {
   assert(modal.innerHTML.includes('这条 HTTPS 失败记录来自旧版本脚本'));
   assert(!modal.innerHTML.includes('id="approve-form"'));
   assert(modal.innerHTML.includes('原任务执行日志'));
+
+  // A completed 3X-UI installer followed by a transient SSH handshake
+  // failure is NOT proof of failed installation. Offer read-only recovery
+  // for both historical failed and new partial task records.
+  const disconnectedInstallerLog='[2026-10-31] 通过：Official installer finished; sensitive credentials kept on VPS only\n'+
+    '[2026-10-31] 失败：SSH_HANDSHAKE_FAILED：SSH 握手失败';
+  for(const status of ['failed','partial']){
+    fill({...freshJob,status,error:'SSH_HANDSHAKE_FAILED：SSH 握手失败',
+      logs:disconnectedInstallerLog,
+      plan:{...freshJob.plan,options:{panel_port:8443,access_mode:'npm'}}});
+    evaluate("showJob('a1b2c3d4e5f6a7b8')");
+    assert(modal.innerHTML.includes('只读检查现有 3X-UI（不重装）'));
+    assert(modal.innerHTML.includes('data-action="installed-xui"'));
+    assert(modal.innerHTML.includes('安装器已返回成功 · SSH 验收中断'));
+    assert(!modal.innerHTML.includes('id="approve-form"'));
+    assert(!modal.innerHTML.includes('data-action="regenerate-plan"'),
+      'Post-install handshake failure must not offer a duplicate installer');
+  }
+  fill({...freshJob,status:'failed',error:'SSH_HOST_KEY_CHANGED',
+    logs:disconnectedInstallerLog});
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(!modal.innerHTML.includes('安装器已返回成功 · SSH 验收中断'),
+    'Pinned host-key mismatch is not a recoverable handshake error');
 
   fill({...freshJob,created_at:new Date(Date.now()-12*60*1000).toISOString()});
   evaluate('openHostConsole(1)');

@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.29 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.30 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.29';
+const CLIENT_VERSION = '0.3.30';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -69,7 +69,7 @@ async function loadAll(silent=false){
     }
   } catch(err){if(!silent)toast(err.message,true);} finally{state.loading=false;}
 }
-function stateText(status){return ({planned:'等待审批',queued:'已排队',running:'正在执行',completed:'执行完成',failed:'执行失败',interrupted:'执行中断',partial:'3X-UI 已装，HTTPS 待修复',invalidated:'服务器已重装，计划失效'})[status]||status;}
+function stateText(status){return ({planned:'等待审批',queued:'已排队',running:'正在执行',completed:'执行完成',failed:'执行失败',interrupted:'执行中断',partial:'部分完成 · 等待验收',invalidated:'服务器已重装，计划失效'})[status]||status;}
 function chip(status){const cls=status==='completed'?'success':status==='failed'||status==='interrupted'||status==='invalidated'?'error':'warn';return `<span class="chip ${cls}">${escapeHtml(stateText(status))}</span>`;}
 const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡","s-ui-https":"🔒","dockge":"▣"};
 // Single source of truth: public projects, excluding internal upgrade recipes.
@@ -84,7 +84,7 @@ function render(){
   ['已添加服务器',hosts.length,'▤','已通过 SSH 扫描 '+hosts.filter(h=>!!h.facts).length+' 台'],
   ['项目模板',projects.length,'⬡','固定、可审核的部署计划'],
   ['完成任务',jobs.filter(j=>j.status==='completed').length,'✓','安装完成仍需业务配置'],
-  ['待处理任务',jobs.filter(j=>['failed','interrupted'].includes(j.status)||(j.status==='planned'&&j.plan?.executable)).length,'⌁','需确认或排障的任务']
+  ['待处理任务',jobs.filter(j=>['failed','interrupted','partial'].includes(j.status)||(j.status==='planned'&&j.plan?.executable)).length,'⌁','需确认或排障的任务']
  ].map(([label,val,ico,desc])=>`<div class="stat"><div class="top"><span>${label}</span><span class="icon">${ico}</span></div><strong>${val}</strong><small>${desc}</small></div>`).join('');
  el('#project-grid').innerHTML = projects.map(([key,p])=>`
  <div class="project" data-project="${escapeHtml(key)}"><div class="project-head"><div class="project-icon">${symbol[key]}</div><span class="project-kind">${escapeHtml(p.category)}</span></div>
@@ -1155,6 +1155,9 @@ function showJob(id){
  state.activeJob=id;
  const p=job.plan,host=state.hosts.find(h=>h.id===job.host_id);
  const stale=(p.trust_epoch||0)!==(host?.trust_epoch||0);
+ const postInstallSshIssue=job.project==='3x-ui'&&!stale&&['failed','partial'].includes(job.status)&&
+   String(job.logs||'').includes('通过：Official installer finished; sensitive credentials kept on VPS only')&&
+   /SSH_(HANDSHAKE_FAILED|CONNECT_TIMEOUT|CONNECTION_REFUSED|NETWORK_ERROR|AUTH_FAILED)/.test(String(job.error||job.logs||''));
  let html=modalHead(`${p.name} · 部署任务`)+`<div class="toolbar">${chip(job.status)}<span class="chip">${escapeHtml(host?.name||p.hostname)}</span><span class="chip">${escapeHtml(p.options?.panel_port||'')}${p.options?.panel_port?' / TCP':''}</span></div>`;
  if(stale)html+='<div class="modal-tip warning">此任务属于服务器重装前的系统。旧登录信息和审批计划已失效，必须重新检测并创建新的部署方案。</div>';
  if(p.issues.length&&!isExistingXuiPlan(job))html+=`<div class="modal-tip warning">${p.issues.map(escapeHtml).join('；')}</div>`;
@@ -1204,10 +1207,14 @@ function showJob(id){
      <div class="modal-actions"><button class="btn subtle" data-action="installed-xui" data-id="${job.host_id}">查看已安装 3X-UI</button>
        <button class="btn subtle" data-action="close-modal">关闭</button></div>`;
  }else{
+   if(postInstallSshIssue)html+=`<section class="server-next-action pending"><span class="server-next-kicker">安装器已返回成功 · SSH 验收中断</span>
+     <h3>先检查已安装的 3X-UI，不要重复部署</h3>
+     <p>前四步已完成，但最终 SSH 握手异常，尚不能确定面板监听和防火墙是否验收通过。新版本会在执行远端命令前有限重连。恢复可信 SSH 后可点击下方按钮只读核查现有服务，不会执行安装器或改动密码。</p>
+     <button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">只读检查现有 3X-UI（不重装） →</button></section>`;
    html+=`<h3>部署状态及日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(stateText(job.status))}</div>
       <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
       <div class="modal-actions modal-action-wrap">
-       ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看面板信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||p.options?.access_mode==='npm'||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
+       ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)&&!postInstallSshIssue?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看面板信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||p.options?.access_mode==='npm'||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
        ${job.project==='s-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI 面板信息</button>${job.status==='partial'||(!['https','npm'].includes(p.options?.access_mode))?`<button class="btn subtle" data-action="sui-upgrade" data-id="${job.host_id}">继续完成 HTTPS</button>`:''}`:''}
        ${job.project==='s-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI HTTPS 面板</button>`:''}
        ${['dockge','dockge-access'].includes(job.project)&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-dockge" data-id="${job.host_id}">${p.name==='Dockge'?'查看旧版 Dockge 状态':'查看 Dockge Apps 面板信息'}</button>`:''}

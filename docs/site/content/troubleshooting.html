@@ -4,6 +4,20 @@
 <p>从 Windows PowerShell 检查：</p>
 <pre><code>Test-NetConnection YOUR_VPS_IP -Port 22</code></pre>
 <p>连接失败说明可能是云防火墙、VPS UFW、sshd 没监听、实例停机或地址/端口错误。连接成功但认证失败，才检查用户名、密码或 SSH 私钥。Google Cloud 用户先从云控制台的浏览器 SSH 入口排查。</p>
+<h2 id="ssh-postinstall">3X-UI 安装第 5 步 SSH 握手失败（SSH_HANDSHAKE_FAILED）</h2>
+<p>如果日志显示第 4/5 步 <code>Official installer finished</code>，但第 5/5 步提示 <code>SSH_HANDSHAKE_FAILED</code>，说明安装器已返回成功，<strong>只是最终 SSH 连接和验收未完成</strong>。这不能证明 3X-UI 没安装，<strong>请勿直接重复安装或清空原配置</strong>。</p>
+<ol>
+<li>更新 NetDeploy 并重启服务，刷新网页。新版会在执行远端命令<strong>之前</strong>最多尝试 3 次受信任的 SSH 连接；不会重复执行安装器、绕过主机指纹验证或自动重置 SSH。</li>
+<li>打开原来的失败/待验收任务，点击 <strong>只读检查现有 3X-UI（不重装）</strong>。它仅通过已经核对指纹的 SSH 检查服务、实际监听和本机 HTTP 响应；如果面板在运行，可继续查看原来的管理地址和凭据。</li>
+<li>如果 SSH 仍无法握手，请从云厂商浏览器控制台/串口检查 VPS 的 SSH 服务和负载。在 Ubuntu/Debian 的控制台可执行下面的只读检查命令：</li>
+</ol>
+<pre><code>sudo systemctl status ssh --no-pager
+sudo systemctl status x-ui --no-pager
+sudo ss -lntp | grep -E ':(22|8443)[[:space:]]'
+sudo journalctl -u ssh -n 40 --no-pager</code></pre>
+<p>上面的 <code>8443</code> 是示例面板端口，请替换为你安装时填写的实际端口。SSH 握手失败可能与临时负载、连接限制、sshd 状态或算法协商有关，单凭这条错误无法确定根因。<code>Test-NetConnection IP -Port 22</code> 成功只说明 TCP 可达，<strong>不代表 SSH 协议握手正常</strong>。</p>
+<p>如果提示 <code>SSH_HOST_KEY_CHANGED</code> 或 <code>SSH_ALGORITHM_MISMATCH</code>，NetDeploy 不会自动重试或跳过安全校验；请通过云服务商独立核对指纹或处理算法兼容性。面板自身即使已运行，云安全组仍须另外确认管理端口是否放行并限制来源 IP；公网明文 HTTP 有凭据泄露风险，建议用 NPM HTTPS。</p>
+
 <h2 id="fingerprint">SSH 指纹变化、信任失败</h2>
 <p>VPS 重装、系统更新了主机密钥、IP 发生回收都可能导致指纹变化。请从服务商独立控制台核对后使用 NetDeploy 的 <strong>SSH 安全 → 更新指纹</strong>；不要使用 <code>StrictHostKeyChecking=no</code> 绕过身份校验。</p>
 <h2 id="wrong-credentials">root 密码正确但仍无法登录</h2>

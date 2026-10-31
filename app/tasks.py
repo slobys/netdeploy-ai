@@ -78,7 +78,30 @@ class JobRunner:
                 and last["plan"].get("options", {}).get("access_mode") == "https"
                 and completed_steps >= 5
             )
-            if installed_locally:
+            # The pinned installer successfully exited, but the next SSH
+            # connection failed before verification could start. Reinstalling
+            # may overwrite a working panel and its initial credentials.
+            # Classify as uncertain/partial, never as verified success.
+            xui_transport_interrupted = (
+                last is not None and last["project"] == "3x-ui"
+                and len(last["plan"].get("steps", [])) == 5
+                and completed_steps == 4
+                and isinstance(exc, SSHError)
+                and msg.startswith((
+                    "SSH_HANDSHAKE_FAILED", "SSH_CONNECT_TIMEOUT",
+                    "SSH_CONNECTION_REFUSED", "SSH_NETWORK_ERROR",
+                    "SSH_AUTH_FAILED",
+                ))
+            )
+            if xui_transport_interrupted:
+                self.store.log(
+                    job_id,
+                    "3X-UI 安装器已返回成功，但 SSH 在最终验收前断开。"
+                    f"验收尚未完成：{msg}。请恢复可信 SSH 后只读检查现有面板，"
+                    "不要再次执行安装器或直接放行未经验证的面板端口。",
+                )
+                self.store.set_status(job_id, "partial", msg)
+            elif installed_locally:
                 self.store.log(job_id, f"HTTPS 未完成：{msg}；{last['project']} 原安装步骤已完成，需核查本机监听状态")
                 self.store.set_status(job_id, "partial", msg)
             else:
