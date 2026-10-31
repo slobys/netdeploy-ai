@@ -11,7 +11,7 @@
 <li>一旦密码出现在聊天、教程截图、Shell 历史或公开仓库，应视为<strong>已经泄露</strong>，立即更换，并检查近期登录记录。</li>
 </ul>
 <h2 id="gcp">Google Cloud root 密码登录特别风险</h2>
-<p>Google Cloud 官方优先推荐 OS Login、SSH 密钥和 sudo，不推荐通过 SSH 启用 root 密码认证。NetDeploy 文档的 <a href="google-cloud.html#root-password">交互式密码修改</a> 默认只更新本地密码。高风险远程 root 密码登录必须单独确认云防火墙与恢复方式；更推荐限定 SSH 访问范围并尽快回到密钥认证。</p>
+<p>如需按 <a href="google-cloud.html#root-password">谷歌云 root 密码一键修改教程</a>开启 root 密码 SSH，请务必使用自定义强密码，限制 SSH 防火墙来源 IP，并保留云控制台恢复方式。此方式风险高于 Google Cloud 推荐的 OS Login / SSH 密钥。</p>
 <h2 id="network">网络与证书</h2>
 <p>公网 HTTPS 管理服务必须验收证书身份、监听端口和对应防火墙规则。S-UI 新安装先保持本机访问，可信 IP/域名证书、自动续期与 TLS 验收成功后才开启公网 HTTPS 管理端口；失败回退本机。wg-easy 管理端仍仅本机访问。不要临时开放明文管理端口。关闭整台 UFW 不是解决连通性问题的首选办法。</p>
 <h2 id="docs">在线文档的隐私</h2>

@@ -15,4 +15,4 @@
 <h2 id="rekey">VPS 重装之后无法连接</h2>
 <p>重装系统会改变 SSH 服务器主机密钥。到可信云厂商控制台核对新指纹后，在 NetDeploy 的 <strong>SSH 安全</strong>中更新信任关系；旧的部署计划将按安全规则失效，可能需要重新生成。不要直接清空 <code>known_hosts</code> 或关闭指纹校验。</p>
 <h2 id="password-reset">修改 root 密码</h2>
-<p>如果只有 root 本地密码需要修改，不需要同时开启公网密码登录。Linux 控制台执行 <code>sudo passwd root</code> 即可。Google Cloud 的完整教程和交互式脚本在 <a href="google-cloud.html#root-password">谷歌云专题</a>。</p>
+<p>Google Cloud 用户可以参照 <a href="google-cloud.html#root-password">谷歌云 root 密码一键修改教程</a>，直接复制四行命令，并把密码替换为自己设置的强密码。开启 root 密码 SSH 前请先限制云端 SSH 入站来源 IP。</p>

@@ -69,6 +69,22 @@ class DocsTests(unittest.TestCase):
         self.assertEqual(names, expected)
         self.assertFalse(names & {".env", "known_hosts", "secrets", "data", "app", ".git"})
 
+    def test_google_cloud_root_command_is_short_and_customizable(self):
+        source = (DOCS / "content" / "google-cloud.html").read_text(encoding="utf-8")
+        blocks = re.findall(r"<pre><code>(.*?)</code></pre>", source, flags=re.S)
+        self.assertEqual(len(blocks), 1, "谷歌云教程只保留一组直接操作命令")
+        lines = blocks[0].strip().splitlines()
+        self.assertEqual(len(lines), 4)
+        self.assertEqual(lines[0], "echo 'root:YOUR_NEW_ROOT_PASSWORD' | sudo chpasswd")
+        self.assertIn("PermitRootLogin yes", lines[1])
+        self.assertIn("PasswordAuthentication yes", lines[2])
+        self.assertEqual(lines[3], "sudo reboot")
+        self.assertNotIn("chpasswd root", source)
+        self.assertNotIn("netdeploy-gcp-root-setup.sh", source)
+        self.assertIn("替换成你自己设置的强密码", source)
+        self.assertIn('id="os-login"', source)
+        self.assertIn('id="cloud-firewall"', source)
+
     def test_gcp_script_defaults_to_interactive_password_only(self):
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertIn('mode="--password-only"', source)
