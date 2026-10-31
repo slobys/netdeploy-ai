@@ -322,6 +322,8 @@ def test_existing_managed_dockge_access_reconfiguration(dockge_api):
 
 
 
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None,
+                    reason="Linux Bash syntax cannot be tested using the Windows WSL stub")
 def test_remote_access_change_uses_reviewed_shell_and_rollback():
     from app.dockge import reconfigure_steps, BINDING_GUARD
     tasks = reconfigure_steps(37123, "public")
