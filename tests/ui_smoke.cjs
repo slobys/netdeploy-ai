@@ -9,6 +9,7 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 const javascript = fs.readFileSync(path.join(root, 'app/static/app.js'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'app/static/index.html'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'app/static/app-enhanced.css'), 'utf8');
 const typographyCss = fs.readFileSync(path.join(root, 'app/static/typography.css'), 'utf8');
 const made = new Map();
@@ -108,7 +109,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.21';
+let runtimeVersion='0.3.22';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -281,6 +282,10 @@ function fingerprintFor(label) {
     'wg-easy':{name:'wg-easy',subtitle:'WireGuard + Web 管理界面',category:'VPN',deployment:'install'}
   };
   evaluate('state.section="dashboard";state.catalog=fixtures.featuredCatalog;render();');
+  assert(html.includes('id="project-nav-count"'),'The sidebar must expose a dynamically populated project counter');
+  assert(!html.includes('class="nav-count">4</span>'),'A hard-coded project count must not return');
+  assert.equal(made.get('#project-nav-count').textContent,'5',
+    'Sidebar count must match the five public catalog templates');
   const compactProjects = made.get('#project-grid').innerHTML;
   assert.equal((compactProjects.match(/class="project"/g)||[]).length,5,
     'Five featured projects remain directly visible and actionable');
@@ -319,6 +324,21 @@ function fingerprintFor(label) {
   evaluate('state.section="projects";renderSection();');
   assert(made.get('#section-subtitle').textContent.includes('共 6 个项目'));
   assert(made.get('#project-grid').innerHTML.includes('data-project="dockge"'));
+  assert.equal(made.get('#project-nav-count').textContent,'6',
+    'Sidebar must update from 5 to 6 when Dockge appears');
+  assert(made.get('#stats').innerHTML.includes('<strong>6</strong>'),
+    'Dashboard project statistic must agree with the sidebar');
+  // Hidden HTTPS upgrade recipes must not inflate the catalog count.
+  evaluate(`state.catalog={...state.catalog,'3x-ui-https':{name:'Internal',internal:true,category:'HTTPS',deployment:'install'}};render();`);
+  assert.equal(made.get('#project-nav-count').textContent,'6');
+  assert(made.get('#section-subtitle').textContent.includes('共 6 个项目'));
+  assert.equal((made.get('#project-grid').innerHTML.match(/class="project"/g)||[]).length,6);
+  // Future additions/removals should automatically update every count.
+  evaluate(`state.catalog={'sing-box':fixtures.featuredCatalog['sing-box']};render();`);
+  assert.equal(made.get('#project-nav-count').textContent,'1');
+  assert(made.get('#section-subtitle').textContent.includes('共 1 个项目'));
+  assert.equal((made.get('#project-grid').innerHTML.match(/class="project"/g)||[]).length,1);
+
 
   fill();
 
@@ -347,9 +367,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.21';
+  runtimeVersion='0.3.22';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.21');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.22');
   returnedJobs=null;
   evaluate("state.token=''");
 

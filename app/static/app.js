@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.21 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.22 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.21';
+const CLIENT_VERSION = '0.3.22';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -72,18 +72,21 @@ async function loadAll(silent=false){
 function stateText(status){return ({planned:'等待审批',queued:'已排队',running:'正在执行',completed:'执行完成',failed:'执行失败',interrupted:'执行中断',partial:'3X-UI 已装，HTTPS 待修复',invalidated:'服务器已重装，计划失效'})[status]||status;}
 function chip(status){const cls=status==='completed'?'success':status==='failed'||status==='interrupted'||status==='invalidated'?'error':'warn';return `<span class="chip ${cls}">${escapeHtml(stateText(status))}</span>`;}
 const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡","s-ui-https":"🔒","dockge":"▣"};
+// Single source of truth: public projects, excluding internal upgrade recipes.
+function catalogProjects(catalog){return Object.entries(catalog||{}).filter(([,project])=>project&&!project.internal);}
 function render(){
  const {hosts,jobs,catalog}=state;
+ const projects=catalogProjects(catalog);
  const loneInstalledXui=hosts.length===1&&hosts[0].facts?.XUI_PRESENT==='yes';
  const loneInstalledSui=hosts.length===1&&hosts[0].facts?.SUI_PRESENT==='yes';
  const loneInstalledDockge=hosts.length===1&&hosts[0].facts?.DOCKGE_PRESENT==='yes';
  el('#stats').innerHTML = [
   ['已添加服务器',hosts.length,'▤','已通过 SSH 扫描 '+hosts.filter(h=>!!h.facts).length+' 台'],
-  ['项目模板',Object.values(catalog).filter(p=>!p.internal).length,'⬡','固定、可审核的部署计划'],
+  ['项目模板',projects.length,'⬡','固定、可审核的部署计划'],
   ['完成任务',jobs.filter(j=>j.status==='completed').length,'✓','安装完成仍需业务配置'],
   ['待处理任务',jobs.filter(j=>['failed','interrupted'].includes(j.status)||(j.status==='planned'&&j.plan?.executable)).length,'⌁','需确认或排障的任务']
  ].map(([label,val,ico,desc])=>`<div class="stat"><div class="top"><span>${label}</span><span class="icon">${ico}</span></div><strong>${val}</strong><small>${desc}</small></div>`).join('');
- el('#project-grid').innerHTML = Object.entries(catalog).filter(([_,p])=>!p.internal).map(([key,p])=>`
+ el('#project-grid').innerHTML = projects.map(([key,p])=>`
  <div class="project" data-project="${escapeHtml(key)}"><div class="project-head"><div class="project-icon">${symbol[key]}</div><span class="project-kind">${escapeHtml(p.category)}</span></div>
  <h3>${escapeHtml(p.name)}</h3><p>${escapeHtml(p.subtitle)}</p><div class="project-footer">
  <span class="status ${p.deployment==='install'?'':'muted'}">${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'已安装 · 无需审批':p.deployment==='install'?'自动安装 Beta':'方案引导'}</span>
@@ -104,7 +107,9 @@ function render(){
  renderSection();
 }
 function renderSection(){
- const visibleProjects=Object.values(state.catalog).filter(p=>!p.internal).length;
+ const visibleProjects=catalogProjects(state.catalog).length;
+ const navBadge=el('#project-nav-count');
+ if(navBadge){navBadge.textContent=String(visibleProjects);navBadge.setAttribute('aria-label',`共 ${visibleProjects} 个项目`);}
  const navName={dashboard:['总览面板','运行概览','集中管理服务器与自动化部署任务'],projects:['项目中心','项目中心',`共 ${visibleProjects} 个项目 · 选择经过审核的部署模板或查看方案`],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','所有任务状态、审批和执行日志']};
  const [title,heading,sub]=navName[state.section];el('#crumb-current').textContent=title;el('#section-title').textContent=heading;el('#section-subtitle').textContent=sub;
  document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('active',b.classList.contains('nav-item')&&b.dataset.nav===state.section));

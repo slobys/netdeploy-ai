@@ -1,4 +1,4 @@
-# NetDeploy AI · v0.3.21 Alpha
+# NetDeploy AI · v0.3.22 Alpha
 
 > 一个以 VPS 为优先方向的 AI 辅助网络项目部署面板。2026-10-29 第一阶段原型（Windows SSH 主机指纹扫描修复）。 **不是生产稳定版，不要用重要 VPS 直接试错。**
 
@@ -11,6 +11,14 @@
 参考 NaiLink 的文档使用方式，新建独立的 GitHub Pages 中文手册，包含手机适配、章节导航、搜索和复制命令。仓库 `.github/workflows/docs.yml` 随 main 自动构建发布；首次需要在仓库 **Settings → Pages → Source → GitHub Actions** 启用 Pages。站点未启用前可先阅读 [文档源码](docs/site/README.md)。
 
 **谷歌云 root 密码操作：** 仅推荐交互执行 `sudo passwd root`，不在公共教程中固定密码。附加 [GCP root 辅助脚本](scripts/gcp-root-setup.sh) 默认不启用密码 SSH；可选模式属于高风险操作，请先阅读 [Google Cloud 专题](https://slobys.github.io/netdeploy-ai/google-cloud.html)。
+
+## v0.3.22：修复项目中心左侧计数未同步（Alpha）
+
+修复「项目中心」已经有 6 张实际可选项目卡片，但左侧导航数字仍固定显示 4 的问题。原 HTML 的数字已替换为动态徽标，数据完全来自项目目录中的**非内部项目**；同一个过滤逻辑同时用于左侧导航数量、项目中心说明、首页「项目模板」统计和完整目录卡片。首次加载前使用占位符，不再显示误导性的旧数字。
+
+- 当前 6 项可选项目（3X-UI、S-UI、sing-box、Hysteria2、wg-easy、Dockge）→ 左侧显示 **6**；以后新增、移除或隐藏项目也会自动刷新。
+- HTTPS 升级等内部部署项目不计入项目总数。首页依旧精选 5 张卡片；侧栏数字表示完整「项目中心」数量，不代表首页精选数量。
+- 加强前端测试：5→6→1 项动态变化、隐藏内部任务后仍是 6、卡片/统计/菜单数据一致，无需手动更新 HTML。
 
 ## v0.3.21：Dockge Docker Compose 管理面板（Alpha）
 
