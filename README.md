@@ -24,7 +24,7 @@
 | **S-UI** | 自动安装，支持 IP / 域名 HTTPS |
 | **sing-box** | 自动安装内核，服务端配置需自行完成 |
 | **wg-easy** | Docker Compose 自动部署，需完成首次设置 |
-| **[Dockge Apps](https://github.com/slobys/dockge-apps)** | 二开应用中心（NPM、IT-Tools、MyIP），源码构建；需要 Docker、Compose v2、Git |
+| **[Dockge Apps](https://github.com/slobys/dockge-apps)** | 二开应用中心（NPM、IT-Tools、MyIP）；干净 VPS 缺少 Docker/Compose 时可自动安装 |
 | **Hysteria2** | 提供部署引导，暂不支持一键安装 |
 
 ## Windows 快速开始（推荐）

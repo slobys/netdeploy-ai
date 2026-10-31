@@ -5,7 +5,7 @@
 <tr><td>S-UI</td><td>固定 v1.6.6 自动安装，支持公网 IP/域名 HTTPS 与续期</td><td>Debian/Ubuntu、root、x86_64/ARM64、2095/2096 空闲、TCP 80 ACME 可达</td></tr>
 <tr><td>sing-box</td><td>通过签名 APT 仓库安装内核</td><td>需自行创建配置、认证与监听</td></tr>
 <tr><td>wg-easy</td><td>使用 Docker Compose 安装 WireGuard 管理容器</td><td>Docker、Compose v2、51820/UDP 空闲</td></tr>
-<tr><td>Dockge Apps</td><td>从二开源码构建，支持 Docker Compose 管理与应用中心</td><td>Debian/Ubuntu、Docker、Compose v2、Git、3GB 空间、5001/TCP 空闲</td></tr>
+<tr><td>Dockge Apps</td><td>源码构建；缺 Docker 时自动安装 Engine + Compose v2</td><td>Debian/Ubuntu AMD64/ARM64；干净 VPS 至少 4GB 空间、5001/TCP 空闲</td></tr>
 <tr><td>Hysteria2</td><td>仅引导、兼容性提示与技能资料</td><td>暂未开放正式一键自动部署</td></tr>
 </tbody></table></div>
 <h2 id="three-x-ui">3X-UI · Xray 面板</h2>
@@ -37,11 +37,12 @@ ssh -N -p 22 -L 2095:127.0.0.1:2095 root@YOUR_VPS_IP</code></pre>
 <p>NetDeploy 已把原版 Dockge 的新安装模板替换为二开项目 <a href="https://github.com/slobys/dockge-apps">slobys/dockge-apps</a>（源码版本 <code>1.5.0-apps.1</code>）。内置 <strong>Nginx Proxy Manager、IT-Tools、MyIP</strong>，可在应用中心选择安装并调整应用端口。</p>
 <div class="callout"><strong>从固定源码构建，不是拉取原版面板</strong><p>二开仓库目前没有发布独立 Docker 镜像。NetDeploy 从 GitHub 下载并核对固定源码提交 <code>66aec693a974</code>，用仓库的 <code>docker/Dockerfile.apps</code> 构建本机镜像 <code>netdeploy/dockge-apps:66aec693a974</code>。构建所用的上游 Docker 基础镜像不是不可变 digest；新源码版本需在 NetDeploy 更新后明确审核。</p></div>
 <ol>
-<li>在 Debian / Ubuntu VPS 上先准备 Docker Engine、Compose v2、Git，确保可访问 GitHub、npm、Docker Hub，有至少约 3GB 空闲空间，TCP 5001 没有冲突。</li>
-<li>打开 <strong>项目中心 → Dockge Apps → 部署项目</strong>，选 VPS 并审批 4 步计划：安全检查、下载并校验源码、构建镜像、启动验收。</li>
+<li>在 Debian 12/13 或 Ubuntu 22.04/24.04/26.04/26.10 VPS 上选择 Dockge Apps。若是没有 Docker 的干净系统，会自动把 Docker Engine、Buildx、Compose v2 插件及 Git 纳入部署计划；已有可用环境则跳过。全新环境建议至少 4GB 空间，TCP 5001 不得占用。</li>
+<li>打开 <strong>项目中心 → Dockge Apps → 部署项目</strong>，选 VPS 并查看自动检测生成的计划：Docker/Compose 已就绪时为 4 步，干净 VPS 缺依赖时为 <strong>8 步</strong>，仅缺官方 Compose 插件时为 7 步。<strong>一次审批后自动先装依赖、再构建并启动 Dockge Apps</strong>，不用再进 SSH 执行手工命令。</li>
 <li>NetDeploy 保持数据目录 <code>/opt/netdeploy/dockge/data</code>，源码保存在 <code>/opt/netdeploy/dockge/source</code>，Compose 文件为 <code>/opt/netdeploy/dockge/compose.yaml</code>。项目栈目录 <code>/opt/stacks</code> 不会被删除或移动。</li>
 <li>安装完成后点击 <strong>查看 Dockge Apps 面板信息</strong>，复制 SSH 隧道命令。在 Windows PowerShell 运行并保持窗口打开，再访问 <code>http://127.0.0.1:5001/</code>。第一次访问需在 Web 中创建管理员账号。</li>
 </ol>
+<div class="callout"><strong>自动安装 Docker 的安全策略</strong><p>本功能参考 <a href="https://github.com/slobys/docker">slobys/docker</a> 的一键安装体验，但不会执行其 <code>curl | bash</code> 远程脚本，也不会安装仅限 x86_64 的旧式 <code>docker-compose</code> 独立程序。NetDeploy 使用 <a href="https://docs.docker.com/engine/install/debian/">Docker 官方签名 APT 软件源</a>及 <code>docker-compose-plugin</code>，检查签名密钥和安装冲突；已有旧容器、未知版本或残留目录时禁止自动覆盖。</p><p>安装 Docker 可能更改宿主机 iptables / 网络转发规则，部分 Docker 容器端口可能绕过 UFW。务必事先备份、审核计划及云防火墙设置。APT 或网络失败可能留下部分软件包，需要先检查真实 VPS 状态再重试。</p></div>
 <pre><code># SSH 隧道示例：实际地址与端口请使用面板提供的命令
 ssh -N -p 22 -L 5001:127.0.0.1:5001 root@YOUR_VPS_IP</code></pre>
 <div class="callout warn"><strong>已有原版 Dockge 不会自动升级或迁移</strong><p>已安装的 <code>louislam/dockge</code>、手动安装的 Dockge Apps 或不完整目录都会触发保护，停止新安装，避免覆盖账号、Stack 和容器数据。如要迁移，请先备份并单独处理，不要用强制重装替代迁移。</p></div>

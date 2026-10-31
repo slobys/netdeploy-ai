@@ -109,7 +109,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.23';
+let runtimeVersion='0.3.24';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -367,9 +367,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.23';
+  runtimeVersion='0.3.24';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.23');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.24');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -441,6 +441,31 @@ function fingerprintFor(label) {
   await rekeyForm.dispatch('submit',{preventDefault(){},currentTarget:rekeyForm});
   assert.equal(rekeyCount,1,'Explicit confirmation after independent verification should update trust once');
   trustCheck=false;
+
+  // Old Dockge plans that used to stop at missing Docker must offer a new
+  // one-approval Docker+Compose+Dockge plan instead of trapping the user.
+  fill({...freshJob,project:'dockge',plan:{...freshJob.plan,
+    project:'dockge',name:'Dockge Apps',executable:false,steps:[],
+    issues:['Docker/Compose 未安装'],requires:[],warnings:[]}});
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('新版可自动准备 Docker 与 Compose'));
+  assert(modal.innerHTML.includes('data-action="regenerate-plan"'));
+  assert(!modal.innerHTML.includes('id="approve-form"'));
+
+  const dockerSteps=Array.from({length:8},(_,i)=>({
+    label:i<4?'安装 Docker Engine 与 Compose '+i:'部署 Dockge Apps '+i,
+    timeout:90,script:'echo reviewed',
+  }));
+  fill({...freshJob,project:'dockge',plan:{...freshJob.plan,
+    project:'dockge',name:'Dockge Apps',executable:true,steps:dockerSteps,
+    issues:[],requires:[],warnings:[]}});
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('将自动先安装缺少的 Docker / Compose / Git'));
+  assert(modal.innerHTML.includes('8 个受控执行阶段'));
+  assert(modal.innerHTML.includes('确认安装依赖并部署 Dockge Apps'));
+  assert(modal.innerHTML.includes('id="approve-form"'),
+    'Install scripts must not run before the user approves the entire plan');
+  fill();
 
   // An existing 3X-UI must open read-only information without a new plan.
   fill({...freshJob,status:'planned',plan:{...freshJob.plan,executable:false,steps:[],

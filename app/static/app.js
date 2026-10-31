@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.23 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.24 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.23';
+const CLIENT_VERSION = '0.3.24';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -1023,7 +1023,7 @@ function chooseHost(project){
  <div class="form-group"><label>目标服务器</label><select name="host_id" id="plan-host-id" required>${state.hosts.map(h=>`<option value="${h.id}">${escapeHtml(h.name)} (${escapeHtml(h.hostname)})</option>`).join('')}</select></div>
  ${project==='3x-ui'||project==='s-ui'?`${project==='3x-ui'?'<details><summary class="mini">高级设置（可选）：面板端口，默认 24443</summary><div class="form-group"><label>3X-UI 管理端口</label><input name="panel_port" type="number" min="1024" max="65535" value="24443" required/></div></details>':'<div class="modal-tip">S-UI 管理端口固定 2095/TCP；订阅 2096/TCP 始终仅本机监听，不直接开放公网。</div>'}
  <div class="modal-tip"><b id="cert-type-preview">证书类型自动识别中</b> — SSH 使用 VPS 公网 IPv4；填写 HTTPS 域名就申请域名证书，否则申请 IP 短期证书。需放行公网 TCP 80 验证，成功后才开启 HTTPS，失败不开放公网明文 HTTP。</div>`:''}
- ${project==='dockge'?'<div class="modal-tip warning"><b>Dockge Apps：需要 Docker、Compose v2、Git 与至少 3GB 空间。</b>从 slobys/dockge-apps 固定源码构建，内置 NPM、IT-Tools、MyIP 应用中心；Docker Socket 权限较高，Web 仅绑定 VPS 本机 127.0.0.1:5001，通过 SSH 隧道访问。已有原版不会自动迁移。</div>':''}
+ ${project==='dockge'?'<div class="modal-tip warning"><b>Dockge Apps：可自动补齐 Docker Engine、Compose v2 和 Git。</b>全新 Debian / Ubuntu VPS 缺少依赖时会生成一次审批的连续安装方案；已安装的 Docker 会保持不变，遇到冲突或不完整安装会停止并提示排查。Docker 会管理防火墙规则，容器端口可能绕过 UFW。管理面板仍仅绑定 VPS 本机 127.0.0.1:5001，通过 SSH 隧道访问。</div>':''}
  <div class="modal-tip">仅生成可审查的部署计划；确认所有步骤和风险后仍需单独审批执行。</div>
  <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">自动检测并生成方案 →</button></div></form>`);
  if(project==='3x-ui'||project==='s-ui'){
@@ -1068,6 +1068,10 @@ function showJob(id){
      <h3>这份审批计划来自更新前的版本</h3><p>3X-UI HTTPS 命令已修复，旧计划不能直接用。点击下面按钮重新检测并生成当前版本的固定方案；不会立即改动 VPS。</p>
      <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">更新为最新 HTTPS 修复方案 →</button>
    </section>`;
+ }else if(job.status==='planned'&&job.project==='dockge'&&!p.executable&&!stale){
+   html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧版 Docker 前置条件</span>
+     <h3>新版可自动准备 Docker 与 Compose</h3><p>这份旧计划不能直接执行。重新检测当前 VPS，若没有 Docker 且不存在旧容器数据，会自动生成先安装 Docker 环境、再部署 Dockge Apps 的完整方案。已有不完整安装仍会受到保护。</p>
+     <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测并生成一键部署方案 →</button></section>`;
  }else if(job.status==='planned'&&p.executable&&!stale&&isPlanExpired(job)){
    html+=`<section class="server-next-action pending"><span class="server-next-kicker">需要更新计划</span>
      <h3>部署计划已超过 10 分钟</h3><p>为防止服务器环境发生变化，点击下方按钮重新检测并生成最新计划。此操作不会直接安装软件。</p>
@@ -1075,13 +1079,15 @@ function showJob(id){
    </section>`;
  }else if(job.status==='planned'&&p.executable&&!stale){
    const isXui=job.project==='3x-ui'||job.project==='3x-ui-https';
+   const dockerPrep=job.project==='dockge'&&p.steps.length>4;
+   const dockerNote=dockerPrep?'<div class="modal-tip warning"><b>将自动先安装缺少的 Docker / Compose / Git。</b>仅在通过安全检查且你审批后执行。Docker Engine 可能修改 iptables 及容器转发规则；部分容器端口可能绕过 UFW。已有 Docker 或数据冲突不会被强制覆盖，随后继续 Dockge Apps 安装。</div>':'';
    html+=`<div class="plan-overview"><h3>${job.project==='3x-ui-https'?'继续配置已安装的 3X-UI HTTPS（不重装）':job.project==='s-ui-https'?'继续配置已安装的 S-UI HTTPS（不重装）':job.project==='s-ui'&&p.options?.access_mode==='https'?'一键安装 S-UI 并申请 IP/域名证书':isXui?'一键安装 3X-UI 并配置 HTTPS':'准备部署 '+escapeHtml(p.name)}</h3>
      <p>目标：${escapeHtml(host?.hostname||p.hostname)} · ${p.steps.length} 个受控执行阶段 · 风险：${escapeHtml(p.risk)}</p>
-     <div class="modal-tip warning">审批一次后将执行已固定的安装步骤；包括 APT 依赖处理、证书签发（如果需要）和所需的本机 UFW 端口规则。云厂商安全组仍需另行放行；建议先备份 VPS。</div></div>
+     ${dockerNote}<div class="modal-tip warning">审批一次后将执行已固定的安装步骤；包括 APT 依赖处理、证书签发（如果需要）和所需的本机 UFW 端口规则。云厂商安全组仍需另行放行；建议先备份 VPS。</div></div>
      <form id="approve-form"><div class="modal-actions plan-primary-actions">
        <button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>
        <button type="button" class="btn ghost" data-action="close-modal">暂不部署</button>
-       <button class="btn primary" type="submit">${['3x-ui-https','s-ui-https'].includes(job.project)?'确认继续 HTTPS（不重装）':'确认并一键部署'}</button>
+       <button class="btn primary" type="submit">${['3x-ui-https','s-ui-https'].includes(job.project)?'确认继续 HTTPS（不重装）':dockerPrep?'确认安装依赖并部署 Dockge Apps':'确认并一键部署'}</button>
      </div></form>`;
  }else if(isExistingXuiPlan(job)&&!stale){
    html+=`<section class="server-next-action is-ready"><span class="server-next-kicker">已安装 · 无需审批</span>

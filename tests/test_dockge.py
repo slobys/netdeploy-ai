@@ -76,7 +76,7 @@ def test_reviewed_fork_source_recipe_and_local_port():
     {"DOCKGE_PRESENT":"yes"}, {"DOCKGE_PRESENT":"unknown"}, {"DOCKGE_PRESENT":None},
     {"DOCKGE_TCP_5001":"busy"}, {"DOCKGE_TCP_5001":"unknown"},
     {"SS_AVAILABLE":"no"}, {"OS_ID":"alpine"}, {"UID":"1000"},
-    {"ARCH":"mips64"}, {"FREE_KB":"350000"}, {"FREE_KB":"900000"}, {"FREE_KB":"2700000"}, {"GIT_AVAILABLE":"no"},
+    {"ARCH":"mips64"}, {"FREE_KB":"350000"}, {"FREE_KB":"900000"}, {"FREE_KB":"2700000"},
 ])
 def test_dockge_incompatible_host_fails_closed(bad):
     plan=build_plan("dockge",{**FACTS,**bad})
@@ -197,6 +197,36 @@ def test_api_creates_approval_only_not_automatic_install(dockge_api):
     assert client.post("/api/jobs",headers=AUTH,json={"host_id":host["id"],"project":"dockge","panel_port":5001}).status_code==422
     assert client.get(f"/api/hosts/{host['id']}/dockge").status_code==401
 
+
+
+def test_api_generates_single_approval_docker_and_dockge_plan(dockge_api):
+    client, store, host, fake = dockge_api
+    fake.facts = {**FACTS, "DOCKER":"no", "COMPOSE":"no",
+                  "DOCKER_SETUP":"clean", "GIT_AVAILABLE":"no", "FREE_KB":"6500000"}
+    response = client.post("/api/jobs", headers=AUTH, json={
+        "host_id":host["id"], "project":"dockge"})
+    assert response.status_code == 200, response.text
+    job = response.json()
+    assert job["status"] == "planned"
+    assert job["plan"]["executable"]
+    assert len(job["plan"]["steps"]) == 8
+    assert "Docker Engine" in job["plan"]["steps"][2]["label"]
+    assert "Dockge" in job["plan"]["steps"][4]["label"]
+    assert not fake.seen, "Plan creation must never install Docker before approval"
+    assert store.job(job["id"])["status"] == "planned"
+
+
+def test_api_rejects_unsafe_existing_docker_without_touching_it(dockge_api):
+    client, store, host, fake = dockge_api
+    fake.facts = {**FACTS, "DOCKER":"no", "COMPOSE":"no", "DOCKER_SETUP":"blocked"}
+    response = client.post("/api/jobs", headers=AUTH, json={
+        "host_id":host["id"], "project":"dockge"})
+    assert response.status_code == 200, response.text
+    plan = response.json()["plan"]
+    assert not plan["executable"]
+    assert plan["steps"] == []
+    assert "不完整" in "；".join(plan["issues"])
+    assert not fake.seen
 
 def test_existing_dockge_is_never_overwritten_and_status_has_no_credentials(dockge_api):
     client,store,host,fake=dockge_api

@@ -13,6 +13,7 @@ from .https_upgrade import identify, https_steps
 from .s_ui import VERSION as SUI_VERSION, steps as sui_steps
 from .sui_https import https_steps as sui_https_steps
 from .dockge import VERSION as DOCKGE_VERSION, steps as dockge_steps
+from .docker_runtime import setup_mode as docker_setup_mode, extra_steps as docker_extra_steps
 
 CATALOG = {
     "3x-ui": {
@@ -64,8 +65,8 @@ CATALOG = {
         "icon": "container", "deployment": "install", "risk": "高",
         "docs": "https://github.com/slobys/dockge-apps",
         "summary": "从固定 Git 提交构建 slobys/dockge-apps，内置 Nginx Proxy Manager、IT-Tools、MyIP 应用中心；管理页仅本机访问。",
-        "requires": ["Debian/Ubuntu root VPS", "x86_64/ARM64", "Docker Engine、Compose v2、Git",
-                     "Docker Socket 可用", "5001/TCP 未占用", "至少 3GB 可用空间", "不会覆盖原版 Dockge 或已有二开", "仅本机访问"],
+        "requires": ["Debian/Ubuntu root VPS", "x86_64/ARM64", "缺少 Docker/Compose 时可自动安装官方签名 APT 版本",
+                     "Docker Socket 可用", "5001/TCP 未占用", "新装环境至少 4GB 空间", "不会覆盖原版 Dockge 或已有二开", "仅本机访问"],
     },
     "wg-easy": {
         "name": "wg-easy", "subtitle": "WireGuard + Web 管理界面", "category": "VPN",
@@ -230,12 +231,19 @@ def compatibility(project: str, facts: dict[str, Any]) -> tuple[bool, list[str]]
     if project == "dockge":
         if os_id not in {"debian", "ubuntu"}:
             issues.append("Dockge Apps 自动安装目前仅对已验证的 Debian/Ubuntu VPS 开放")
-        if facts.get("DOCKER") != "yes":
-            issues.append("Dockge Apps 需要先安装并启动 Docker Engine；不会修改宿主机 Docker")
-        if facts.get("COMPOSE") != "yes":
-            issues.append("Dockge Apps 需要 Docker Compose v2 插件")
-        if facts.get("GIT_AVAILABLE") != "yes":
-            issues.append("Dockge Apps 需要 Git，用于下载并校验固定源码版本")
+        docker_mode = docker_setup_mode(facts)
+        if docker_mode == "blocked":
+            issues.append("Docker/Compose 安装不完整、来源不明或存在冲突；为保护已有容器，不会自动覆盖。请检查环境后重新检测")
+        if docker_mode in {"fresh", "compose", "git"}:
+            supported = {"debian": {"12", "13"}, "ubuntu": {"22.04", "24.04", "26.04", "26.10"}}
+            if str(facts.get("OS_VERSION", "")) not in supported.get(os_id, set()):
+                issues.append("自动安装 Docker 仅支持官方已覆盖的 Debian 12/13、Ubuntu 22.04/24.04/26.04/26.10")
+            if facts.get("SYSTEMD") != "yes":
+                issues.append("Docker 自动安装需要 systemd")
+            if docker_mode == "fresh" and facts.get("GIT_AVAILABLE") not in {"yes", "no"}:
+                issues.append("无法确认 Git 状态，请更新环境检测")
+        elif facts.get("GIT_AVAILABLE") != "yes":
+            issues.append("无法确认 Git 状态")
         if facts.get("SS_AVAILABLE") != "yes":
             issues.append("缺少 ss，无法可靠判断 5001/TCP 端口占用")
         if facts.get("DOCKGE_PRESENT") != "no":
@@ -244,12 +252,13 @@ def compatibility(project: str, facts: dict[str, Any]) -> tuple[bool, list[str]]
             issues.append("5001/TCP 已占用或状态未知，禁止未经确认的安装")
     if project == "hysteria2" and facts.get("SYSTEMD") != "yes":
         issues.append("Hysteria2 官方安装脚本需要 systemd")
-    minimum_kb = (3_000_000 if project == "dockge" else
+    minimum_kb = ((4_000_000 if docker_setup_mode(facts) == "fresh" else 3_000_000)
+                  if project == "dockge" else
                   600_000 if project in {"3x-ui", "s-ui"} else 400_000)
     if not str(facts.get("FREE_KB", "")).isdigit():
         issues.append("无法确认根分区可用空间")
     elif int(facts["FREE_KB"]) < minimum_kb:
-        minimum_text = "3 GB" if project == "dockge" else "600 MB" if minimum_kb == 600_000 else "400 MB"
+        minimum_text = ("4 GB" if minimum_kb == 4_000_000 else "3 GB") if project == "dockge" else ("600 MB" if minimum_kb == 600_000 else "400 MB")
         issues.append(f"根分区可用空间不足（至少需要 {minimum_text}）")
     return not issues, issues
 
@@ -361,7 +370,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
     elif runnable and project == "wg-easy":
         steps = WGEASY_STEPS
     elif runnable and project == "dockge":
-        steps = dockge_steps()
+        steps = docker_extra_steps(facts) + dockge_steps()
     else:
         steps = []
     return {
@@ -388,7 +397,10 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             "sing-box": ["安装的是内核，不会自动配置对外监听或打开端口", "APT 仓库密钥来自官方 HTTPS 地址，初版尚未固定密钥指纹", "APT 变更不会自动回滚"],
             "dockge": [
                 f"从用户二开项目 slobys/dockge-apps 固定 Git 提交构建 {DOCKGE_VERSION}；并非直接使用原版镜像",
-                "需要已有 Docker、Compose v2、Git 和较充足的构建空间；GitHub、npm、Docker Hub 必须可访问",
+                "全新 Debian/Ubuntu VPS 缺少 Docker/Compose 时可在同一审批方案中自动安装官方签名 APT 软件包；不会执行在线 curl|bash 脚本",
+                "已安装 Docker Engine 只缺 Compose 时仅对可识别的官方版本补装插件；异常、旧数据或来源不明则拒绝自动覆盖",
+                "安装 Docker 会启用服务并可能改变 iptables/容器网络规则；发布的容器端口可能绕过 UFW，请先备份并审查云防火墙",
+                "GitHub、npm、Docker Hub 和 Docker 官方 APT 软件源需可访问，APT 安装失败可能留下需要人工核对的部分状态",
                 "管理页仅绑定 VPS 127.0.0.1:5001，须建立 SSH 隧道访问；不开放公网明文 5001/TCP",
                 "Docker Socket 具有近似 root 的管理权限；Dockge Apps 可管理 /opt/stacks 中的 Compose 栈",
                 "二开应用中心内置 Nginx Proxy Manager、IT-Tools、MyIP，可自定义端口；首次登录需创建管理员，不生成预设密码",
