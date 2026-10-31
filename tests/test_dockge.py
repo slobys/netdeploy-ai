@@ -193,11 +193,29 @@ def test_api_creates_approval_only_not_automatic_install(dockge_api):
     job=resp.json()
     assert job["status"]=="planned"
     assert job["plan"]["executable"] and len(job["plan"]["steps"])==4
+    assert job["plan"]["options"]["access_mode"] == "public"
+    assert job["plan"]["options"]["public_confirmed"] is True
+    assigned = job["plan"]["options"]["panel_port"]
+    assert f"0.0.0.0:{assigned}:5001/tcp" in job["plan"]["steps"][2]["script"]
     assert not fake.seen,"Creating a plan must not execute the Dockge install"
     assert store.job(job["id"])["status"]=="planned"
     assert client.post("/api/jobs",headers=AUTH,json={"host_id":host["id"],"project":"dockge","panel_port":5001}).status_code==200
     assert client.get(f"/api/hosts/{host['id']}/dockge").status_code==401
 
+
+
+def test_default_public_plan_still_requires_explicit_execution_approval(dockge_api):
+    client, store, host, fake = dockge_api
+    created = client.post("/api/jobs",headers=AUTH,json={"host_id":host["id"],"project":"dockge"})
+    assert created.status_code == 200, created.text
+    job = store.job(created.json()["id"])
+    assert job["plan"]["options"]["access_mode"] == "public"
+    legacy_phrase = main.runner.approval_text(job, store.host(host["id"]))
+    rejected = client.post(f"/api/jobs/{job['id']}/approve",headers=AUTH,
+                           json={"confirmation":legacy_phrase,"confirmed_risk":False})
+    assert rejected.status_code == 409, rejected.text
+    assert "公网" in rejected.json()["detail"]
+    assert store.job(job["id"])["status"] == "planned"
 
 
 def test_api_generates_single_approval_docker_and_dockge_plan(dockge_api):
@@ -279,7 +297,8 @@ def test_optional_port_is_random_custom_and_rejects_public_without_consent(dockg
     port = auto.json()["plan"]["options"]["panel_port"]
     assert 20000 <= port <= 59999
     assert port != host["port"]
-    assert f"127.0.0.1:{port}:5001/tcp" in auto.json()["plan"]["steps"][2]["script"]
+    assert auto.json()["plan"]["options"]["access_mode"] == "public"
+    assert f"0.0.0.0:{port}:5001/tcp" in auto.json()["plan"]["steps"][2]["script"]
 
     custom = client.post("/api/jobs", headers=AUTH,
                          json={"host_id":host["id"],"project":"dockge","panel_port":31828,

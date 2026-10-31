@@ -45,7 +45,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.25")
+app = FastAPI(title="NetDeploy AI", version="0.3.26")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -192,7 +192,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.25", "security": "local-only"}
+    return {"ok": True, "version": "0.3.26", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -732,11 +732,15 @@ def new_job(body: NewJob):
         host_port = body.panel_port if body.panel_port is not None else secrets.randbelow(40000) + 20000
         if host_port == int(host["port"]):
             raise HTTPException(status_code=422, detail="Dockge Apps 管理端口不能和 SSH 端口相同")
-        mode = body.access_mode or "local"
+        # A new Dockge Apps plan defaults to direct IP + host port. Planning
+        # never deploys anything; public execution requires confirmed_risk
+        # during the separate approval action below.
+        public_default_plan = body.project == "dockge" and body.access_mode is None
+        mode = body.access_mode or ("public" if public_default_plan else "local")
         if mode not in {"public", "local"}:
             raise HTTPException(status_code=422, detail="Dockge Apps 不支持该访问方式")
         if mode == "public":
-            if not body.confirm_public:
+            if not (body.confirm_public or public_default_plan):
                 raise HTTPException(status_code=422, detail="公网直连需要明确确认 Docker 高权限、HTTP 风险及管理员初始化状态")
             try:
                 ipv4 = ipaddress.ip_address(host["hostname"])
@@ -753,7 +757,8 @@ def new_job(body: NewJob):
                     current_dockge["service"] != "active" or
                     current_dockge["access_mode"] not in {"local", "public"}):
                 raise HTTPException(status_code=409, detail="只允许修改已运行且端口已验证的受管理 Dockge Apps")
-        options = {"panel_port": host_port, "access_mode": mode, "public_confirmed": bool(body.confirm_public)}
+        options = {"panel_port": host_port, "access_mode": mode,
+                   "public_confirmed": bool(body.confirm_public or public_default_plan)}
     elif body.project == "3x-ui-https":
         if body.access_mode or body.panel_port is not None:
             raise HTTPException(status_code=422, detail="现有面板的 HTTPS 升级端口由服务器实际配置决定，不能手工覆盖")
@@ -857,6 +862,8 @@ def approve_job(id: str, body: Approval):
     if current != host["facts"]:
         store.save_facts(host["id"], current)
         host["facts"] = current
+    if job["project"] in {"dockge", "dockge-access"} and job["plan"].get("options", {}).get("access_mode") == "public" and not body.confirmed_risk:
+        raise HTTPException(status_code=409, detail="公网 Dockge Apps 部署必须在审阅安全提示后明确点击风险确认，不接受旧版文本代替")
     if not body.confirmed_risk and body.confirmation != runner.approval_text(job, host):
         raise HTTPException(status_code=409, detail="请确认已阅读固定部署方案与高权限风险")
     try:

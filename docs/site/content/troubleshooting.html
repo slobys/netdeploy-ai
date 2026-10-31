@@ -26,7 +26,7 @@ sudo systemctl status x-ui --no-pager</code></pre>
 <h2 id="dockge">Dockge Apps：Docker、端口与公网访问</h2>
 <p>新版本在没有 Docker 的干净 Debian/Ubuntu VPS 上，使用 <code>https://get.docker.com</code> 官方一键脚本安装 Docker，再验证 Compose v2。若存在旧数据、冲突软件包或非完整 Docker 环境，则停止自动安装以保护已有容器。</p>
 <p>管理端口留空自动随机生成，填写则按输入端口部署。遇到 <code>DOCKGE_PORT_BUSY</code> 或 <code>DOCKGE_ACCESS_PORT_BUSY</code>，可换一个端口后重新生成计划，不要强行结束其他服务。</p>
-<p>已经安装的 Dockge Apps 可以在管理面板中点击<strong>修改端口与访问方式</strong>。选择公网访问后，地址形如 <code>http://服务器公网IP:端口/</code>；如打不开，检查对应 TCP 端口的云安全组入站规则。公网管理没有自动配置 HTTPS，先设置强管理员密码并限制来源 IP。</p>
+<p>Dockge Apps 新安装默认生成 <code>http://服务器公网IP:端口/</code> 访问方案，安装页不再显示访问方式选项，公网风险会在部署审批页提示。已安装实例仍能在管理面板点击<strong>修改端口与访问方式</strong>。若公网链接打不开，检查对应 TCP 端口的云安全组入站规则；目前未自动配置 HTTPS，必须限制来源 IP 并尽快设置管理员。</p>
 <pre><code>docker ps --filter name=netdeploy-dockge-apps
 docker logs --tail 50 netdeploy-dockge-apps
 docker compose version</code></pre>

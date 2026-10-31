@@ -24,7 +24,7 @@
 | **S-UI** | 自动安装，支持 IP / 域名 HTTPS |
 | **sing-box** | 自动安装内核，服务端配置需自行完成 |
 | **wg-easy** | Docker Compose 自动部署，需完成首次设置 |
-| **[Dockge Apps](https://github.com/slobys/dockge-apps)** | 二开应用中心（NPM、IT-Tools、MyIP）；缺 Docker 可使用官方一键脚本，管理端口随机或自定义；公网 IP 访问需单独确认风险 |
+| **[Dockge Apps](https://github.com/slobys/dockge-apps)** | 二开应用中心（NPM、IT-Tools、MyIP）；缺 Docker 可使用官方一键脚本，管理端口随机或自定义；新安装默认公网 IP 直连，执行前需确认风险 |
 | **Hysteria2** | 提供部署引导，暂不支持一键安装 |
 
 ## Windows 快速开始（推荐）

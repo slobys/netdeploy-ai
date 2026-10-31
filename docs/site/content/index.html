@@ -27,7 +27,7 @@
 <p>v{{version}} 同步修复了左侧「项目中心」的项目数量显示。数字现在由可用项目目录动态计算，不再使用写死的数字 4；当前 6 个可选项目对应显示 6。以后新增或隐藏项目会自动更新菜单、项目中心副标题和仪表盘项目模板数。内部 HTTPS 续接任务不计入项目总数；首页仍可保持 5 个精选卡片。</p>
 
 <h2 id="dockge">Dockge Apps · 二开应用中心</h2>
-<p>v{{version}} 起，「项目中心」的 Dockge 项目改为从 <a href="https://github.com/slobys/dockge-apps">slobys/dockge-apps</a> 固定源码构建，支持 Docker Compose 管理与 Nginx Proxy Manager、IT-Tools、MyIP 应用中心。原版实例不会自动迁移，Web 管理仍只开放 VPS 本机 SSH 隧道。干净 VPS 缺少 Docker/Compose 时，可在同一次审批内自动准备依赖，无需手动安装。<a href="deployments.html#dockge">查看部署与数据保护说明</a>。</p>
+<p>v{{version}} 起，「项目中心」的 Dockge 项目改为从 <a href="https://github.com/slobys/dockge-apps">slobys/dockge-apps</a> 固定源码构建，支持 Docker Compose 管理与 Nginx Proxy Manager、IT-Tools、MyIP 应用中心。原版实例不会自动迁移。新安装默认生成 VPS 公网 IP + 随机或自定义端口的管理链接，风险在部署审批时提示；干净 VPS 缺少 Docker/Compose 时，可在同一次审批内自动准备依赖。<a href="deployments.html#dockge">查看部署与数据保护说明</a>。</p>
 
 <h2 id="workflow">NetDeploy 的实际工作流程</h2>
 <div class="step-flow"><span>添加 VPS</span><b>→</b><span>核对指纹</span><b>→</b><span>环境检测</span><b>→</b><span>可选网络配置</span><b>→</b><span>部署软件</span></div>

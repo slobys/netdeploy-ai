@@ -436,7 +436,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
                 "已安装 Docker Engine 只缺 Compose 时仅对可识别的官方版本补装插件；异常、旧数据或来源不明则拒绝自动覆盖",
                 "安装 Docker 会启用服务并可能改变 iptables/容器网络规则；发布的容器端口可能绕过 UFW，请先备份并审查云防火墙",
                 "GitHub、npm、Docker Hub 和 Docker 官方 APT 软件源需可访问，APT 安装失败可能留下需要人工核对的部分状态",
-                "宿主机端口留空随机分配，可自定义；默认 127.0.0.1，本人明确确认后可启用公网 IP:端口 HTTP，云安全组需另行限制来源",
+                "新安装默认公网 IP:端口 HTTP，宿主机端口可随机或自定义；公网开放必须经过单独的风险审批，云安全组需另行限制来源",
                 "Docker Socket 具有近似 root 的管理权限；Dockge Apps 可管理 /opt/stacks 中的 Compose 栈",
                 "二开应用中心内置 Nginx Proxy Manager、IT-Tools、MyIP，可自定义端口；首次登录需创建管理员，不生成预设密码",
                 "已有原版 Dockge 或 Dockge Apps 实例不会自动迁移或替换，需手动备份及迁移；保留旧数据和容器",

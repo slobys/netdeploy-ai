@@ -38,10 +38,10 @@ ssh -N -p 22 -L 2095:127.0.0.1:2095 root@YOUR_VPS_IP</code></pre>
 <ol>
 <li>在 <strong>项目中心 → Dockge Apps → 部署项目</strong> 中选择 VPS。全新的 Debian/Ubuntu VPS 如果没有 Docker，会自动下载并执行 <a href="https://get.docker.com">Docker 官方一键安装脚本</a>，验收 Compose v2、Buildx 与 Git 后继续。</li>
 <li><strong>管理端口留空时自动随机生成 20000–59999</strong>；也可以手动填 1024–65535 的端口。会检查与 SSH 和现有服务的冲突；容器内部仍使用 5001。</li>
-<li>访问方式默认 SSH-only；需要 <code>http://服务器IP:端口/</code> 时，选择公网直连并明确确认高权限、明文 HTTP、首次账户设置的安全风险。</li>
+<li>新安装<strong>默认使用服务器公网 IP + 端口</strong>，安装页面不再显示访问方式下拉框；生成方案后，会在执行审批页面明确显示目标地址及高权限、明文 HTTP 和首次管理员设置风险，只有确认审批后才开放端口。</li>
 <li>安装后点击<strong>查看 Dockge Apps 面板信息</strong>。已有受管理的 Dockge Apps 可以使用<strong>修改端口与访问方式</strong>，只修改容器端口映射并保留数据，不重新安装。</li>
 </ol>
-<div class="callout warn"><strong>先设置管理员，再开放公网</strong><p>Dockge Apps 访问 Docker Socket，实际拥有很高的 VPS 管理权限。初次安装时如果未设置管理员就向公网暴露 HTTP，其他人可能抢先注册；建议先经 SSH 隧道初始化，再将管理端口开放给自己的固定管理 IP。云厂商安全组需要另行配置，Docker 端口也可能绕过 UFW。</p></div>
+<div class="callout warn"><strong>默认公网直连的安全注意事项</strong><p>Dockge Apps 访问 Docker Socket，具有很高的 VPS 管理权限。新安装计划默认使用公网 IP + 端口，审批时会再次提醒：首次管理员尚未创建时，其他能访问该端口的人可能抢先注册。建议先在云安全组限制来源为自己的固定管理 IP，或使用 SSH 隧道完成初始化。Docker 映射端口可能绕过 UFW；NetDeploy 不会自行修改云安全组。</p></div>
 <pre><code># SSH-only 模式示例（实际随机端口以 NetDeploy 显示为准）
 ssh -N -p 22 -L 35000:127.0.0.1:35000 root@YOUR_VPS_IP</code></pre>
 <div class="callout"><strong>官方 Docker 脚本</strong><p>根据你的要求，Docker 安装使用 <a href="https://get.docker.com">get.docker.com</a>，不是原先手写的 APT 安装步骤。脚本通过 HTTPS 下载并保存在 VPS 的受保护目录；NetDeploy 会检查语法、dry-run 与文件校验值后执行本地副本。官方建议该便捷脚本主要用于开发与测试，正式服务器请先做好备份。已有 Docker 安装和数据不会自动被覆盖。</p></div>

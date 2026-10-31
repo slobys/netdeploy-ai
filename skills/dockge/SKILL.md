@@ -13,7 +13,7 @@ description: 'Source-build Dockge Apps with optional reviewed public IP access a
 3. 从 https://github.com/slobys/dockge-apps.git 获取固定提交 66aec693a974bd980f632f643586deab16932531，校验 git HEAD，确保 docker/Dockerfile.apps 和 package-lock.json 存在；禁止使用原版 louislam/dockge:1.5.0 应用镜像代替二开程序。
 4. 将源码保留于 /opt/netdeploy/dockge/source，用 Docker Compose 从源码构建 netdeploy/dockge-apps:66aec693a974。Dockerfile.apps 使用上游基础镜像（非 digest 固定），此风险应透明说明。
 5. Compose 目录 /opt/netdeploy/dockge、数据 /opt/netdeploy/dockge/data、栈目录 /opt/stacks，宿主机/容器栈路径一致。保留已有栈，不删除/移动。
-6. 容器内部 5001 TCP 不变，宿主机端口可留空随机生成 20000–59999 或填 1024–65535；默认绑定 127.0.0.1，明确同意公网风险后可绑定 0.0.0.0。实际 HostConfig.PortBindings 与 Web 必须验收。
+6. 容器内部 5001 TCP 不变，宿主机端口可留空随机生成 20000–59999 或填 1024–65535。新安装默认规划公网 0.0.0.0 绑定；安装页面不显示访问模式选择器，必须在部署审批中单独明确确认公网 HTTP 与 Docker Socket 权限风险后才能执行。原有实例不自动改变绑定。实际 HostConfig.PortBindings 与 Web 必须验收。
 7. 按验收结果显示 SSH 隧道地址或 http://服务器公网IP:端口/；已有受管理实例可仅修改端口，失败回退。建议先通过 SSH 隧道设置管理员。应用中心有 Nginx Proxy Manager、IT-Tools、MyIP，可编辑应用端口。
 
 Dockge Apps 挂载 Docker Socket，具备高权限，公网 HTTP 明文管理具备高风险，必须用户明确确认并限制云防火墙管理 IP。源代码构建比拉取预建镜像慢，失败可能留下需要人工检查的目录，禁止盲目重试。

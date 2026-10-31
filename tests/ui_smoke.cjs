@@ -109,7 +109,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.25';
+let runtimeVersion='0.3.26';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -368,9 +368,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.25';
+  runtimeVersion='0.3.26';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.25');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.26');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -502,14 +502,18 @@ function fingerprintFor(label) {
   assert.equal(suiReadRequests,2);
   suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
 
-  // Dockge must appear as a real install project with local-only access.
+  // Dockge install form defaults to public IP+port without a mode picker.
   evaluate("state.catalog={'dockge':{name:'Dockge Apps',subtitle:'Docker Compose 与应用中心',category:'容器',deployment:'install'}};render();");
   assert(made.get('#project-grid').innerHTML.includes('Dockge'));
   assert(made.get('#project-grid').innerHTML.includes('data-project="dockge"'));
   evaluate("chooseHost('dockge')");
   assert(modal.innerHTML.includes('name="dockge_port"'));
-  assert(modal.innerHTML.includes('name="dockge_mode"'));
-  assert(modal.innerHTML.includes('name="dockge_confirm_public"'));
+  assert(!modal.innerHTML.includes('name="dockge_mode"'));
+  assert(!modal.innerHTML.includes('name="dockge_confirm_public"'));
+  assert(!modal.innerHTML.includes('管理面板访问方式'));
+  assert(modal.innerHTML.includes('默认显示服务器公网 IP'));
+  assert(javascript.includes("request.access_mode='public'"));
+  assert(javascript.includes("request.confirm_public=true"));
   assert(modal.innerHTML.includes('get.docker.com'));
   assert(modal.innerHTML.includes('留空自动随机分配'));
   dockgeStatus={installed:true,managed:true,service:'active',access_mode:'local',port:5001};
@@ -540,6 +544,17 @@ function fingerprintFor(label) {
   assert.equal(dockgeAccessReads,2,'Unmanaged Dockge cannot retrieve an access route');
   dockgeStatus={installed:false,managed:false,service:'absent',access_mode:'unavailable',port:5001};
 
+  const publicPlan={...freshJob,project:'dockge',plan:{...freshJob.plan,
+    project:'dockge',name:'Dockge Apps',executable:true,
+    options:{panel_port:34567,access_mode:'public',public_confirmed:true},
+    steps:[{label:'deploy',timeout:10,script:'echo audited'}]}};
+  fill(publicPlan);
+  evaluate("state.token='test';showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('服务器公网 IP'), modal.innerHTML.slice(0,1200));
+  assert(modal.innerHTML.includes('34567'));
+  assert(modal.innerHTML.includes('确认公网开放并部署 Dockge Apps'));
+  assert(modal.innerHTML.includes('id="approve-form"'));
+  fill();
   // A running job becoming completed via polling must immediately grow its
   // "查看面板信息" action in the currently open modal, no reopening required.
   const running={...freshJob,status:'running',logs:'Started',plan:{...freshJob.plan}};
