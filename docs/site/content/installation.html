@@ -20,6 +20,20 @@
 <p>推荐先停止旧服务，再双击 <code>QuickStart-NetDeploy.bat</code>；也可运行 <code>Update-NetDeploy.bat</code> 更新后用 <code>Start-NetDeploy.bat</code> 启动。更新器会保留原有的本地配置、任务数据库、可信 SSH 主机密钥，并对本地数据执行备份。</p>
 <p>更新后在浏览器按 <code>Ctrl+F5</code> 强制刷新。右上角版本号与 <code>/api/health</code> 返回的版本应一致；否则可能仍在运行旧进程。</p>
 <h2 id="docker">Docker / NAS 用户</h2>
-<p>仓库提供 <code>compose.yaml</code>，适用于懂得管理 Docker、目录权限与管理员令牌的用户。此模式默认只映射宿主机 <code>127.0.0.1:8787</code>，不应直接暴露公网。请按 <a href="https://github.com/slobys/netdeploy-ai#docker-compose-安装更适合-nas--linux">README 的 Docker 操作说明</a> 配置管理员密钥并使用 SSH 隧道访问。</p>
+<p>适合熟悉 Docker 的用户。需要 Docker Engine、Docker Compose v2 和可以写入数据目录的权限。管理页面默认仅映射到宿主机 <code>127.0.0.1:8787</code>，<strong>不要直接映射到公网</strong>。</p>
+<ol>
+<li>下载项目并准备本地配置：</li>
+</ol>
+<pre><code>git clone https://github.com/slobys/netdeploy-ai.git
+cd netdeploy-ai
+mkdir -p data secrets
+cp .env.example .env</code></pre>
+<p>编辑 <code>.env</code>，把 <code>NETDEPLOY_ADMIN_TOKEN</code> 和 <code>NETDEPLOY_WORKER_TOKEN</code> 的示例占位值分别改成<strong>两段不同的强随机令牌</strong>。可执行 <code>openssl rand -hex 32</code> 两次来生成，不要把令牌提交到 GitHub。</p>
+<pre><code># 容器使用 UID 10001 写入 data 目录
+sudo chown -R 10001:10001 data
+sudo docker compose up -d --build</code></pre>
+<p>从另一台电脑访问 NAS 上的面板时，建议先建立 SSH 隧道：</p>
+<pre><code>ssh -L 8787:127.0.0.1:8787 YOUR_USER@YOUR_NAS_IP</code></pre>
+<p>然后在本机浏览器打开 <code>http://127.0.0.1:8787</code>，使用 <code>.env</code> 中的管理员令牌登录。Docker / NAS 模式<strong>不启用 Windows 本地自动登录</strong>。需要 SSH 私钥登录 VPS 时，使用专用私钥并按 <a href="https://github.com/slobys/netdeploy-ai/blob/main/compose.yaml">Compose 配置</a> 提供只读密钥；密码登录不需要设置私钥文件。</p>
 <h2 id="after-install">下一步</h2>
 <p>打开 <a href="quick-start.html">五步部署教程</a>，先在测试 VPS 上练习完整流程。</p>
