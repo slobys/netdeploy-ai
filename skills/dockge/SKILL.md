@@ -1,25 +1,20 @@
 ---
-name: netdeploy-dockge
-description: 'Deploy Dockge 1.5.0 through an audited, localhost-only Docker Compose plan for a trusted Debian or Ubuntu VPS.'
+name: netdeploy-dockge-apps
+description: 'Source-build the reviewed slobys/dockge-apps fork with localhost-only Docker management access.'
 ---
 
-# Dockge · 安全 Docker Compose 管理
+# Dockge Apps · 审核过的二开应用中心
 
-只使用 app/dockge.py 中固定、可审核的计划；不将 AI 建议或用户输入作为 SSH Shell 脚本执行。
+只使用 app/dockge.py 里固定的脚本与源代码提交，不得从 AI 文本执行未知 Shell 命令。
 
-## 工作流程
+1. 审核 Debian/Ubuntu、root、Docker Engine、Compose v2、Git、ss、Docker Socket、5001/TCP 空闲与至少 3GB 可用空间。
+2. 拒绝已存在的上游 Dockge、手动安装的 Dockge Apps、旧 NetDeploy Dockge 容器和部分安装目录；不得自动升级或删除用户数据。
+3. 从 https://github.com/slobys/dockge-apps.git 获取固定提交 66aec693a974bd980f632f643586deab16932531，校验 git HEAD，确保 docker/Dockerfile.apps 和 package-lock.json 存在；禁止使用原版 louislam/dockge:1.5.0 应用镜像代替二开程序。
+4. 将源码保留于 /opt/netdeploy/dockge/source，用 Docker Compose 从源码构建 netdeploy/dockge-apps:66aec693a974。Dockerfile.apps 使用上游基础镜像（非 digest 固定），此风险应透明说明。
+5. Compose 目录 /opt/netdeploy/dockge、数据 /opt/netdeploy/dockge/data、栈目录 /opt/stacks，宿主机/容器栈路径一致。保留已有栈，不删除/移动。
+6. 5001 TCP 严格绑定 127.0.0.1:5001，默认关闭内置控制台；验证实际 Docker HostConfig.PortBindings、镜像标记与本机 Web。端口异常时停止容器。
+7. 经 SSH 隧道访问 http://127.0.0.1:5001/，首次在 Dockge Apps 中创建管理员。应用中心有 Nginx Proxy Manager、IT-Tools、MyIP，可编辑应用端口。
 
-1. 环境预检：root SSH、Ubuntu/Debian、x86_64/ARM64、Docker Engine、Compose v2、Docker Socket、ss、至少 1.2GB 可用空间与 TCP 5001 空闲；拒绝已有 /opt/dockge、/opt/netdeploy/dockge 和同名容器。
-2. 固定上游版本：拉取 louislam/dockge:1.5.0 官方 Docker Hub 镜像并检查架构。固定版本标签不是不可变 digest，升级需再次审查。
-3. 写入 Compose：目录 /opt/netdeploy/dockge、数据 /opt/netdeploy/dockge/data、项目栈目录 /opt/stacks（容器内外一致）。不删除/移动已有栈。
-4. Web 仅发布 127.0.0.1:5001:5001/tcp，默认关闭 DOCKGE_ENABLE_CONSOLE；用户阅读 Docker Socket 权限风险后独立批准。
-5. 验收容器运行、真实 Docker HostConfig.PortBindings、本机 HTTP 响应。检测到意外公网绑定时停止 Dockge，拒绝输出直连地址。
-6. Windows PowerShell 执行 SSH -L 隧道，再访问 http://127.0.0.1:5001/，首次初始化 Dockge 管理员账号。
+Dockge Apps 挂载 Docker Socket，具备高权限，不能公开 5001 明文管理界面。源代码构建比拉取预建镜像慢，失败可能留下需要人工检查的目录，禁止盲目重试。
 
-## 风险与边界
-
-Dockge 挂载 /var/run/docker.sock，可对 VPS 容器和文件执行高权限操作；/opt/stacks 中的其他栈也可能被管理员操作。只供可信管理员经 SSH 隧道访问，不开启公网明文 HTTP，不自动关闭 UFW。
-
-检测到已有目录、数据或未知容器时必须停止，不应重装覆盖。初次安装失败可能留下目录和镜像，须先检查远端真实状态；不得盲目重试。
-
-官方来源：https://github.com/louislam/dockge/releases/tag/1.5.0
+来源：https://github.com/slobys/dockge-apps

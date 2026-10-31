@@ -23,14 +23,14 @@ sudo systemctl status x-ui --no-pager</code></pre>
 <h2 id="sui">S-UI 安装后从公网打不开</h2>
 <p>新安装会尝试签发公网 IP/域名证书，只有证书、续期及 HTTPS 验证通过才会让管理 2095/TCP 监听公网。先在<strong>查看 S-UI 面板信息</strong>确认显示 HTTPS 直连地址；否则证书尚未生效，仍为本机访问。检查 TCP 80 ACME 验证、DNS A、公网 IP、Certbot 版本、云厂商安全组入站 2095/TCP 和有效证书；不要开放明文 HTTP。</p>
 <p>如果 S-UI 已安装但 HTTPS 失败，保持原程序和凭据，到 S-UI 面板状态页点击<strong>继续完成 HTTPS</strong>即可创建四步证书修复任务，不必重新安装。订阅 2096/TCP 仍只监听本机。</p>
-<h2 id="dockge">Dockge：没有 Docker、端口冲突或无法打开管理面板</h2>
-<p>Dockge 需要已运行的 Docker Engine 和 Compose v2，当前 NetDeploy 不会自动安装 Docker。若提示 <code>DOCKGE_DOCKER_MISSING</code>、<code>DOCKGE_DOCKER_NOT_READY</code> 或 <code>DOCKGE_COMPOSE_V2_REQUIRED</code>，请先修复 Docker 环境后重新检测并生成新的审批方案。</p>
-<p>若提示 <code>DOCKGE_PORT_BUSY</code>，说明 TCP 5001 已被占用，或现有 Docker 容器已发布此端口；不会停止其他服务抢占端口。若提示 <code>DOCKGE_EXISTS</code>，说明可能已有手动安装或上次安装的残留目录；<strong>不要重复覆盖或直接删除数据</strong>，先检查现有容器和路径。</p>
+<h2 id="dockge">Dockge Apps：源码构建、Docker 环境与访问问题</h2>
+<p>Dockge Apps 需要 Docker Engine、Compose v2 和 Git，当前 NetDeploy 不会自动安装 Docker。若提示 <code>DOCKGE_DOCKER_MISSING</code>、<code>DOCKGE_DOCKER_NOT_READY</code> 或 <code>DOCKGE_COMPOSE_V2_REQUIRED</code>，请先修复 Docker 环境后重新检测并生成新的审批方案。</p>
+<p>若提示 <code>DOCKGE_GIT_REQUIRED</code>，先在 VPS 安装 Git；若出现 <code>DOCKGE_SOURCE_FETCH_FAILED</code>，检查到 GitHub 的 HTTPS 连接；若在 <code>docker compose build</code> 失败，检查 Docker Hub/npm 网络、磁盘空间以及构建日志。若提示 <code>DOCKGE_PORT_BUSY</code>，说明 TCP 5001 已被占用，或现有 Docker 容器已发布此端口；不会停止其他服务抢占端口。若提示 <code>DOCKGE_EXISTS</code>，说明可能已有原版 Dockge、二开安装或上次安装残留目录；<strong>不要重复覆盖或直接删除数据</strong>，先检查现有容器和路径。</p>
 <p>安装成功后，不能直接用 VPS 公网 IP 打开 <code>http://IP:5001</code>，这是预期行为。需要建立 SSH 隧道并使用 <code>http://127.0.0.1:5001/</code>。检查时可在可信 VPS 终端执行下面的只读命令：</p>
 <pre><code>docker compose version
-docker ps --filter name=netdeploy-dockge
-docker logs --tail 50 netdeploy-dockge</code></pre>
-<p>如状态显示「不受管理」或「监听未验证」，NetDeploy 不会猜测地址或提供公网 HTTP 链接。Dockge 的 Docker Socket 权限较高，建议只使用可信管理员和本机隧道访问。</p>
+docker ps --filter name=netdeploy-dockge-apps
+docker logs --tail 50 netdeploy-dockge-apps</code></pre>
+<p>如状态显示「不受管理」或「监听未验证」，NetDeploy 不会猜测地址或提供公网 HTTP 链接。Dockge Apps 的 Docker Socket 权限较高，建议只使用可信管理员和本机隧道访问。</p>
 <h2 id="invalidated">计划提示失效或需要刷新</h2>
 <p>如果服务器重装、SSH 主机密钥更换、证书域名或安装固定脚本发生变化，历史审批不再有效。可返回服务器控制台重新环境检测、刷新方案、再次审核。已有部分安装时先检查真实 VPS 状态，避免重复执行。</p>
 <h2 id="support">如何反馈故障</h2>

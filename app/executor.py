@@ -218,9 +218,10 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then echo D
 if docker compose version >/dev/null 2>&1; then echo COMPOSE=yes; else echo COMPOSE=no; fi
 if command -v systemctl >/dev/null 2>&1; then echo SYSTEMD=yes; else echo SYSTEMD=no; fi
 if command -v ss >/dev/null 2>&1; then echo SS_AVAILABLE=yes; else echo SS_AVAILABLE=no; fi
+if command -v git >/dev/null 2>&1; then echo GIT_AVAILABLE=yes; else echo GIT_AVAILABLE=no; fi
 if [ -d /usr/local/x-ui ] || [ -d /etc/x-ui ] || command -v x-ui >/dev/null 2>&1 || (command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files --no-legend x-ui.service 2>/dev/null | grep -q '^x-ui[.]service'); then echo XUI_PRESENT=yes; else echo XUI_PRESENT=no; fi
 if [ -d /usr/local/s-ui ] || [ -d /etc/s-ui ] || [ -e /usr/bin/s-ui ] || (command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files --no-legend s-ui.service 2>/dev/null | grep -q '^s-ui[.]service'); then echo SUI_PRESENT=yes; else echo SUI_PRESENT=no; fi
-if [ -e /opt/dockge ] || [ -L /opt/dockge ] || [ -e /opt/netdeploy/dockge ] || [ -L /opt/netdeploy/dockge ] || (command -v docker >/dev/null 2>&1 && (docker container inspect dockge >/dev/null 2>&1 || docker container inspect netdeploy-dockge >/dev/null 2>&1 || docker ps -a --format '{{.Image}}' 2>/dev/null | grep -Eq '(^|/)louislam/dockge(:|@)')); then echo DOCKGE_PRESENT=yes; else echo DOCKGE_PRESENT=no; fi
+if [ -e /opt/dockge ] || [ -L /opt/dockge ] || [ -e /opt/dockge-apps ] || [ -L /opt/dockge-apps ] || [ -e /opt/netdeploy/dockge ] || [ -L /opt/netdeploy/dockge ] || (command -v docker >/dev/null 2>&1 && (docker container inspect dockge >/dev/null 2>&1 || docker container inspect dockge-apps >/dev/null 2>&1 || docker container inspect netdeploy-dockge >/dev/null 2>&1 || docker container inspect netdeploy-dockge-apps >/dev/null 2>&1 || docker ps -a --format '{{.Image}}' 2>/dev/null | grep -Eq '(^|/)(louislam/dockge|dockge-apps|netdeploy/dockge-apps)(:|@)')); then echo DOCKGE_PRESENT=yes; else echo DOCKGE_PRESENT=no; fi
 if ! command -v ss >/dev/null 2>&1; then echo DOCKGE_TCP_5001=unknown; elif ss -Hltn 'sport = :5001' | grep -q . || (command -v docker >/dev/null 2>&1 && test -n "$(docker ps -q --filter 'publish=5001/tcp' 2>/dev/null)"); then echo DOCKGE_TCP_5001=busy; else echo DOCKGE_TCP_5001=free; fi
 if ! command -v ss >/dev/null 2>&1; then echo UDP_51820=unknown; elif ss -Hlun | grep -Eq '(^|[[:space:]])[^[:space:]]*:51820([[:space:]]|$)'; then echo UDP_51820=busy; else echo UDP_51820=free; fi
 """
@@ -228,7 +229,7 @@ if ! command -v ss >/dev/null 2>&1; then echo UDP_51820=unknown; elif ss -Hlun |
         for line in self.run(host, script, 35).splitlines():
             if "=" in line:
                 k, v = line.split("=", 1)
-                if k in {"OS_ID", "OS_VERSION", "ARCH", "UID", "FREE_KB", "DOCKER", "COMPOSE", "SYSTEMD", "UDP_51820", "SS_AVAILABLE", "XUI_PRESENT", "SUI_PRESENT", "DOCKGE_PRESENT", "DOCKGE_TCP_5001"}:
+                if k in {"OS_ID", "OS_VERSION", "ARCH", "UID", "FREE_KB", "DOCKER", "COMPOSE", "SYSTEMD", "UDP_51820", "SS_AVAILABLE", "GIT_AVAILABLE", "XUI_PRESENT", "SUI_PRESENT", "DOCKGE_PRESENT", "DOCKGE_TCP_5001"}:
                     result[k] = v.strip()[:80]
         if not {"OS_ID", "ARCH", "UID"} <= result.keys():
             raise SSHError("设备预检信息不完整")

@@ -44,7 +44,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.22")
+app = FastAPI(title="NetDeploy AI", version="0.3.23")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -190,7 +190,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.22", "security": "local-only"}
+    return {"ok": True, "version": "0.3.23", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -497,7 +497,7 @@ def read_existing_dockge(host: dict) -> dict:
     try:
         return parse_dockge_status(executor.run(host, DOCKGE_STATUS_SCRIPT, timeout=35))
     except (SSHError, ValueError) as exc:
-        raise HTTPException(status_code=422, detail=f"无法验证 Dockge 运行与本机端口状态：{exc}") from exc
+        raise HTTPException(status_code=422, detail=f"无法验证 Dockge Apps 运行与本机端口状态：{exc}") from exc
 
 
 @app.get("/api/hosts/{id}/dockge", dependencies=[Depends(authorized)])
@@ -511,9 +511,9 @@ def dockge_access(id: int):
     host = find_host(id)
     status = read_existing_dockge(host)
     if not status["installed"]:
-        raise HTTPException(status_code=409, detail="此 VPS 尚未安装 Dockge")
+        raise HTTPException(status_code=409, detail="此 VPS 尚未安装 Dockge Apps")
     if not status["managed"] or status["service"] != "active" or status["access_mode"] != "local":
-        raise HTTPException(status_code=409, detail="Dockge 未验证为受管理的本机监听服务；不会生成不安全的访问地址")
+        raise HTTPException(status_code=409, detail="Dockge Apps 未验证为受管理的本机监听服务；不会生成不安全的访问地址")
     return dockge_local_access(host)
 
 
@@ -726,11 +726,11 @@ def new_job(body: NewJob):
             options["source_job_id"] = body.source_job_id
     elif body.project == "dockge":
         if body.panel_port is not None or body.access_mode or body.source_job_id:
-            raise HTTPException(status_code=422, detail="Dockge 使用固定的本机管理端口 5001，不支持这些部署参数")
+            raise HTTPException(status_code=422, detail="Dockge Apps 使用固定的本机管理端口 5001，不支持这些部署参数")
         if int(host["port"]) == DOCKGE_PORT:
-            raise HTTPException(status_code=422, detail="Dockge 管理端口 5001 与 SSH 端口相同，请先调整服务器连接端口")
+            raise HTTPException(status_code=422, detail="Dockge Apps 管理端口 5001 与 SSH 端口相同，请先调整服务器连接端口")
         if host["facts"].get("DOCKGE_PRESENT") != "no":
-            raise HTTPException(status_code=409, detail="检测到已有 Dockge 或不完整安装，请先查看现有面板；不会覆盖安装")
+            raise HTTPException(status_code=409, detail="检测到已有原版 Dockge、Dockge Apps 或未完成的安装；不会自动迁移或覆盖")
     elif body.project == "3x-ui-https":
         if body.access_mode or body.panel_port is not None:
             raise HTTPException(status_code=422, detail="现有面板的 HTTPS 升级端口由服务器实际配置决定，不能手工覆盖")

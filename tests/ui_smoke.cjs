@@ -109,7 +109,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.22';
+let runtimeVersion='0.3.23';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -367,9 +367,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.22';
+  runtimeVersion='0.3.23';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.22');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.23');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -477,16 +477,16 @@ function fingerprintFor(label) {
   suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
 
   // Dockge must appear as a real install project with local-only access.
-  evaluate("state.catalog={'dockge':{name:'Dockge',subtitle:'Docker Compose 管理界面',category:'容器',deployment:'install'}};render();");
+  evaluate("state.catalog={'dockge':{name:'Dockge Apps',subtitle:'Docker Compose 与应用中心',category:'容器',deployment:'install'}};render();");
   assert(made.get('#project-grid').innerHTML.includes('Dockge'));
   assert(made.get('#project-grid').innerHTML.includes('data-project="dockge"'));
   dockgeStatus={installed:true,managed:true,service:'active',access_mode:'local',port:5001};
   await evaluate("createHostPlan(1,'dockge')");
-  assert(modal.innerHTML.includes('Dockge 已安装，无需重复部署'));
+  assert(modal.innerHTML.includes('Dockge Apps 已安装，无需重复部署'));
   assert(modal.innerHTML.includes('id="dockge-url"'));
   assert(modal.innerHTML.includes('id="dockge-tunnel"'));
   assert(modal.innerHTML.includes('http://127.0.0.1:5001/'));
-  assert(modal.innerHTML.includes('首次打开请在 Dockge 页面创建管理员'));
+  assert(modal.innerHTML.includes('首次打开请在 Dockge Apps 页面创建管理员'));
   assert(!modal.innerHTML.includes('id="approve-form"'));
   assert.equal(dockgeStatusReads,1);
   assert.equal(dockgeAccessReads,1);

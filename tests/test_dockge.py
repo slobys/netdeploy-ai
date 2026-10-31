@@ -13,21 +13,23 @@ from fastapi.testclient import TestClient
 
 from app import main
 from app.catalog import CATALOG, build_plan
-from app.dockge import IMAGE, VERSION, PORT, steps, STATUS, BINDING_GUARD, parse_status, local_access
+from app.dockge import IMAGE, VERSION, SOURCE_SHA, SOURCE_REPO, PORT, steps, STATUS, BINDING_GUARD, parse_status, local_access
 from app.store import Store
 
 AUTH = {"X-Admin-Token":"test-only-" + "a"*32}
 FACTS = {
     "OS_ID":"debian","OS_VERSION":"13","ARCH":"x86_64","UID":"0","FREE_KB":"5000000",
-    "DOCKER":"yes","COMPOSE":"yes","SS_AVAILABLE":"yes","SYSTEMD":"yes",
+    "DOCKER":"yes","COMPOSE":"yes","GIT_AVAILABLE":"yes","SS_AVAILABLE":"yes","SYSTEMD":"yes",
     "XUI_PRESENT":"no","SUI_PRESENT":"no","UDP_51820":"free",
     "DOCKGE_PRESENT":"no","DOCKGE_TCP_5001":"free",
 }
 HOST={"name":"Dockge test","hostname":"203.0.113.22","username":"root","port":22}
 
 
-def test_official_release_recipe_and_local_port():
-    assert VERSION=="1.5.0" and IMAGE=="louislam/dockge:1.5.0"
+def test_reviewed_fork_source_recipe_and_local_port():
+    assert VERSION=="1.5.0-apps.1" and IMAGE=="netdeploy/dockge-apps:66aec693a974"
+    assert SOURCE_REPO=="https://github.com/slobys/dockge-apps.git"
+    assert SOURCE_SHA=="66aec693a974bd980f632f643586deab16932531"
     assert PORT==5001
     assert CATALOG["dockge"]["deployment"]=="install"
     assert CATALOG["dockge"]["risk"]=="高"
@@ -36,25 +38,35 @@ def test_official_release_recipe_and_local_port():
     assert plan["eligible"] and plan["executable"] and len(plan["steps"])==4
     assert plan["options"]=={}
     scripts="\n".join(stage["script"] for stage in plan["steps"])
-    assert "louislam/dockge:1.5.0" in scripts
+    assert "netdeploy/dockge-apps:66aec693a974" in scripts
+    assert "https://github.com/slobys/dockge-apps.git" in scripts
+    assert "git -C \"$tmp\" -c protocol.version=2 fetch -q --depth 1 origin 66aec693a974bd980f632f643586deab16932531" in scripts
+    assert "DOCKGE_SOURCE_REVISION_MISMATCH" in scripts
+    assert "docker/Dockerfile.apps" in scripts
+    assert "docker compose -f \"$root/compose.yaml\" build --pull" in scripts
+    assert "louislam/dockge:1.5.0" not in scripts
     assert "docker compose" in scripts
-    assert "docker pull louislam/dockge:1.5.0" in scripts
+    assert "docker pull louislam/dockge:1.5.0" not in scripts
+    assert "docker compose" in scripts
     assert '127.0.0.1:5001:5001/tcp' in scripts
     assert "/var/run/docker.sock:/var/run/docker.sock" in scripts
     assert "/opt/stacks:/opt/stacks" in scripts
     assert "DOCKGE_ENABLE_CONSOLE: \"false\"" in scripts
+    assert "DOCKGE_APPS_BUILD_READY" in scripts
+    assert "App Center includes Nginx Proxy Manager, IT-Tools and MyIP" in scripts
     assert "DOCKGE_STACKS_DIR: /opt/stacks" in scripts
-    assert "docker compose -f /opt/netdeploy/dockge/compose.yaml config -q" in scripts
-    assert "docker compose -f /opt/netdeploy/dockge/compose.yaml up -d --no-build" in scripts
-    assert "DOCKGE_LOCAL_READY" in scripts
+    assert 'docker compose -f "$root/compose.yaml" config -q' in scripts
+    assert 'docker compose -f "$root/compose.yaml" up -d --no-build' in scripts
+    assert "DOCKGE_APPS_LOCAL_READY" in scripts
     assert "DOCKGE_EXISTS" in scripts and "DOCKGE_PORT_BUSY" in scripts
+    assert "netdeploy-dockge-apps" in scripts
     # Refuse an upstream Dockge running under a nonstandard container name.
     assert "docker ps -a --format" in steps()[0]["script"]
-    assert "(^|/)louislam/dockge(:|@)" in steps()[0]["script"]
-    assert "(^|/)louislam/dockge(:|@)" in STATUS
+    assert "(louislam/dockge|dockge-apps|netdeploy/dockge-apps)" in steps()[0]["script"]
+    assert "(louislam/dockge|dockge-apps|netdeploy/dockge-apps)" in STATUS
     assert "DOCKGE_PORT_UNVERIFIED" in scripts
-    assert "1200000" in steps()[0]["script"] and "DOCKGE_DISK_LOW" in scripts
-    assert "docker compose -f /opt/netdeploy/dockge/compose.yaml stop" in scripts
+    assert "3000000" in steps()[0]["script"] and "DOCKGE_DISK_LOW" in scripts
+    assert 'docker compose -f "$root/compose.yaml" stop' in scripts
     assert not any(x in scripts for x in ("curl | bash","curl -k","--insecure","docker system prune","ufw disable","0.0.0.0:5001:5001","docker compose down","docker rm -f","docker volume rm"))
     assert not "DOCKGE_PANEL_PASSWORD" in scripts
 
@@ -64,7 +76,7 @@ def test_official_release_recipe_and_local_port():
     {"DOCKGE_PRESENT":"yes"}, {"DOCKGE_PRESENT":"unknown"}, {"DOCKGE_PRESENT":None},
     {"DOCKGE_TCP_5001":"busy"}, {"DOCKGE_TCP_5001":"unknown"},
     {"SS_AVAILABLE":"no"}, {"OS_ID":"alpine"}, {"UID":"1000"},
-    {"ARCH":"mips64"}, {"FREE_KB":"350000"}, {"FREE_KB":"900000"},
+    {"ARCH":"mips64"}, {"FREE_KB":"350000"}, {"FREE_KB":"900000"}, {"FREE_KB":"2700000"}, {"GIT_AVAILABLE":"no"},
 ])
 def test_dockge_incompatible_host_fails_closed(bad):
     plan=build_plan("dockge",{**FACTS,**bad})
@@ -124,13 +136,13 @@ def test_all_dockge_scripts_are_syntactically_valid():
 
 @pytest.mark.skipif(sys.platform=="win32" or not shutil.which("bash"),reason="Linux Bash port guard")
 @pytest.mark.parametrize("bindings,image_name,expected", [
-    ('{"5001/tcp":[{"HostIp":"127.0.0.1","HostPort":"5001"}]}','louislam/dockge:1.5.0',True),
-    ('{"5001/tcp":[{"HostIp":"0.0.0.0","HostPort":"5001"}]}','louislam/dockge:1.5.0',False),
-    ('{"5001/tcp":[{"HostIp":"::","HostPort":"5001"}]}','louislam/dockge:1.5.0',False),
-    ('{"5001/tcp":[{"HostIp":"127.0.0.1","HostPort":"5001"}],"8080/tcp":[{"HostIp":"0.0.0.0","HostPort":"8080"}]}','louislam/dockge:1.5.0',False),
-    ('{"5001/tcp":[{"HostIp":"127.0.0.1","HostPort":"5002"}]}','louislam/dockge:1.5.0',False),
-    ('{"5001/tcp":[{"HostIp":"127.0.0.1","HostPort":"5001"}]}','louislam/dockge:nightly',False),
-    ('{}','louislam/dockge:1.5.0',False),
+    ('{"5001/tcp":[{"HostIp":"127.0.0.1","HostPort":"5001"}]}','netdeploy/dockge-apps:66aec693a974',True),
+    ('{"5001/tcp":[{"HostIp":"0.0.0.0","HostPort":"5001"}]}','netdeploy/dockge-apps:66aec693a974',False),
+    ('{"5001/tcp":[{"HostIp":"::","HostPort":"5001"}]}','netdeploy/dockge-apps:66aec693a974',False),
+    ('{"5001/tcp":[{"HostIp":"127.0.0.1","HostPort":"5001"}],"8080/tcp":[{"HostIp":"0.0.0.0","HostPort":"8080"}]}','netdeploy/dockge-apps:66aec693a974',False),
+    ('{"5001/tcp":[{"HostIp":"127.0.0.1","HostPort":"5002"}]}','netdeploy/dockge-apps:66aec693a974',False),
+    ('{"5001/tcp":[{"HostIp":"127.0.0.1","HostPort":"5001"}]}','louislam/dockge:1.5.0',False),
+    ('{}','netdeploy/dockge-apps:66aec693a974',False),
 ])
 def test_real_shell_port_guard_rejects_unexpected_public_bindings(tmp_path,bindings,image_name,expected):
     import os

@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.22 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.23 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.22';
+const CLIENT_VERSION = '0.3.23';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -98,7 +98,7 @@ function render(){
    return `<article class="host-item interactive-card" role="button" tabindex="0" data-action="host-console" data-id="${h.id}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台">
       <div class="host-card-top"><div class="host-icon">▤</div><div class="host-title"><b>${escapeHtml(h.name)}</b><span class="chip ${statusClass}">${status}</span></div><span class="host-card-open">管理服务器 →</span></div>
       <div class="host-card-address">${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port}</div>
-      <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span><span class="host-cert-detail">${h.tls_domain?'域名证书 '+escapeHtml(h.tls_domain):'IP 证书（未填域名）'}</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}${h.facts?.SUI_PRESENT==='yes'?'<span class="host-installed-xui">S-UI 已安装</span>':''}${h.facts?.DOCKGE_PRESENT==='yes'?'<span class="host-installed-xui">Dockge 已安装</span>':''}</div>
+      <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span><span class="host-cert-detail">${h.tls_domain?'域名证书 '+escapeHtml(h.tls_domain):'IP 证书（未填域名）'}</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}${h.facts?.SUI_PRESENT==='yes'?'<span class="host-installed-xui">S-UI 已安装</span>':''}${h.facts?.DOCKGE_PRESENT==='yes'?'<span class="host-installed-xui">Dockge / Apps 已安装</span>':''}</div>
       ${duplicate>1?`<span class="host-card-hint">${duplicate} 条记录共用此 SSH 地址</span>`:''}
       <button class="host-card-delete" type="button" data-action="delete-host" data-id="${h.id}" aria-label="删除 ${escapeHtml(h.name)} 的本地服务器记录">删除服务器</button>
     </article>`;
@@ -161,7 +161,7 @@ function hostTaskLink(job){
  const action=stale?'查看旧任务':jobNextAction(job);
  const openExisting=!stale&&isExistingXuiPlan(job);
  const updateFailedHttps=!stale&&historicalHttpsFailure(job);
- const name=state.catalog[job.project]?.name||job.project;
+ const name=job.plan?.name||state.catalog[job.project]?.name||job.project;
  return `<button type="button" class="server-history-item ${job.status==='planned'&&job.plan?.executable&&!stale?'is-pending':''}" data-action="${openExisting?'installed-xui':updateFailedHttps?'regenerate-plan':planNeedsUpdate(job)&&!stale&&job.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(openExisting?job.host_id:job.id)}"
     aria-label="${escapeHtml(name)}，${escapeHtml(stale?'已失效':jobLabel(job))}，${escapeHtml(action)}">
    <span class="server-task-icon" aria-hidden="true">${symbol[job.project]||'▣'}</span>
@@ -346,11 +346,11 @@ async function createHostPlan(id,project,panelPort=null,absenceVerified=false){
    }catch(err){toast('无法安全核对现有 S-UI 安装，已阻止覆盖：'+err.message,true);return;}
  }
  if(project==='dockge'){
-   toast('正在只读检查 VPS 上是否已有 Dockge…');
+   toast('正在只读检查 VPS 上是否已有 Dockge / Dockge Apps…');
    try{
      const status=await api('/hosts/'+id+'/dockge');
      if(status.installed){await showExistingDockge(id,status);return;}
-   }catch(err){toast('无法核对 Dockge 现有安装，已阻止覆盖：'+err.message,true);return;}
+   }catch(err){toast('无法核对 Dockge Apps 现有安装，已阻止覆盖：'+err.message,true);return;}
  }
  const existing=state.jobs.find(j=>j.project===project&&j.host_id===id&&
    (j.plan?.trust_epoch||0)===(host.trust_epoch||0)&&j.plan?.executable&&
@@ -396,19 +396,19 @@ async function createHostPlan(id,project,panelPort=null,absenceVerified=false){
 async function showExistingDockge(id,known=null){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
  state.hostPanel={id,tab:'deploy'};state.activeJob=null;
- dialog(modalHead('Dockge · 现有面板')+'<div class="xui-loading"><span class="inline-spinner"></span>正在通过可信 SSH 检查 Docker 容器和管理端口…</div>');
+ dialog(modalHead('Dockge Apps · 现有面板')+'<div class="xui-loading"><span class="inline-spinner"></span>正在通过可信 SSH 检查 Docker 容器和管理端口…</div>');
  try{
    const status=known||await api('/hosts/'+id+'/dockge');
    if(!status.installed){
-     dialog(modalHead('Dockge · 尚未安装')+
-       '<div class="modal-tip">未检测到 Dockge。安装前需要 VPS 已启动 Docker Engine 和 Compose v2。</div>'+
-       '<div class="modal-actions"><button class="btn primary" data-action="server-install" data-id="'+id+'" data-project="dockge">生成 Dockge 安装方案 →</button>'+
+     dialog(modalHead('Dockge Apps · 尚未安装')+
+       '<div class="modal-tip">未检测到 Dockge Apps。部署会从你二开的 GitHub 仓库固定源码构建，需 Docker Engine、Compose v2 和 Git。</div>'+
+       '<div class="modal-actions"><button class="btn primary" data-action="server-install" data-id="'+id+'" data-project="dockge">生成 Dockge Apps 安装方案 →</button>'+
        '<button class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button></div>');
      return;
    }
    if(!status.managed||status.service!=='active'||status.access_mode!=='local'){
-     dialog(modalHead('Dockge · 需要检查')+
-       '<div class="modal-tip warning">检测到 Dockge 或部分安装文件，但无法确认它由 NetDeploy 管理、正在运行且 Web 仅监听本机。为保护已有容器和数据，不会覆盖重装或提供不安全的访问地址。请在 VPS 上检查 Docker、Compose 和 5001 端口。</div>'+
+     dialog(modalHead('Dockge Apps · 需要检查')+
+       '<div class="modal-tip warning">检测到原版 Dockge、Dockge Apps 或部分安装文件；现有实例不会被自动替换或迁移。为保护已有容器和数据，不会覆盖重装或提供不安全的访问地址。请在 VPS 上检查 Docker、Compose 和 5001 端口。</div>'+
        '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button></div>');
      return;
    }
@@ -416,20 +416,20 @@ async function showExistingDockge(id,known=null){
    const row=(label,field,value,action)=>'<div class="xui-info-row"><label>'+label+'</label>'+
      '<input id="'+field+'" readonly autocomplete="off" value="'+escapeHtml(value)+'"/>'+
      '<button type="button" class="btn subtle" data-action="'+action+'">复制</button></div>';
-   dialog(modalHead('Dockge · 管理面板')+
+   dialog(modalHead('Dockge Apps · 管理面板')+
      '<section class="xui-existing"><div class="xui-existing-state"><span class="chip success">已安装 · 本机运行正常</span>'+
      '<span class="chip">5001/TCP · 仅 SSH 隧道访问</span></div>'+
-     '<h3>Dockge 已安装，无需重复部署</h3>'+
-     '<p class="helptext">此服务拥有 Docker Socket 管理权限，不能直接向公网开放管理端口。首次打开请在 Dockge 页面创建管理员账户；NetDeploy 不预设账号密码。</p>'+
+     '<h3>Dockge Apps 已安装，无需重复部署</h3>'+
+     '<p class="helptext">此服务拥有 Docker Socket 管理权限，不能直接向公网开放管理端口。首次打开请在 Dockge Apps 页面创建管理员；NetDeploy 不预设账号密码。</p>'+
      '<div class="xui-info-grid">'+
        row('本机管理地址','dockge-url',access.local_url,'copy-dockge-url')+
        row('Windows PowerShell SSH 隧道','dockge-tunnel',access.ssh_tunnel,'copy-dockge-tunnel')+
      '</div>'+
-     '<p class="helptext">先在 Windows PowerShell 执行隧道命令并保持窗口运行，然后从这台电脑打开本机地址。Dockge 将管理 /opt/stacks 目录里的 Compose 项目。</p>'+
+     '<p class="helptext">先在 Windows PowerShell 执行隧道命令并保持窗口运行，然后从这台电脑打开本机地址。Dockge Apps 的应用中心可安装 Nginx Proxy Manager、IT-Tools 和 MyIP，并修改对应端口。</p>'+
      '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button>'+
-       '<a class="btn primary" href="'+escapeHtml(access.local_url)+'" target="_blank" rel="noopener noreferrer">打开本机 Dockge ↗</a></div></section>');
+       '<a class="btn primary" href="'+escapeHtml(access.local_url)+'" target="_blank" rel="noopener noreferrer">打开本机 Dockge Apps ↗</a></div></section>');
  }catch(err){
-   dialog(modalHead('Dockge · 读取状态失败')+
+   dialog(modalHead('Dockge Apps · 读取状态失败')+
      '<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>'+
      '<div class="modal-actions"><button class="btn subtle" data-action="back-host" data-id="'+id+'">返回服务器</button></div>');
    toast(err.message,true);
@@ -1023,7 +1023,7 @@ function chooseHost(project){
  <div class="form-group"><label>目标服务器</label><select name="host_id" id="plan-host-id" required>${state.hosts.map(h=>`<option value="${h.id}">${escapeHtml(h.name)} (${escapeHtml(h.hostname)})</option>`).join('')}</select></div>
  ${project==='3x-ui'||project==='s-ui'?`${project==='3x-ui'?'<details><summary class="mini">高级设置（可选）：面板端口，默认 24443</summary><div class="form-group"><label>3X-UI 管理端口</label><input name="panel_port" type="number" min="1024" max="65535" value="24443" required/></div></details>':'<div class="modal-tip">S-UI 管理端口固定 2095/TCP；订阅 2096/TCP 始终仅本机监听，不直接开放公网。</div>'}
  <div class="modal-tip"><b id="cert-type-preview">证书类型自动识别中</b> — SSH 使用 VPS 公网 IPv4；填写 HTTPS 域名就申请域名证书，否则申请 IP 短期证书。需放行公网 TCP 80 验证，成功后才开启 HTTPS，失败不开放公网明文 HTTP。</div>`:''}
- ${project==='dockge'?'<div class="modal-tip warning"><b>Dockge 需要已安装 Docker 与 Compose v2。</b>它通过 Docker Socket 拥有较高的主机管理权限；Web 默认仅开放到 VPS 本机 127.0.0.1:5001。安装后使用 SSH 隧道访问，并在 Dockge 页面首次创建管理员。</div>':''}
+ ${project==='dockge'?'<div class="modal-tip warning"><b>Dockge Apps：需要 Docker、Compose v2、Git 与至少 3GB 空间。</b>从 slobys/dockge-apps 固定源码构建，内置 NPM、IT-Tools、MyIP 应用中心；Docker Socket 权限较高，Web 仅绑定 VPS 本机 127.0.0.1:5001，通过 SSH 隧道访问。已有原版不会自动迁移。</div>':''}
  <div class="modal-tip">仅生成可审查的部署计划；确认所有步骤和风险后仍需单独审批执行。</div>
  <div class="modal-actions"><button type="button" class="btn ghost" data-action="close-modal">取消</button><button class="btn primary">自动检测并生成方案 →</button></div></form>`);
  if(project==='3x-ui'||project==='s-ui'){
@@ -1105,7 +1105,7 @@ function showJob(id){
        ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看面板信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
        ${job.project==='s-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI 面板信息</button>${job.status==='partial'||p.options?.access_mode!=='https'?`<button class="btn subtle" data-action="sui-upgrade" data-id="${job.host_id}">继续完成 HTTPS</button>`:''}`:''}
        ${job.project==='s-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI HTTPS 面板</button>`:''}
-       ${job.project==='dockge'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-dockge" data-id="${job.host_id}">查看 Dockge 面板信息</button>`:''}
+       ${job.project==='dockge'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-dockge" data-id="${job.host_id}">${p.name==='Dockge'?'查看旧版 Dockge 状态':'查看 Dockge Apps 面板信息'}</button>`:''}
        ${job.project==='s-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成 S-UI HTTPS 方案</button>`:''}
        ${job.project==='3x-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看 HTTPS 面板信息</button>`:''}
        ${job.project==='3x-ui-https'&&job.status==='failed'?`<button class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">修复后重新生成证书方案</button>`:''}
@@ -1268,8 +1268,8 @@ document.addEventListener('click',async e=>{
   else if(act==='host-check')await checkHostInConsole(Number(id));
   else if(act==='installed-sui')await showExistingSui(Number(id));
   else if(act==='installed-dockge')await showExistingDockge(Number(id));
-  else if(act==='copy-dockge-url')await copyXuiField('dockge-url','Dockge 管理地址');
-  else if(act==='copy-dockge-tunnel')await copyXuiField('dockge-tunnel','Dockge SSH 隧道命令');
+  else if(act==='copy-dockge-url')await copyXuiField('dockge-url','Dockge Apps 管理地址');
+  else if(act==='copy-dockge-tunnel')await copyXuiField('dockge-tunnel','Dockge Apps SSH 隧道命令');
   else if(act==='sui-upgrade')await suiUpgrade(Number(id));
   else if(act==='toggle-sui-password'){const field=el('#sui-password');if(field)field.type=field.type==='password'?'text':'password';}
   else if(act==='copy-sui-url')await copyXuiField('sui-url','S-UI 面板地址');
