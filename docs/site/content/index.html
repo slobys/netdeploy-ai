@@ -29,6 +29,9 @@
 <h2 id="dockge">Dockge Apps · 二开应用中心</h2>
 <p>v{{version}} 起，「项目中心」的 Dockge 项目改为从 <a href="https://github.com/slobys/dockge-apps">slobys/dockge-apps</a> 固定源码构建，支持 Docker Compose 管理与 Nginx Proxy Manager、IT-Tools、MyIP 应用中心。原版实例不会自动迁移。新安装默认生成 VPS 公网 IP + 随机或自定义端口的管理链接，风险在部署审批时提示；干净 VPS 缺少 Docker/Compose 时，可在同一次审批内自动准备依赖。<a href="deployments.html#dockge">查看部署与数据保护说明</a>。</p>
 
+<h2 id="npm">3X-UI / S-UI 支持 NPM 统一 HTTPS</h2>
+<p>安装面板时可选择「不申请证书，交给 NPM 反向代理」。这样跳过面板自己的 Certbot 和 TCP 80 ACME 验证，面板只监听本机 HTTP，NPM 统一为各个域名申请 SSL。<a href="deployments.html#npm">查看 NPM 配置和 Docker 网络说明</a>。</p>
+
 <h2 id="workflow">NetDeploy 的实际工作流程</h2>
 <div class="step-flow"><span>添加 VPS</span><b>→</b><span>核对指纹</span><b>→</b><span>环境检测</span><b>→</b><span>可选网络配置</span><b>→</b><span>部署软件</span></div>
 <p>安装不是“点一下就不经确认地运行远程命令”。面板会先检查系统与冲突，再生成可审核的固定脚本；管理员明确批准之后才执行。日志和错误状态会显示在任务页面。</p>

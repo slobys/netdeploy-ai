@@ -109,7 +109,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.27';
+let runtimeVersion='0.3.28';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -368,9 +368,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.27';
+  runtimeVersion='0.3.28';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.27');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.28');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -501,6 +501,38 @@ function fingerprintFor(label) {
   assert(!modal.innerHTML.includes('SSH 隧道命令'));
   assert.equal(suiReadRequests,2);
   suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
+
+
+  // Explicit NPM SSL termination avoids automatic Certbot/ACME port 80;
+  // both project entry points expose the choice, but keep native TLS default.
+  evaluate("state.catalog={'3x-ui':{name:'3X-UI',subtitle:'Xray',deployment:'install'},'s-ui':{name:'S-UI',subtitle:'sing-box',deployment:'install'}};render()");
+  evaluate("chooseHost('3x-ui')");
+  assert(modal.innerHTML.includes('name="tls_strategy"'));
+  assert(modal.innerHTML.includes('value="npm"'));
+  assert(modal.innerHTML.includes('交给 NPM 反向代理提供 HTTPS'));
+  assert(modal.innerHTML.includes('value="https"'));
+  evaluate("chooseHost('s-ui')");
+  assert(modal.innerHTML.includes('name="tls_strategy"'));
+  assert(modal.innerHTML.includes('value="npm"'));
+  assert(modal.innerHTML.includes('S-UI 管理端口固定 2095'));
+  const npmPlanUI={...freshJob,project:'s-ui',plan:{
+    ...freshJob.plan,name:'S-UI',options:{access_mode:'npm'},
+    npm_proxy:{scheme:'http',host:'127.0.0.1',port:2095,network_mode:'host',websockets:false},
+    steps:Array.from({length:5},(_,i)=>({label:'Safe SUI stage '+i,timeout:25,script:'echo reviewed'})),
+  }};
+  fill(npmPlanUI);
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('NPM 统一 HTTPS'));
+  assert(modal.innerHTML.includes('跳过 Certbot'));
+  assert(!modal.innerHTML.includes('一键安装 S-UI 并申请 IP/域名证书'));
+  fill({...npmPlanUI,status:'completed'});
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('NPM 反向代理配置提示'));
+  assert(modal.innerHTML.includes('127.0.0.1'));
+  assert(modal.innerHTML.includes('2095'));
+  assert(!modal.innerHTML.includes('data-action="sui-upgrade"'),
+    'NPM mode should not prompt for a redundant standalone certificate');
+  fill();
 
   // Dockge install form defaults to public IP+port without a mode picker.
   evaluate("state.catalog={'dockge':{name:'Dockge Apps',subtitle:'Docker Compose 与应用中心',category:'容器',deployment:'install'}};render();");

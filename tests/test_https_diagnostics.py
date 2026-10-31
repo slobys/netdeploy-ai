@@ -82,9 +82,11 @@ def test_failed_ip_issuance_emits_only_sanitized_actionable_error(tmp_path, fake
     assert "was not opened to public HTTP" in result.stderr
 
 
-def test_web_panel_has_no_certificate_mode_selection():
+def test_web_panel_offers_native_certificate_or_npm_termination():
     js = (Path(__file__).resolve().parents[1] / "app" / "static" / "app.js").read_text(encoding="utf-8")
     assert 'name="access_mode"' not in js
-    assert "payload.access_mode='https'" in js
+    assert 'name="tls_strategy"' in js
+    assert 'value="npm"' in js
+    assert "payload.access_mode=tlsStrategy" in js
     assert "showExistingXui(id,status)" in js
     assert "修复后重新生成证书方案" in js

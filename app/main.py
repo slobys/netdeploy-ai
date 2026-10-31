@@ -45,7 +45,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.27")
+app = FastAPI(title="NetDeploy AI", version="0.3.28")
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
 @app.middleware("http")
@@ -111,7 +111,7 @@ class NewJob(BaseModel):
     host_id: int
     project: str
     panel_port: StrictInt | None = Field(default=None, ge=1024, le=65535)
-    access_mode: Literal["local", "https", "public"] | None = None
+    access_mode: Literal["local", "https", "public", "npm"] | None = None
     confirm_public: bool = False
     source_job_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{16}$")
 
@@ -192,7 +192,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.27", "security": "local-only"}
+    return {"ok": True, "version": "0.3.28", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -695,6 +695,11 @@ def new_job(body: NewJob):
         options = {"panel_port": body.panel_port if body.panel_port is not None else DEFAULT_PORT}
         if body.access_mode == "https":
             options.update({"access_mode": "https", **tls_options(host)})
+        elif body.access_mode == "npm":
+            # NPM terminates TLS externally; the managed panel stays loopback-only.
+            options["access_mode"] = "npm"
+        elif body.access_mode not in {None, "local"}:
+            raise HTTPException(status_code=422, detail="3X-UI 不支持该证书配置模式")
         if options["panel_port"] == host["port"]:
             raise HTTPException(status_code=422, detail="面板端口不能与 VPS SSH 端口相同")
     elif body.project == "s-ui":
@@ -705,6 +710,8 @@ def new_job(body: NewJob):
         if host["facts"].get("SUI_PRESENT") != "no":
             raise HTTPException(status_code=409, detail="S-UI 已安装或冲突检查不完整，请先查看现有面板；禁止覆盖重装")
         access_mode = body.access_mode or "https"
+        if access_mode not in {"https", "local", "npm"}:
+            raise HTTPException(status_code=422, detail="S-UI 不支持该证书配置模式")
         options = {"access_mode": access_mode}
         if access_mode == "https":
             options.update(tls_options(host))

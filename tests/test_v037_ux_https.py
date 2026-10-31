@@ -130,4 +130,4 @@ def test_frontend_high_frequency_actions_are_visible():
     ]:
         assert phrase in js
     assert "if(before!==active.status" in js
-    assert "createHostPlan(id,'3x-ui',port,true)" in js
+    assert "createHostPlan(id,'3x-ui',port,true,String(new FormData(form).get('tls_strategy')||'https'))" in js

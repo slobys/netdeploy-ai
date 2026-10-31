@@ -20,7 +20,7 @@ CATALOG = {
         "name": "3X-UI", "subtitle": "Xray 可视化管理面板", "category": "面板",
         "icon": "layers", "deployment": "install", "risk": "高",
         "docs": "https://docs.sanaei.dev/docs/guide/installation/",
-        "summary": "使用固定 v3.11.0 官方安装器及 SHA-256 校验，无 Docker 部署；面板仅监听本机，通过 SSH 隧道安全访问。",
+        "summary": "固定官方安装器及 SHA-256 校验，可自动申请 IP/域名证书，或不申请证书由 NPM 统一反向代理 HTTPS。",
         "requires": ["Ubuntu/Debian root VPS", "x86_64/arm64", "systemd 和 ss", "无已有 x-ui 安装", "面板仅本机监听，不自动打开公网端口"],
     },
     "3x-ui-https": {
@@ -35,7 +35,7 @@ CATALOG = {
         "name": "S-UI", "subtitle": "sing-box 可视化管理面板", "category": "面板",
         "icon": "layers", "deployment": "install", "risk": "高",
         "docs": "https://github.com/alireza0/s-ui",
-        "summary": "官方 v1.6.6 固定发行包与随机管理凭据；签发公网 IP/域名证书并验收后启用 S-UI 原生 HTTPS。",
+        "summary": "固定发行包与随机管理凭据，可自动申请 IP/域名证书，或选择 NPM 反向代理提供 HTTPS。",
         "requires": ["Debian/Ubuntu root VPS", "x86_64/arm64", "systemd、ss、Python3 SQLite",
                      "2095/2096 端口未占用", "无已有 S-UI 安装", "HTTPS 需要公网 TCP 80 及云防火墙允许管理端口"],
     },
@@ -292,7 +292,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             raise ValueError("3X-UI 部署选项包含未授权字段")
         port = validate_port(options.get("panel_port", DEFAULT_PORT))
         access_mode = options.get("access_mode", "local")
-        if access_mode not in {"local", "https"}:
+        if access_mode not in {"local", "https", "npm"}:
             raise ValueError("不支持的 3X-UI 访问方式")
         if access_mode == "https":
             mode, identity = identify(options.get("tls_identity", ""))
@@ -308,7 +308,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         else:
             if "tls_identity" in options or "certificate_type" in options or "ssh_ipv4" in options:
                 raise ValueError("仅 HTTPS 模式可填写证书标识")
-            options = {"panel_port": port}
+            options = {"panel_port": port, "access_mode": "npm"} if access_mode == "npm" else {"panel_port": port}
     elif project in {"s-ui", "s-ui-https"}:
         allowed = {"access_mode", "tls_identity", "certificate_type", "ssh_ipv4"}
         if project == "s-ui-https":
@@ -318,12 +318,12 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             raise ValueError("S-UI HTTPS 部署含未授权参数")
         if project == "s-ui":
             mode = options.get("access_mode", "local")
-            if mode not in {"https", "local"}:
+            if mode not in {"https", "local", "npm"}:
                 raise ValueError("S-UI 访问方式不合法")
-            if mode == "local":
+            if mode in {"local", "npm"}:
                 if set(options) - {"access_mode"}:
-                    raise ValueError("只有 S-UI HTTPS 模式允许证书选项")
-                options = {"access_mode": "local"}
+                    raise ValueError("非证书模式不能填写 S-UI 证书选项")
+                options = {"access_mode": mode}
         else:
             mode = "https"
             if "source_job_id" in options:
@@ -408,7 +408,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         steps = dockge_reconfigure_steps(options["panel_port"], options["access_mode"])
     else:
         steps = []
-    return {
+    plan = {
         "project": project,
         "name": meta["name"],
         "docs": meta["docs"],
@@ -452,3 +452,18 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             "hysteria2": ["需要单独实现 TLS 证书、身份认证和服务器配置"],
         }[project],
     }
+    if project in {"3x-ui", "s-ui"} and options.get("access_mode") == "npm":
+        upstream_port = options["panel_port"] if project == "3x-ui" else 2095
+        plan["npm_proxy"] = {
+            "scheme": "http", "host": "127.0.0.1", "port": upstream_port,
+            "network_mode": "host", "websockets": project == "3x-ui",
+        }
+        plan["warnings"] = [
+            "已选择不申请 IP/域名证书：不会运行 Certbot、ACME HTTP-01、TCP 80 预检或证书续期配置",
+            f"面板仅绑定 VPS 的 127.0.0.1:{upstream_port}，不会向公网开放未加密 HTTP；请勿放行面板原始端口",
+            "NPM 需要能够访问宿主机 loopback；Docker bridge 模式无法直接连接 127.0.0.1，建议 NPM 使用 network_mode: host（需去掉 ports 映射）",
+            "由 NPM 使用独立域名申请和续期 SSL，Proxy Host 使用 http + 127.0.0.1 + 面板端口；3X-UI 请开启 WebSocket Support",
+            "请先确认 NPM 的 80/443 可用并正确设置域名 DNS A、云防火墙和 81 管理端访问白名单",
+            "由于 NPM 终止 TLS，面板本身仍是 HTTP。只有反向代理/SSH 隧道可以访问它，避免直接公网登录。",
+        ]
+    return plan
