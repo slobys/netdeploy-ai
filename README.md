@@ -50,6 +50,8 @@ cd netdeploy-ai
 
 如不希望自动启动 Docker，在项目私有 `.env` 中添加 `NETDEPLOY_CODEX_AUTO_START=0`；其他功能仍正常使用。手动启用脚本仅保留作故障排查入口。Codex Worker 使用 Docker 的 `unless-stopped` 重启策略，Docker Desktop 已启动时会自动恢复容器。
 
+**不希望弹出 Docker Desktop 窗口？** 在 Docker Desktop → **Settings → General** 取消勾选 **Open Docker Dashboard when Docker Desktop starts**。QuickStart 检测到引擎未运行时优先调用 Docker 官方 `docker desktop start --detach` 异步启动，不再直接运行 `Docker Desktop.exe` 打开图形界面。注意 `--detach` 仅表示不等待，不保证所有 Docker 版本完全不显示窗口；是否弹出 Dashboard 仍由你的 Docker Desktop 设置决定。当前隔离 Worker 仍需要 **Docker 后台引擎** 运行，并未取消 Docker 依赖；旧版 Docker CLI 不支持该命令时将提示问题，但普通 VPS 功能不受影响。
+
 启动器会优先识别 Docker Desktop 的本机 `desktop-linux` 和 `default` 上下文，并验证实际运行的是 **Linux 引擎**。即使你平时使用其他 Docker 上下文，NetDeploy AI 也不会修改全局默认上下文或把 Codex 凭据发往远程 Docker。如果 Docker Desktop 确实运行在 Windows containers 模式，请在 Docker Desktop 菜单切换到 **Linux containers**；单纯的 Docker Desktop 尚未启动不再被误报为上下文错误。
 
 **Docker / NAS 启动**：在项目私有 `.env` 中设置至少 24 位随机 `NETDEPLOY_WORKER_TOKEN`（与管理员令牌不同），然后运行 `docker compose --profile ai up -d --build`。现有主程序不会把 SSH 密钥、数据库或 Docker Socket 挂载进 AI Worker。

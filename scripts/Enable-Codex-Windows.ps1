@@ -121,15 +121,33 @@ function Invoke-BoundedCompose {
     }
 }
 
-function Find-DockerDesktop {
-    $candidates = @(
-        (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Programs\Docker\Docker Desktop.exe')
-    )
-    foreach ($candidate in $candidates) {
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+function Start-DockerDesktopBackground {
+    param([string]$DockerExe)
+    # The supported Desktop CLI initiates startup without explicitly opening
+    # Docker Desktop.exe. Whether the dashboard itself appears is controlled
+    # by Docker Desktop > Settings > General > Open Docker Dashboard...
+    # --detach means no synchronous wait; it is NOT a no-UI guarantee.
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo.FileName = $DockerExe
+    $process.StartInfo.Arguments = 'desktop start --detach'
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.CreateNoWindow = $true
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    try {
+        if (-not $process.Start()) { return $false }
+        $process.BeginOutputReadLine()
+        $process.BeginErrorReadLine()
+        if (-not $process.WaitForExit(15000)) {
+            try { $process.Kill() } catch {}
+            return $false
+        }
+        return ($process.ExitCode -eq 0)
+    } catch {
+        return $false
+    } finally {
+        $process.Dispose()
     }
-    return $null
 }
 
 $mutex = $null
@@ -191,12 +209,10 @@ try {
         if (Test-WindowsContainerMode $dockerExe) {
             throw 'Docker Desktop 正在使用 Windows containers。请在 Docker Desktop 菜单选择 Switch to Linux containers。'
         }
-        $desktop = Find-DockerDesktop
-        if (-not $desktop) {
-            throw 'Docker Linux 引擎尚未就绪，且未找到 Docker Desktop。请安装并启动 Docker Desktop。'
+        Write-CodexStartupState 'starting' '正在通过 Docker 官方命令启动本机 Linux 引擎（后台执行）。'
+        if (-not (Start-DockerDesktopBackground $dockerExe)) {
+            throw 'Docker Desktop 无法通过后台命令启动。请更新 Docker Desktop，或在设置中关闭“Open Docker Dashboard when Docker Desktop starts”后预先启动；普通 VPS 功能不受影响。'
         }
-        Write-CodexStartupState 'starting' '正在启动 Docker Desktop 并等待本机 Linux 引擎；不影响 VPS 面板使用。'
-        Start-Process -FilePath $desktop -ErrorAction Stop | Out-Null
         # Wait only in the isolated helper. Reinspect contexts because Docker
         # Desktop may CREATE "desktop-linux" after its first startup.
         for ($i = 0; $i -lt 45; $i++) {

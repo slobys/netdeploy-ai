@@ -39,7 +39,12 @@ def test_windows_start_is_nonblocking_and_automatic():
     assert "elseif (-not $dockerAvailable)" in starter
 
     assert "param([switch]$Auto)" in worker
-    assert "Start-Process -FilePath $desktop" in worker
+    assert "function Start-DockerDesktopBackground" in worker
+    assert "desktop start --detach" in worker, "Use supported background CLI"
+    assert "Start-Process -FilePath $desktop" not in worker, (
+        "QuickStart must never directly open Docker Desktop.exe"
+    )
+    assert "WaitForExit(15000)" in worker, "CLI startup attempt must be bounded"
     assert "WaitForExit(3500)" in worker, "Docker readiness probes must be bounded"
     assert "WaitForExit(420000)" in worker, "First-time Compose build must be bounded"
     assert "'--no-deps'" in worker, "Never start a second NetDeploy API container"
@@ -60,9 +65,12 @@ def test_windows_start_is_nonblocking_and_automatic():
     assert worker.count("$dockerContext = Find-RunningLocalLinuxContext $dockerExe") >= 2, (
         "Recheck contexts after cold Docker Desktop boot"
     )
-    assert worker.index("Start-Process -FilePath $desktop") > worker.index(
+    assert worker.index("if (-not (Start-DockerDesktopBackground $dockerExe))") > worker.index(
         "$dockerContext = Find-RunningLocalLinuxContext $dockerExe"
     )
+    assert "if (-not (Start-DockerDesktopBackground $dockerExe))" in worker
+    assert "Open Docker Dashboard when Docker Desktop starts" in worker
+
     assert "$composeArgs = @('--context', $dockerContext, 'compose'" in worker
     assert "docker context use" not in worker.lower(), "Do not mutate user Docker defaults"
     assert "Remove-Item Env:DOCKER_HOST" in worker
@@ -151,3 +159,6 @@ def test_windows_documentation_explains_one_click_and_first_auth():
     assert "Docker Desktop" in readme
     assert "NETDEPLOY_CODEX_AUTO_START=0" in readme
     assert "只有首次连接账号或登录失效时才需要重新授权" in readme
+    assert "docker desktop start --detach" in readme
+    assert "Open Docker Dashboard when Docker Desktop starts" in readme
+    assert "后台引擎" in readme
