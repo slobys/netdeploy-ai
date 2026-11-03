@@ -82,6 +82,24 @@
   border-color: var(--theme-line);
   box-shadow: 0 1px 1px color-mix(in srgb, #000 9%, transparent);
 }
+/* The older hover rule uses a hard-coded navy background. On a light theme
+   that hid the dark host name and IP, so keep hover/focus in the active palette. */
+.host-item:is(:hover, :focus-visible) {
+  background: linear-gradient(
+    140deg,
+    color-mix(in srgb, var(--theme-action) 10%, var(--theme-panel)),
+    color-mix(in srgb, var(--theme-action) 7%, var(--theme-panel-2))
+  );
+  border-color: var(--theme-line-strong);
+  box-shadow: var(--theme-shadow);
+}
+.host-item:is(:hover, :focus-visible) .host-card-open {
+  color: var(--theme-accent);
+}
+.host-item:focus-visible {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: 3px;
+}
 .host-card-address, .host-card-meta,
 .server-kpi strong, .job-main, .job-item,
 .xui-info-row, .modal-tip {
@@ -278,10 +296,21 @@
 /* Header: keep add-VPS as the unmistakable primary action. */
 .topbar { gap: 12px; }
 .top-actions { min-width: 0; gap: 8px; }
-.topbar .icon-button, .topbar-theme-button {
+.topbar .icon-button {
   width: 40px;
   min-width: 40px;
   height: 40px;
+}
+/* The theme button has an icon AND a label on desktop. Restricting it to
+   40px makes the label paint over the neighbouring Add VPS button. */
+.topbar-theme-button {
+  width: auto;
+  min-width: 88px;
+  height: 40px;
+  padding-inline: 12px;
+}
+.top-actions > :is(.topbar-doc-link, .theme-control, .topbar-add, .tag, .icon-button, .avatar) {
+  flex-shrink: 0;
 }
 .topbar-doc-link { min-height: 40px; }
 .topbar-add { min-height: 40px !important; }
@@ -293,6 +322,18 @@
   #projects-section.is-catalog .project-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+/* Preserve primary actions without forcing the desktop controls to collide. */
+@media (max-width: 1050px) {
+  .topbar .tag.alpha, .topbar .avatar { display: none; }
+}
+@media (max-width: 840px) {
+  .topbar-theme-button {
+    width: 40px;
+    min-width: 40px;
+    padding-inline: 0;
+  }
+  .topbar-theme-text { display: none; }
 }
 @media (max-width: 780px) {
   .host-list { grid-template-columns: minmax(0, 1fr); }

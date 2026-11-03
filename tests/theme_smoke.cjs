@@ -238,6 +238,26 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
   }
   assert(refinement.includes('prefers-reduced-motion: reduce'));
   assert(refinement.includes('pointer: coarse'),'Tap targets must work on touch devices');
+  // Regression: desktop theme label needs its intrinsic width, rather than a
+  // 40px icon slot; mobile intentionally uses only the icon.
+  assert(!/\.topbar\s+\.icon-button\s*,\s*\.topbar-theme-button/.test(refinement),
+    'Theme control must not share a fixed icon-only width on desktop');
+  const desktopThemeButton=refinement.match(/\.topbar-theme-button\s*\{([^}]+)\}/);
+  assert(desktopThemeButton && /width:\s*auto/.test(desktopThemeButton[1]) &&
+    /min-width:\s*88px/.test(desktopThemeButton[1]), 'Desktop theme label needs room');
+  assert(refinement.includes('@media (max-width: 840px)') &&
+    refinement.includes('.topbar-theme-text { display: none; }'),
+    'Only compact layouts should hide the theme button label');
+  // Regression: hovering a light-mode VPS must not apply an old navy gradient
+  // while the host name, address and details remain dark theme-aware text.
+  const hoverRule=refinement.match(/\.host-item:is\(:hover, :focus-visible\)\s*\{([^}]+)\}/);
+  assert(hoverRule && /background:\s*linear-gradient\(/.test(hoverRule[1]) &&
+    hoverRule[1].includes('var(--theme-panel)') &&
+    hoverRule[1].includes('var(--theme-panel-2)'),
+    'Host hover must use the current theme panel colors');
+  const hoverLink=refinement.match(/\.host-item:is\(:hover, :focus-visible\) \.host-card-open\s*\{([^}]+)\}/);
+  assert(hoverLink && hoverLink[1].includes('color: var(--theme-accent)'),
+    'Host action must remain legible over the hover background');
   const cleaned=refinement.replace(/\/\*[\s\S]*?\*\//g,'');
   let depth=0;
   for(const ch of cleaned){
