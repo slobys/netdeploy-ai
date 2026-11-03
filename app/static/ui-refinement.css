@@ -317,6 +317,23 @@
 .topbar .tag.alpha { white-space: nowrap; }
 .topbar .crumb { min-width: 0; white-space: nowrap; }
 
+/* One-time device code is large enough to read or copy without a terminal. */
+.codex-device-code {
+  font-size: clamp(20px, 3vw, 30px);
+  font-weight: 800;
+  letter-spacing: .13em;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-title);
+  background: var(--theme-panel-2);
+  border: 1px solid var(--theme-line-strong);
+  border-radius: var(--nd-control-radius);
+  padding: 16px;
+  margin-block: 6px 14px;
+  text-align: center;
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
 /* Responsive layout: avoid hidden controls and tiny tap targets. */
 @media (max-width: 1150px) {
   #projects-section.is-catalog .project-grid {

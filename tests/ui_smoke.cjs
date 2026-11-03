@@ -116,10 +116,11 @@ let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unava
 let dockgeStatus={installed:false,managed:false,service:'absent',access_mode:'unavailable',port:5001};
 let dockgeAccessReads=0;
 let dockgeStatusReads=0;
+let codexAccount={available:true,connected:false,pending:false};
 const context = vm.createContext({
   console,
   document,
-  window:{matchMedia:()=>({matches:false}),scrollTo(){}},
+  window:{matchMedia:()=>({matches:false}),scrollTo(){},confirm:()=>true},
   sessionStorage:{getItem:()=>null,setItem(){},removeItem(){}},
   navigator:{clipboard:{writeText:async()=>{}}},
   setInterval(){},
@@ -127,6 +128,21 @@ const context = vm.createContext({
   clearTimeout(){},
   setTimeout(){return 1;},
   fetch:async (url,opts={})=>{
+    if(url==='/api/codex/status')return {ok:true,status:200,json:async()=>codexAccount};
+    if(url==='/api/codex/connect'){
+      assert.equal(opts.method,'POST');
+      codexAccount={available:true,connected:false,pending:true,
+        user_code:'AAAA-BBBB',verification_url:'https://auth.openai.com/codex/device'};
+      return {ok:true,status:200,json:async()=>codexAccount};
+    }
+    if(url==='/api/codex/logout'){
+      assert.equal(opts.method,'POST');codexAccount={available:true,connected:false,pending:false};
+      return {ok:true,status:200,json:async()=>codexAccount};
+    }
+    if(url==='/api/codex/cancel'){
+      assert.equal(opts.method,'POST');codexAccount={available:true,connected:false,pending:false};
+      return {ok:true,status:200,json:async()=>({cancelled:true})};
+    }
     if (url==='/api/local-session') return {ok:false,status:403,json:async()=>({})};
     if (/^\/api\/hosts\/\d+\/fingerprint$/.test(url)) {
       fingerprintRequests++;
@@ -852,6 +868,20 @@ function fingerprintFor(label) {
   domHandlers.get('keydown')({key:'Tab',shiftKey:true,target:first,
     preventDefault(){}});
   assert.equal(document.activeElement,last,'Shift+Tab must wrap backwards');
+  evaluate('closeDialog()');
+
+  assert(html.includes('data-action="codex-settings"'),
+    'Codex settings must be accessible from the sidebar');
+  await evaluate('showCodexSettings()');
+  assert(made.get('#codex-account-state').innerHTML.includes('使用 ChatGPT 账号连接 Codex'));
+  await evaluate("codexAction('codex-connect')");
+  assert(made.get('#codex-account-state').innerHTML.includes('AAAA-BBBB'));
+  assert(made.get('#codex-account-state').innerHTML.includes('https://auth.openai.com/codex/device'));
+  codexAccount={available:true,connected:true,pending:false,auth_type:'chatgpt'};
+  await evaluate('refreshCodexSettings()');
+  assert(made.get('#codex-account-state').innerHTML.includes('已连接 ChatGPT 账号'));
+  await evaluate("codexAction('codex-disconnect')");
+  assert(made.get('#codex-account-state').innerHTML.includes('使用 ChatGPT 账号连接 Codex'));
   evaluate('closeDialog()');
 
   console.log('UI smoke: pending approval, plan expiry, duplicate prevention, fingerprint states and responsive CSS OK');

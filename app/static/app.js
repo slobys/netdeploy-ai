@@ -1320,6 +1320,53 @@ async function diagnoseJob(id){
  try{const res=await api(`/jobs/${id}/diagnose`,{method:'POST'});target.innerHTML='<h3>Codex 诊断建议</h3><pre class="pre">'+escapeHtml(res.message)+'</pre>';}
  catch(err){target.innerHTML='<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>';}
 }
+
+let codexStatusLoading=false;
+async function refreshCodexSettings(){
+ const node=el('#codex-account-state');
+ if(!node||codexStatusLoading)return;
+ codexStatusLoading=true;
+ try{
+   const status=await api('/codex/status');
+   if(!el('#codex-account-state'))return;
+   let content='';
+   if(!status.available){
+     content='<div class="modal-tip warning">AI Worker 尚未运行。Docker 安装请启动 ai 服务：<code>docker compose --profile ai up -d --build</code>。Windows 本机模式可双击项目根目录的 Enable-Codex-Windows.bat 后重启 NetDeploy；普通部署功能不受影响。</div>';
+   }else if(status.connected){
+     content='<div class="modal-tip success-note"><strong>✓ 已连接 ChatGPT 账号</strong><p>Codex 诊断将使用此账号可用的订阅额度。具体额度受 ChatGPT 套餐与账号权限约束，并非无限使用。</p></div>'+
+       '<div class="modal-actions"><button class="btn danger" data-action="codex-disconnect">断开 ChatGPT 连接</button><button class="btn subtle" data-action="codex-refresh">刷新状态</button></div>';
+   }else if(status.pending){
+     const rawUrl=String(status.verification_url||'');
+     const link=/^https:\/\/(auth\.openai\.com|chatgpt\.com)\//.test(rawUrl)?escapeHtml(rawUrl):'';
+     content='<div class="modal-tip"><strong>等待 ChatGPT 账号授权</strong><p>请在自己的浏览器打开下方官方授权页面，登录后输入一次性设备代码。不要向其他人发送此代码。</p></div>'+
+       '<div class="form-group"><label>设备代码（可复制）</label><div class="codex-device-code" role="status" aria-live="polite">'+escapeHtml(status.user_code)+'</div></div>'+
+       '<div class="modal-actions">'+(link?'<a class="btn primary" target="_blank" rel="noopener noreferrer" href="'+link+'">打开 ChatGPT 授权页面 ↗</a>':'<span class="modal-tip warning">验证地址无效，请取消并重新发起</span>')+'<button class="btn subtle" data-action="codex-refresh">检查授权结果</button><button class="btn ghost" data-action="codex-cancel">取消连接</button></div>'+
+       '<p class="helptext">页面会自动检查连接状态。若设备码授权不可用，请先在 ChatGPT 账号安全设置启用设备代码登录。</p>';
+   }else{
+     content='<div class="modal-tip">尚未连接 ChatGPT 账号。点击按钮后将生成官方设备码；使用你自己的 ChatGPT 账号授权，无需在 NetDeploy 中填写 ChatGPT 密码或 API Key。</div>'+
+       (status.auth_type==='other'?'<p class="helptext">当前检测到其他授权方式。使用订阅额度需要切换为 ChatGPT 登录。</p>':'')+
+       (status.error?'<div class="modal-tip warning">'+escapeHtml(status.error)+'</div>':'')+
+       '<div class="modal-actions"><button class="btn primary" data-action="codex-connect">使用 ChatGPT 账号连接 Codex</button><button class="btn subtle" data-action="codex-refresh">刷新状态</button></div>';
+   }
+   el('#codex-account-state').innerHTML=content;
+ }catch(err){
+   const target=el('#codex-account-state');
+   if(target)target.innerHTML='<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>';
+ }finally{codexStatusLoading=false;}
+}
+async function showCodexSettings(){
+ dialog(modalHead('Codex AI · ChatGPT 账号连接',true)+
+   '<div class="modal-tip"><strong>只读 AI 诊断</strong><p>Codex 不接触 SSH 密码、私钥或 Docker Socket，无法代替你批准和执行 VPS 安装。请在可信的单管理员环境中使用。</p></div>'+
+   '<div id="codex-account-state" role="status" aria-live="polite"><div class="scan-state">正在检查 Codex 连接状态…</div></div>');
+ await refreshCodexSettings();
+}
+async function codexAction(name){
+ if(name==='codex-disconnect'&&!window.confirm('确定断开当前 ChatGPT 连接？这将清除 Worker 保存的 Codex 登录状态。'))return;
+ const endpoint=({ 'codex-connect':'connect','codex-cancel':'cancel','codex-disconnect':'logout' })[name];
+ if(endpoint)await api('/codex/'+endpoint,{method:'POST'});
+ await refreshCodexSettings();
+}
+
 async function xuiUpgrade(id){
  const source=state.jobs.find(j=>j.id===id&&j.project==='3x-ui'&&['completed','partial'].includes(j.status)&& (j.plan.trust_epoch||0)===(state.hosts.find(h=>h.id===j.host_id)?.trust_epoch||0));
  if(!source){toast('请先完成 3X-UI 安装',true);return;}
@@ -1392,7 +1439,7 @@ document.addEventListener('click',async e=>{
  const t=e.target.closest('[data-action],[data-nav]');if(!t)return;
  if(t.dataset.nav){go(t.dataset.nav);return;}
  const id=t.dataset.id,act=t.dataset.action;
- const asyncActions=new Set(['installed-xui','installed-sui','sui-upgrade','existing-xui-https','xui-public-http','install-new-xui','fingerprint','trust','preflight','host-check','setup-firewall','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel']);
+ const asyncActions=new Set(['installed-xui','installed-sui','sui-upgrade','existing-xui-https','xui-public-http','install-new-xui','fingerprint','trust','preflight','host-check','setup-firewall','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel','codex-settings','codex-connect','codex-cancel','codex-disconnect','codex-refresh']);
  if(t.dataset.busy==='1')return;
  const busy=asyncActions.has(act)||act==='apply-ufw-toggle';
  if(busy){t.dataset.busy='1';t.disabled=true;t.classList.add('is-loading');t.setAttribute('aria-busy','true');}
@@ -1438,6 +1485,9 @@ document.addEventListener('click',async e=>{
   else if(act==='delete-job')confirmDeleteJob(id);
   else if(act==='confirm-delete-job')await deleteJobRecord(id);
   else if(act==='diagnose')await diagnoseJob(id);
+  else if(act==='codex-settings')await showCodexSettings();
+  else if(act==='codex-refresh')await refreshCodexSettings();
+  else if(['codex-connect','codex-cancel','codex-disconnect'].includes(act))await codexAction(act);
   else if(act==='regenerate-plan')await regeneratePlan(id);
   else if(act==='xui-upgrade')await xuiUpgrade(id);
   else if(act==='copy-xui-url')await copyXuiField('xui-url','面板地址');
@@ -1494,5 +1544,5 @@ document.addEventListener('keydown',e=>{
 });
 el('#refresh').addEventListener('click',async e=>{const button=e.currentTarget;button.classList.add('is-loading');button.disabled=true;try{await loadAll();}finally{button.classList.remove('is-loading');button.disabled=false;}});
 el('#logout').addEventListener('click',()=>{sessionStorage.removeItem('nd_token');state.token='';el('#login').classList.remove('hidden');});
-setInterval(()=>{if(state.token)loadAll(true);},5000);
+setInterval(()=>{if(state.token){loadAll(true);if(el('#codex-account-state'))refreshCodexSettings();}},5000);
 start();

@@ -20,7 +20,7 @@ from .catalog import CATALOG, build_plan
 from .executor import SSHConfig, SSHError, SSHExecutor, validate_host
 from .store import Store
 from .tasks import JobRunner
-from .ai import diagnose
+from .ai import diagnose, codex_status, codex_connect, codex_cancel, codex_logout
 from .os_keyring import VaultUnavailable
 from .https_upgrade import identify, https_access_script, https_url
 from .firewall import (PortRule, FirewallBatch, STATUS_SCRIPT, allow_port_script,
@@ -962,6 +962,35 @@ def job_access(id: str):
         )
         result["access_mode"] = "local"
     return result
+
+
+@app.get("/api/codex/status", dependencies=[Depends(authorized)])
+def codex_connection_status():
+    return codex_status()
+
+
+@app.post("/api/codex/connect", dependencies=[Depends(authorized)])
+def codex_start_login():
+    try:
+        return codex_connect()
+    except RuntimeError as exc:
+        raise HTTPException(503, detail=str(exc)) from exc
+
+
+@app.post("/api/codex/cancel", dependencies=[Depends(authorized)])
+def codex_cancel_login():
+    try:
+        return codex_cancel()
+    except RuntimeError as exc:
+        raise HTTPException(503, detail=str(exc)) from exc
+
+
+@app.post("/api/codex/logout", dependencies=[Depends(authorized)])
+def codex_disconnect():
+    try:
+        return codex_logout()
+    except RuntimeError as exc:
+        raise HTTPException(503, detail=str(exc)) from exc
 
 
 @app.post("/api/jobs/{id}/diagnose", dependencies=[Depends(authorized)])

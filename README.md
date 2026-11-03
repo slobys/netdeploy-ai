@@ -15,6 +15,7 @@
 - **HTTPS 证书**：3X-UI、S-UI 可自动申请 IP/域名证书，也可交给 NPM 统一管理 HTTPS。
 - **端口管理**：管理 VPS 上的 UFW 规则，提供常见云厂商安全组入口。
 - **自定义界面**：多种主题颜色、明暗模式和阅读字号。
+- **Codex AI（可选）**：管理员用自己的 ChatGPT 账号登录，只读分析安装日志；不需要另填 API Key。
 
 ## 支持的项目
 
@@ -42,6 +43,16 @@ cd netdeploy-ai
 启动后在浏览器访问 **http://127.0.0.1:8787**。Windows 本机模式首次启动可自动登录。
 
 **以后启动或更新：** 先在旧服务窗口按 `Ctrl+C` 停止，再双击项目文件夹中的 `QuickStart-NetDeploy.bat`。程序会检查更新并保留本地数据。
+
+## 使用 ChatGPT 订阅连接 Codex（可选）
+
+**Windows 本机启动**：需安装并运行 Docker Desktop（Linux 容器）。在项目目录双击 `Enable-Codex-Windows.bat`，它会生成独立 Worker 令牌、仅向 127.0.0.1 开放 Worker 服务。随后重启 NetDeploy AI（`QuickStart-NetDeploy.bat`）。
+
+**Docker / NAS 启动**：在项目私有 `.env` 中设置至少 24 位随机 `NETDEPLOY_WORKER_TOKEN`（与管理员令牌不同），然后运行 `docker compose --profile ai up -d --build`。现有主程序不会把 SSH 密钥、数据库或 Docker Socket 挂载进 AI Worker。
+
+进入后台左侧 **Codex AI** → **使用 ChatGPT 账号连接**，在浏览器打开官方验证页并输入一次性设备代码。设备码登录（Beta）需要在 ChatGPT 安全设置中启用。授权成功后，打开部署任务点击 **AI 只读排障**。
+
+Codex 登录凭据仅存放在独立 Worker 的 `codex-auth` Docker 卷内，等同密码，请妥善保护；退出登录可清除凭据。点击「AI 只读排障」会将经过脱敏的任务日志摘录及基本系统信息发送给 Codex，请避免在任务日志里保存敏感信息。ChatGPT 订阅有使用限制，实际支持以账号权限为准；个人订阅不会共享给其他用户。AI 无权执行 VPS 命令、修改部署方案或跳过审批。没有启动 Worker 时，常规部署功能不受影响。
 
 ## 如何部署软件？
 

@@ -1,0 +1,6 @@
+# Local-only port for a Windows-hosted NetDeploy API.
+# Apply only with -f compose.yaml -f compose.ai-windows.yaml up codex-worker.
+services:
+  codex-worker:
+    ports:
+      - "127.0.0.1:8788:8788"

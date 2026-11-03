@@ -31,7 +31,11 @@ services:
       dockerfile: Dockerfile.ai
     environment:
       NETDEPLOY_WORKER_TOKEN: ${NETDEPLOY_WORKER_TOKEN:?Set NETDEPLOY_WORKER_TOKEN in .env}
-      CODEX_API_KEY: ${CODEX_API_KEY:-}
+      # The user connects ChatGPT inside the panel (device authorization).
+      # No API key is forwarded and no extra API billing is configured.
+      CODEX_HOME: /home/agent/.codex
+    volumes:
+      - codex-auth:/home/agent/.codex
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -40,3 +44,8 @@ services:
     tmpfs:
       - /tmp:rw,nosuid,size=128m
     # No external port, no SSH key mount, no database, no Docker socket.
+
+volumes:
+  # Isolated Codex login cache; Docker manages the mount and its permissions.
+  # Treat as a sensitive credential store; never mount on the main API service.
+  codex-auth:

@@ -52,6 +52,17 @@ try {
         Write-Host '[NetDeploy AI] 本机启动时会自动登录，无需复制或输入令牌。' -ForegroundColor Green
     }
     $env:NETDEPLOY_ADMIN_TOKEN = $savedToken
+    # Only opt in after the user explicitly enables the isolated Docker sidecar.
+    # Do not start Codex in this Windows process (which owns SSH credentials).
+    foreach ($line in $lines) {
+        if ($line -match '^NETDEPLOY_WORKER_TOKEN=(.*)$') {
+            $workerToken = $Matches[1].Trim('"', "'")
+            if ($workerToken.Length -ge 24 -and -not $workerToken.StartsWith('REPLACE_')) {
+                $env:NETDEPLOY_WORKER_TOKEN = $workerToken
+                $env:NETDEPLOY_CODEX_WORKER_URL = 'http://127.0.0.1:8788'
+            }
+        }
+    }
     # Only the trusted 127.0.0.1 listener may grant a browser local session.
     # This opt-in is never enabled by Docker/Linux startup scripts.
     $env:NETDEPLOY_LOCAL_AUTO_LOGIN = '1'
