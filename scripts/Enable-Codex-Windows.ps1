@@ -28,28 +28,71 @@ function Find-DockerCommand {
     return $null
 }
 
-function Test-LocalDockerEngine {
+function Get-LocalDockerContexts {
     param([string]$DockerExe)
-    # Docker can hang while WSL is starting. Bound every readiness probe.
+    # Docker Desktop may leave "default" selected when it is stopped.
+    # Context inspection is local metadata, not proof the engine is running.
+    # Only allow the known localhost named pipes. Never select SSH/TCP Docker.
+    foreach ($name in @('desktop-linux', 'default')) {
+        try {
+            $endpoints = @(& $DockerExe context inspect $name --format '{{.Endpoints.docker.Host}}' 2>$null)
+            if ($LASTEXITCODE -ne 0 -or $endpoints.Count -ne 1) { continue }
+            $endpoint = ([string]$endpoints[0]).Trim()
+            if ($endpoint -match '(?i)^npipe:/{2,4}\./pipe/(dockerDesktopLinuxEngine|docker_engine)$') {
+                Write-Output $name
+            }
+        } catch {
+            # A missing context is ordinary before Docker Desktop's first launch.
+        }
+    }
+}
+
+function Get-DockerServerOs {
+    param([string]$DockerExe, [string]$Context)
+    # Distinguish a booting engine from a Windows-container engine.
+    # Every invocation explicitly targets a verified LOCAL context.
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo.FileName = $DockerExe
-    $process.StartInfo.Arguments = 'info --format "{{.ServerVersion}}"'
+    $process.StartInfo.Arguments = '--context "' + $Context + '" info --format "{{.OSType}}"'
     $process.StartInfo.UseShellExecute = $false
     $process.StartInfo.CreateNoWindow = $true
     $process.StartInfo.RedirectStandardOutput = $true
     $process.StartInfo.RedirectStandardError = $true
     try {
-        if (-not $process.Start()) { return $false }
+        if (-not $process.Start()) { return $null }
         if (-not $process.WaitForExit(3500)) {
             try { $process.Kill() } catch {}
-            return $false
+            return $null
         }
-        return ($process.ExitCode -eq 0)
+        if ($process.ExitCode -ne 0) { return $null }
+        $os = $process.StandardOutput.ReadToEnd().Trim().ToLowerInvariant()
+        if ($os -in @('linux', 'windows')) { return $os }
+        return $null
     } catch {
-        return $false
+        return $null
     } finally {
         $process.Dispose()
     }
+}
+
+function Find-RunningLocalLinuxContext {
+    param([string]$DockerExe)
+    foreach ($name in @(Get-LocalDockerContexts $DockerExe)) {
+        if ((Get-DockerServerOs $DockerExe $name) -eq 'linux') {
+            return $name
+        }
+    }
+    return $null
+}
+
+function Test-WindowsContainerMode {
+    param([string]$DockerExe)
+    foreach ($name in @(Get-LocalDockerContexts $DockerExe)) {
+        if ((Get-DockerServerOs $DockerExe $name) -eq 'windows') {
+            return $true
+        }
+    }
+    return $false
 }
 
 function Invoke-BoundedCompose {
@@ -105,15 +148,11 @@ try {
     if (-not $dockerExe) {
         throw '未找到 Docker Desktop。可以先使用普通 VPS 管理；如需 Codex，请安装 Docker Desktop（Linux 容器）。'
     }
-    if ($env:DOCKER_HOST -and $env:DOCKER_HOST -notmatch '^npipe:') {
-        throw '检测到非本机 Docker 服务端，已跳过 Codex Worker，避免将订阅凭据放到远程 Docker 主机。'
-    }
-    # The worker stores the user's ChatGPT session. Never start it on an SSH/TCP remote context.
-    $endpoint = (& $dockerExe context inspect --format '{{.Endpoints.docker.Host}}' 2>$null | Select-Object -First 1)
-    if ($LASTEXITCODE -ne 0 -or -not $endpoint -or
-        -not $endpoint.Trim().StartsWith('npipe:', [StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Docker 当前不是 Windows 本机 Linux 引擎。请切回 Docker Desktop 的本机 Linux 上下文。'
-    }
+    # Never inherit an unrelated remote Docker context or DOCKER_HOST from the
+    # user's shell. These environment changes affect only this helper process.
+    # Every Docker operation below uses --context with verified LOCAL npipe.
+    Remove-Item Env:DOCKER_HOST -ErrorAction SilentlyContinue
+    Remove-Item Env:DOCKER_CONTEXT -ErrorAction SilentlyContinue
 
     $envFile = Join-Path $root '.env'
     if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
@@ -145,18 +184,32 @@ try {
     $env:NETDEPLOY_ADMIN_TOKEN = $admin
     $env:NETDEPLOY_WORKER_TOKEN = $worker
 
-    if (-not (Test-LocalDockerEngine $dockerExe)) {
+    # A named local context is not proof that Docker Desktop is up. In
+    # particular, "desktop-linux" can be absent or offline on cold boot.
+    $dockerContext = Find-RunningLocalLinuxContext $dockerExe
+    if (-not $dockerContext) {
+        if (Test-WindowsContainerMode $dockerExe) {
+            throw 'Docker Desktop 正在使用 Windows containers。请在 Docker Desktop 菜单选择 Switch to Linux containers。'
+        }
         $desktop = Find-DockerDesktop
-        if (-not $desktop) { throw 'Docker 引擎未运行，也未找到 Docker Desktop 可执行程序。' }
-        Write-CodexStartupState 'starting' 'Docker Desktop 正在启动；NetDeploy AI 主界面可以先正常使用。'
+        if (-not $desktop) {
+            throw 'Docker Linux 引擎尚未就绪，且未找到 Docker Desktop。请安装并启动 Docker Desktop。'
+        }
+        Write-CodexStartupState 'starting' '正在启动 Docker Desktop 并等待本机 Linux 引擎；不影响 VPS 面板使用。'
         Start-Process -FilePath $desktop -ErrorAction Stop | Out-Null
-        # Cold Docker Desktop/WSL boot has a bounded, background-only window.
-        $ready = $false
+        # Wait only in the isolated helper. Reinspect contexts because Docker
+        # Desktop may CREATE "desktop-linux" after its first startup.
         for ($i = 0; $i -lt 45; $i++) {
             Start-Sleep -Seconds 2
-            if (Test-LocalDockerEngine $dockerExe) { $ready = $true; break }
+            $dockerContext = Find-RunningLocalLinuxContext $dockerExe
+            if ($dockerContext) { break }
+            if (Test-WindowsContainerMode $dockerExe) {
+                throw 'Docker Desktop 已启动，但当前是 Windows containers。请切换到 Linux containers。'
+            }
         }
-        if (-not $ready) { throw 'Docker Desktop 未能正常启动。请检查 Docker Desktop 和 WSL 运行状态。' }
+        if (-not $dockerContext) {
+            throw 'Docker Desktop 尚未提供本机 Linux 引擎。请检查 WSL 2、Docker Desktop 的 Linux 容器模式并重新启动。'
+        }
     }
 
     $sources = @(
@@ -170,7 +223,7 @@ try {
     $needsBuild = (-not (Test-Path -LiteralPath $marker -PathType Leaf)) -or
         ((Get-Content -LiteralPath $marker -Raw).Trim() -ne $fingerprint)
     Write-CodexStartupState 'starting' '正在检查或启动 Codex Worker；首次使用及软件更新后可能需要构建镜像。'
-    $composeArgs = @('compose', '-f', 'compose.yaml', '-f', 'compose.ai-windows.yaml',
+    $composeArgs = @('--context', $dockerContext, 'compose', '-f', 'compose.yaml', '-f', 'compose.ai-windows.yaml',
                      '--profile', 'ai', 'up', '-d', '--no-deps')
     if ($needsBuild) { $composeArgs += '--build' }
     $composeArgs += 'codex-worker'

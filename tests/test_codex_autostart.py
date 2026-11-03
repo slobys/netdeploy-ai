@@ -5,6 +5,7 @@ These tests do not start a Docker daemon, contact Codex, or read user credential
 """
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -48,11 +49,51 @@ def test_windows_start_is_nonblocking_and_automatic():
     assert "codex-worker-startup.json" in worker
     assert "Write-CodexStartupState 'ready'" in worker
     assert "Local\\NetDeployCodexWorkerStartup" in worker
-    assert "Docker 当前不是 Windows 本机 Linux 引擎" in worker
-    assert "DOCKER_HOST" in worker, "Do not write ChatGPT sessions to remote Docker"
+    # Do not trust the default context before Docker Desktop starts. Explicitly
+    # validate the localhost endpoint AND the running server's OSType=linux.
+    assert "Docker 当前不是 Windows 本机 Linux 引擎" not in worker
+    assert "@('desktop-linux', 'default')" in worker
+    assert "Get-LocalDockerContexts" in worker
+    assert "Find-RunningLocalLinuxContext" in worker
+    assert "Get-DockerServerOs" in worker
+    assert 'info --format "{{.OSType}}"' in worker
+    assert worker.count("$dockerContext = Find-RunningLocalLinuxContext $dockerExe") >= 2, (
+        "Recheck contexts after cold Docker Desktop boot"
+    )
+    assert worker.index("Start-Process -FilePath $desktop") > worker.index(
+        "$dockerContext = Find-RunningLocalLinuxContext $dockerExe"
+    )
+    assert "$composeArgs = @('--context', $dockerContext, 'compose'" in worker
+    assert "docker context use" not in worker.lower(), "Do not mutate user Docker defaults"
+    assert "Remove-Item Env:DOCKER_HOST" in worker
+    assert "Remove-Item Env:DOCKER_CONTEXT" in worker
     assert "http://127.0.0.1:8788/account/status" in worker
     assert "if ($Auto)" in worker
     assert "exit 1" in worker, "Manual startup should still report failures"
+
+
+def test_docker_context_endpoint_allowlist_is_strict():
+    worker = _script("scripts/Enable-Codex-Windows.ps1")
+    match = re.search(r"if \(\$endpoint -match '([^']+)'\)", worker)
+    assert match, "The Docker endpoint must be checked before using a context"
+    pattern = re.compile(match.group(1))
+    for endpoint in (
+        "npipe:////./pipe/dockerDesktopLinuxEngine",
+        "npipe:////./pipe/docker_engine",
+        "npipe://./pipe/docker_engine",
+    ):
+        assert pattern.fullmatch(endpoint), endpoint
+    for endpoint in (
+        "ssh://root@remote-vps",
+        "tcp://10.1.2.3:2375",
+        "tcp://127.0.0.1:2375",
+        "unix:///var/run/docker.sock",
+        "npipe:////other-host/pipe/docker_engine",
+        "npipe:////./pipe/dockerDesktopWindowsEngine",
+        "npipe:////./pipe/custom-engine",
+        "npipe:////./pipe/docker_engine/extra",
+    ):
+        assert not pattern.fullmatch(endpoint), endpoint
 
 
 def test_codex_worker_is_local_optional_and_restartable():
