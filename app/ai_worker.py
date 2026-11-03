@@ -1,8 +1,9 @@
-"""Isolated Codex diagnosis worker with explicit, local ChatGPT account login.
+"""Codex read-only diagnosis worker with ChatGPT account authorization.
 
-Never mount VPS credentials, the panel token, Docker socket or data DB here.
-An authenticated panel administrator initiates device-code login; Codex stores
-its own session in the worker-only CODEX_HOME volume. No API billing fallback.
+On Windows native mode, a dedicated venv/workspace and sanitized environment
+reduce exposure, but a process running as the same Windows user is NOT an OS
+security boundary. The Codex Windows sandbox enforces model command limits.
+On Linux/NAS, Docker continues to provide stronger container isolation.
 """
 from __future__ import annotations
 
@@ -20,6 +21,37 @@ app = FastAPI(title="NetDeploy isolated Codex Worker")
 TOKEN = os.getenv("NETDEPLOY_WORKER_TOKEN", "")
 if len(TOKEN) < 24 or TOKEN.startswith("REPLACE_"):
     raise RuntimeError("NETDEPLOY_WORKER_TOKEN must have at least 24 chars")
+
+MODE = "windows-native" if os.getenv("NETDEPLOY_CODEX_NATIVE") == "1" else "docker"
+
+
+def _watch_parent():
+    """Exit a native worker when the NetDeploy parent process terminates."""
+    if os.name != "nt" or MODE != "windows-native":
+        return
+    try:
+        import ctypes
+        pid = int(os.environ.get("NETDEPLOY_CODEX_PARENT_PID", "0"))
+        if pid <= 0:
+            return
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        handle = kernel32.OpenProcess(0x00100000, 0, pid)  # SYNCHRONIZE
+        if not handle:
+            return
+        try:
+            if kernel32.WaitForSingleObject(ctypes.c_void_p(handle), 0xFFFFFFFF) == 0:
+                os._exit(0)
+        finally:
+            kernel32.CloseHandle(ctypes.c_void_p(handle))
+    except (OSError, ValueError):
+        # Normal shutdown additionally terminates the native child process.
+        return
+
+
+if MODE == "windows-native" and os.name == "nt":
+    threading.Thread(target=_watch_parent, daemon=True, name="codex-parent-watch").start()
 
 # Single-admin prototype. Keep the SDK client alive until the device login
 # completes; the login handle's wait() needs that same app-server connection.
@@ -73,7 +105,7 @@ def _account_status() -> dict:
     return {
         "available": True, "connected": kind == "chatgpt",
         "auth_type": "chatgpt" if kind == "chatgpt" else "other" if kind else "none",
-        "pending": False,
+        "pending": False, "mode": MODE,
     }
 
 
@@ -81,7 +113,7 @@ def _public_pending() -> dict:
     return {
         "available": True, "connected": False, "pending": True,
         "verification_url": _login["url"], "user_code": _login["code"],
-        "auth_type": "none",
+        "auth_type": "none", "mode": MODE,
     }
 
 
@@ -103,6 +135,12 @@ def _login_wait(owner, handle, attempt_id: str):
                 _login.update(state="failed" if error else "completed",
                               error=error, owner=None, handle=None,
                               code="", url="")
+
+
+@app.get("/health", dependencies=[Depends(authorize)])
+def worker_health():
+    """Liveness requires no Codex login or app-server startup."""
+    return {"ready": True, "mode": MODE}
 
 
 @app.get("/account/status", dependencies=[Depends(authorize)])

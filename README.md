@@ -46,19 +46,17 @@ cd netdeploy-ai
 
 ## 使用 ChatGPT 订阅连接 Codex（可选）
 
-**Windows 本机启动**：只需预先安装一次 [Docker Desktop](https://www.docker.com/products/docker-desktop/)（切换为本机 Linux 容器）。以后双击 `QuickStart-NetDeploy.bat` 即可：程序自动生成独立 Worker 令牌，在后台检测 Docker、按需启动 Docker Desktop 和 Codex Worker，并复用上次的 ChatGPT 登录状态；**不必再运行 `Enable-Codex-Windows.bat`，也不必打开 Codex 桌面程序**。首次启动时，Docker 镜像可能需要下载与构建；NetDeploy AI 面板会先正常打开，可在左侧「Codex AI」查看启动状态。没有安装 Docker、Docker 启动失败或网络异常都不影响普通 VPS 管理与部署。只有首次连接账号或登录失效时才需要重新授权。
+**Windows 默认原生模式（无需 Docker）**：只需安装 Git 和 Python。运行 `QuickStart-NetDeploy.bat` 后，后台自动创建专用 Python 环境并安装官方 Codex SDK，**不启动 Docker Desktop、WSL 或 Codex 桌面软件**。首次下载 SDK 的 Windows 运行组件可能需要一些时间，后台「Codex AI」可显示进度。连接自己的 ChatGPT 账号并完成首次设备码授权后，正常重启会复用登录状态（登录失效时需重新授权）。
 
-如不希望自动启动 Docker，在项目私有 `.env` 中添加 `NETDEPLOY_CODEX_AUTO_START=0`；其他功能仍正常使用。手动启用脚本仅保留作故障排查入口。Codex Worker 使用 Docker 的 `unless-stopped` 重启策略，Docker Desktop 已启动时会自动恢复容器。
+原生 Worker 仅监听 `127.0.0.1:8789`，使用 `%LOCALAPPDATA%\NetDeployAI\codex-native` 下的独立工作区、SDK 环境与登录目录；不会把 NetDeploy 的 SSH 密码、管理员令牌或数据库路径传给 Worker。Windows 原生沙箱开启 `prefer_mxc`，只读诊断禁止提权审批；**但同一 Windows 用户下的进程隔离不等于 Docker / 独立用户的强隔离**。请在可信的本机使用，不要把后台公开到互联网。
 
-**不希望弹出 Docker Desktop 窗口？** 在 Docker Desktop → **Settings → General** 取消勾选 **Open Docker Dashboard when Docker Desktop starts**。QuickStart 检测到引擎未运行时优先调用 Docker 官方 `docker desktop start --detach` 异步启动，不再直接运行 `Docker Desktop.exe` 打开图形界面。注意 `--detach` 仅表示不等待，不保证所有 Docker 版本完全不显示窗口；是否弹出 Dashboard 仍由你的 Docker Desktop 设置决定。当前隔离 Worker 仍需要 **Docker 后台引擎** 运行，并未取消 Docker 依赖；旧版 Docker CLI 不支持该命令时将提示问题，但普通 VPS 功能不受影响。
-
-启动器会优先识别 Docker Desktop 的本机 `desktop-linux` 和 `default` 上下文，并验证实际运行的是 **Linux 引擎**。即使你平时使用其他 Docker 上下文，NetDeploy AI 也不会修改全局默认上下文或把 Codex 凭据发往远程 Docker。如果 Docker Desktop 确实运行在 Windows containers 模式，请在 Docker Desktop 菜单切换到 **Linux containers**；单纯的 Docker Desktop 尚未启动不再被误报为上下文错误。
+如需关闭自动启动，在本机 `.env` 添加 `NETDEPLOY_CODEX_AUTO_START=0`；不影响其他 VPS 管理功能。之前安装的 Docker 版 Worker 不会被自动卸载或清除数据，但 Windows 默认不再调用它。
 
 **Docker / NAS 启动**：在项目私有 `.env` 中设置至少 24 位随机 `NETDEPLOY_WORKER_TOKEN`（与管理员令牌不同），然后运行 `docker compose --profile ai up -d --build`。现有主程序不会把 SSH 密钥、数据库或 Docker Socket 挂载进 AI Worker。
 
 进入后台左侧 **Codex AI** → **使用 ChatGPT 账号连接**，在浏览器打开官方验证页并输入一次性设备代码。设备码登录（Beta）需要在 ChatGPT 安全设置中启用。授权成功后，打开部署任务点击 **AI 只读排障**。
 
-Codex 登录凭据仅存放在独立 Worker 的 `codex-auth` Docker 卷内，等同密码，请妥善保护；退出登录可清除凭据。点击「AI 只读排障」会将经过脱敏的任务日志摘录及基本系统信息发送给 Codex，请避免在任务日志里保存敏感信息。ChatGPT 订阅有使用限制，实际支持以账号权限为准；个人订阅不会共享给其他用户。AI 无权执行 VPS 命令、修改部署方案或跳过审批。没有启动 Worker 时，常规部署功能不受影响。
+登录凭据分别保存在 Windows 原生 Worker 的专属 `CODEX_HOME` 或 Docker/NAS Worker 的私有 `codex-auth` 卷中；请像密码一样保护，退出登录可清除授权。点击「AI 只读排障」会将脱敏的任务日志摘录和基本系统信息发送给 Codex，请勿把私密数据写进部署日志。ChatGPT 套餐额度有限，个人登录不能共享给其他用户；AI 不会直接审批或执行 VPS 安装。Codex 不可用不影响普通部署。
 
 ## 如何部署软件？
 

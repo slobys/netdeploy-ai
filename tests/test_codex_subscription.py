@@ -41,20 +41,31 @@ def test_proxy_never_forwards_arbitrary_url_or_exposes_token(monkeypatch):
     monkeypatch.setenv("NETDEPLOY_CODEX_WORKER_URL", "http://codex-worker:8788")
     monkeypatch.setenv("NETDEPLOY_WORKER_TOKEN", WORKER_TOKEN)
     calls = []
-    def fake_request(method, url, **kwargs):
-        calls.append((method, url, kwargs))
-        return SimpleNamespace(
-            raise_for_status=lambda: None,
-            json=lambda: {"connected": True, "access_token": "must-not-return",
-                          "user_code": "ABC-123", "verification_url": "https://auth.openai.com/codex/device"},
-        )
-    monkeypatch.setattr(ai.httpx, "request", fake_request)
+    options = []
+    class FakeClient:
+        def __init__(self, **kwargs):
+            options.append(kwargs)
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def request(self, method, url, **kwargs):
+            calls.append((method, url, kwargs))
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {"connected": True, "access_token": "must-not-return",
+                              "user_code": "ABC-123", "mode": "windows-native",
+                              "verification_url": "https://auth.openai.com/codex/device"},
+            )
+    monkeypatch.setattr(ai.httpx, "Client", FakeClient)
     result = ai.codex_status()
     assert "access_token" not in result
     assert result["connected"] is True
+    assert result["mode"] == "windows-native"
     assert calls[0][1] == "http://codex-worker:8788/account/status"
     assert calls[0][2]["headers"]["X-Worker-Token"] == WORKER_TOKEN
-    assert calls[0][2]["follow_redirects"] is False
+    assert options[0]["follow_redirects"] is False
+    assert options[0]["trust_env"] is False, "Never proxy the worker auth token"
     with pytest.raises(KeyError):
         ai._worker_account_request("https://malicious.example")
 
@@ -116,6 +127,8 @@ def _worker_client(monkeypatch):
 def test_worker_device_login_and_sandboxed_diagnosis(monkeypatch):
     worker, client = _worker_client(monkeypatch)
     assert client.get("/account/status").status_code == 401
+    assert client.get("/health").status_code == 401
+    assert client.get("/health", headers=WORKER).json() == {"ready": True, "mode": "docker"}
     assert client.post("/account/device-login").status_code == 401
     assert client.post("/diagnose").status_code == 401
     first = client.post("/account/device-login", headers=WORKER)
@@ -131,6 +144,7 @@ def test_worker_device_login_and_sandboxed_diagnosis(monkeypatch):
         time.sleep(.01)
     assert status["connected"] is True
     assert "access_token" not in status
+    assert status["mode"] == "docker"
     request = {"project": "3x-ui", "status": "failed", "risk": "高",
                "issues": [], "warnings": [], "device": {"OS_ID": "debian"},
                "logs": "untrusted server log"}

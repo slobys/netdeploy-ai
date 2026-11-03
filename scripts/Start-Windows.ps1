@@ -52,8 +52,9 @@ try {
         Write-Host '[NetDeploy AI] 本机启动时会自动登录，无需复制或输入令牌。' -ForegroundColor Green
     }
     $env:NETDEPLOY_ADMIN_TOKEN = $savedToken
-    # Codex is OPTIONAL and runs in its own Docker container. Its startup is
-    # dispatched to another process; Docker/WSL must never block the VPS panel.
+    # Windows defaults to its own native Python/SDK worker. No Docker needed.
+    # The FastAPI lifespan starts/stops the sidecar asynchronously, so a slow
+    # first SDK install cannot block the VPS panel or its browser.
     $autoCodex = ($env:NETDEPLOY_CODEX_AUTO_START -ne '0')
     $workerToken = $null
     foreach ($line in $lines) {
@@ -64,43 +65,39 @@ try {
             $workerToken = $Matches[1].Trim('"', "'")
         }
     }
-    $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
-    $dockerAvailable = [bool]$dockerCommand
-    if (-not $dockerAvailable) {
-        $dockerFallback = Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin\docker.exe'
-        $dockerAvailable = Test-Path -LiteralPath $dockerFallback -PathType Leaf
-    }
-    if ($autoCodex -and $dockerAvailable -and
-        ([string]::IsNullOrWhiteSpace($workerToken) -or $workerToken.Length -lt 24 -or
-         $workerToken.StartsWith('REPLACE_'))) {
-        $workerToken = (& $venvPython -c 'import secrets;print(secrets.token_urlsafe(40))').Trim()
-        if ($LASTEXITCODE -ne 0) { throw '无法生成 Codex Worker 令牌。' }
-        $lines = @($lines | Where-Object { $_ -notmatch '^NETDEPLOY_WORKER_TOKEN=' })
-        $lines += "NETDEPLOY_WORKER_TOKEN=$workerToken"
-        [System.IO.File]::WriteAllLines($envFile, $lines, [System.Text.UTF8Encoding]::new($false))
-    }
-    if ($workerToken -and $workerToken.Length -ge 24 -and
-        -not $workerToken.StartsWith('REPLACE_')) {
-        # Only pass the worker token to the local API. Never pass the SSH
-        # secrets or panel administrator token into the Codex container.
-        $env:NETDEPLOY_WORKER_TOKEN = $workerToken
-        $env:NETDEPLOY_CODEX_WORKER_URL = 'http://127.0.0.1:8788'
-    }
-    if ($autoCodex -and $dockerAvailable -and $workerToken -and $workerToken.Length -ge 24) {
-        try {
-            $codexHelper = Join-Path $root 'scripts\Enable-Codex-Windows.ps1'
-            $helperArgs = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
-                $codexHelper + '" -Auto'
-            Start-Process -FilePath 'powershell.exe' -ArgumentList $helperArgs `
-                -WindowStyle Hidden -ErrorAction Stop | Out-Null
-            Write-Host '[NetDeploy AI] Codex Worker 自动启动检查已在后台开始。' -ForegroundColor Cyan
-        } catch {
-            Write-Warning '[NetDeploy AI] 可选 Codex 启动检查未启动；VPS 控制台仍将正常启动。'
+    $env:NETDEPLOY_CODEX_NATIVE_AUTO_START = '0'
+    $env:NETDEPLOY_CODEX_WORKER_URL = ''
+    $env:NETDEPLOY_WORKER_TOKEN = ''
+    try {
+        if ($autoCodex) {
+            if ([string]::IsNullOrWhiteSpace($workerToken) -or $workerToken.Length -lt 24 -or
+                $workerToken.StartsWith('REPLACE_')) {
+                $generated = & $venvPython -c 'import secrets;print(secrets.token_urlsafe(40))'
+                if ($LASTEXITCODE -ne 0 -or -not $generated) {
+                    throw '无法初始化可选 Codex 连接令牌'
+                }
+                $workerToken = ([string]$generated).Trim()
+                if ($workerToken.Length -lt 24) { throw 'Codex 令牌长度异常' }
+                $lines = @($lines | Where-Object { $_ -notmatch '^NETDEPLOY_WORKER_TOKEN=' })
+                $lines += "NETDEPLOY_WORKER_TOKEN=$workerToken"
+                [System.IO.File]::WriteAllLines($envFile, $lines, [System.Text.UTF8Encoding]::new($false))
+            }
+            if ($workerToken -and $workerToken.Length -ge 24 -and
+                -not $workerToken.StartsWith('REPLACE_')) {
+                $env:NETDEPLOY_WORKER_TOKEN = $workerToken
+                $env:NETDEPLOY_CODEX_WORKER_URL = 'http://127.0.0.1:8789'
+                $env:NETDEPLOY_CODEX_NATIVE_AUTO_START = '1'
+                Write-Host '[NetDeploy AI] 将在后台启动 Windows 原生 Codex（无需 Docker Desktop）。' -ForegroundColor Cyan
+            }
+        } else {
+            Write-Host '[NetDeploy AI] Codex 自动启动已关闭，VPS 控制台将照常启动。'
         }
-    } elseif (-not $autoCodex) {
-        Write-Host '[NetDeploy AI] Codex 自动启动已关闭，VPS 控制台将照常启动。'
-    } elseif (-not $dockerAvailable) {
-        Write-Host '[NetDeploy AI] 未检测到 Docker Desktop，Codex 暂不可用；VPS 功能不受影响。'
+    } catch {
+        # Optional Codex setup MUST NOT prevent ordinary SSH/VPS deployment.
+        $env:NETDEPLOY_CODEX_NATIVE_AUTO_START = '0'
+        $env:NETDEPLOY_CODEX_WORKER_URL = ''
+        $env:NETDEPLOY_WORKER_TOKEN = ''
+        Write-Warning '[NetDeploy AI] Codex 初始化未完成；普通 VPS 管理功能继续运行。'
     }
     # Only the trusted 127.0.0.1 listener may grant a browser local session.
     # This opt-in is never enabled by Docker/Linux startup scripts.

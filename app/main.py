@@ -1,6 +1,8 @@
 """NetDeploy AI API, single-admin prototype. Do not expose directly to public Internet."""
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 import os
 import json
 import time
@@ -48,8 +50,43 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
-app = FastAPI(title="NetDeploy AI", version="0.3.31")
+@asynccontextmanager
+async def native_codex_lifespan(_application: FastAPI):
+    start_native_codex()
+    try:
+        yield
+    finally:
+        stop_native_codex()
+
+
+app = FastAPI(title="NetDeploy AI", version="0.3.31",
+              lifespan=native_codex_lifespan)
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
+
+# Windows QuickStart opts into a native, dedicated Codex SDK process. Never
+# start it on Linux/NAS, Docker, or during unrelated TestClient/CI runs.
+_native_codex_manager = None
+
+
+def start_native_codex():
+    global _native_codex_manager
+    from .native_codex import NativeCodexManager, native_enabled
+    if not native_enabled():
+        return
+    try:
+        manager = NativeCodexManager(BASE.parent, DATA_DIR)
+        manager.start()  # Async daemon thread, never blocks main API startup.
+        _native_codex_manager = manager
+    except (OSError, RuntimeError):
+        # Optional integration must not prevent any SSH or deployment actions.
+        _native_codex_manager = None
+
+
+def stop_native_codex():
+    global _native_codex_manager
+    if _native_codex_manager is not None:
+        _native_codex_manager.stop()
+        _native_codex_manager = None
 
 @app.middleware("http")
 async def security_headers(request, call_next):

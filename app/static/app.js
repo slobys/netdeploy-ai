@@ -1316,7 +1316,7 @@ async function regeneratePlan(id){
 }
 async function diagnoseJob(id){
  const target=el('#ai-response');if(!target)return;
- target.innerHTML='<div class="modal-tip">Codex 正在进行只读分析。不会获得 SSH 私钥或远程执行权限。</div>';
+ target.innerHTML='<div class="modal-tip">Codex 正在进行只读分析。诊断日志将发送给 Codex；AI 不会获得 NetDeploy 提供的 SSH 凭据或远程部署权限。</div>';
  try{const res=await api(`/jobs/${id}/diagnose`,{method:'POST'});target.innerHTML='<h3>Codex 诊断建议</h3><pre class="pre">'+escapeHtml(res.message)+'</pre>';}
  catch(err){target.innerHTML='<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>';}
 }
@@ -1332,17 +1332,20 @@ async function refreshCodexSettings(){
    let content='';
    if(!status.available){
      if(status.startup_state==='starting'){
-       content='<div class="modal-tip">◌ '+escapeHtml(status.startup_message||'正在后台启动 Docker 和 Codex Worker…')+'</div>'+
+       content='<div class="modal-tip">◌ '+escapeHtml(status.startup_message||'正在后台准备 Codex Worker…')+'</div>'+
          '<div class="modal-actions"><button class="btn subtle" data-action="codex-refresh">刷新启动状态</button></div>';
      }else{
        const detail=status.startup_state==='failed'?
-         '自动启动尚未成功：'+escapeHtml(status.startup_message||'请检查 Docker Desktop 和 WSL 状态。'):
-         'Codex Worker 尚未运行。Windows 上双击 QuickStart-NetDeploy.bat 会尝试自动启动；首次需要安装 Docker Desktop。Docker/NAS 可运行 docker compose --profile ai up -d --build。';
+         '自动启动尚未成功：'+escapeHtml(status.startup_message||'请检查 Windows 原生 Codex SDK 的初始化。'):
+         status.startup_state==='ready'?
+           '本机 Codex Worker 已启动，但当前无法读取 ChatGPT 登录状态。请稍后重新检查，必要时重新运行 QuickStart。':
+           'Codex Worker 尚未运行。Windows 上请双击 QuickStart-NetDeploy.bat，首次自动安装原生 Codex SDK，无需 Docker。Docker/NAS 可运行 docker compose --profile ai up -d --build。';
        content='<div class="modal-tip warning">'+detail+' 普通 VPS 管理和部署功能不受影响。</div>'+
          '<div class="modal-actions"><button class="btn subtle" data-action="codex-refresh">重新检查</button></div>';
      }
    }else if(status.connected){
-     content='<div class="modal-tip success-note"><strong>✓ 已连接 ChatGPT 账号</strong><p>Codex 诊断将使用此账号可用的订阅额度。具体额度受 ChatGPT 套餐与账号权限约束，并非无限使用。</p></div>'+
+     const mode=status.mode==='windows-native'?'Windows 原生 SDK · 无 Docker':'Docker Worker';
+     content='<div class="modal-tip success-note"><strong>✓ 已连接 ChatGPT 账号</strong><p>运行方式：'+escapeHtml(mode)+'。Codex 诊断将使用此账号可用的订阅额度，仍受套餐及账户限制。</p></div>'+
        '<div class="modal-actions"><button class="btn danger" data-action="codex-disconnect">断开 ChatGPT 连接</button><button class="btn subtle" data-action="codex-refresh">刷新状态</button></div>';
    }else if(status.pending){
      const rawUrl=String(status.verification_url||'');
@@ -1365,7 +1368,7 @@ async function refreshCodexSettings(){
 }
 async function showCodexSettings(){
  dialog(modalHead('Codex AI · ChatGPT 账号连接',true)+
-   '<div class="modal-tip"><strong>只读 AI 诊断</strong><p>Codex 不接触 SSH 密码、私钥或 Docker Socket，无法代替你批准和执行 VPS 安装。请在可信的单管理员环境中使用。</p></div>'+
+   '<div class="modal-tip"><strong>只读 AI 诊断</strong><p>Worker 不接收 NetDeploy 的 SSH 凭据或管理员令牌，也不执行部署操作。Windows 原生进程仍使用当前 Windows 用户权限，请只在可信的本机环境使用；只读沙箱不等于与 Docker 相同的隔离。</p></div>'+
    '<div id="codex-account-state" role="status" aria-live="polite"><div class="scan-state">正在检查 Codex 连接状态…</div></div>');
  await refreshCodexSettings();
 }

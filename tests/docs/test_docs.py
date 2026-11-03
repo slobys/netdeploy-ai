@@ -113,7 +113,10 @@ class DocsTests(unittest.TestCase):
 
     def test_version_and_app_help_link(self):
         source = (PROJECT / "app" / "main.py").read_text(encoding="utf-8")
-        match = re.search(r'FastAPI\(title="NetDeploy AI", version="([^"]+)"\)', source)
+        match = re.search(
+            r'FastAPI\(title="NetDeploy AI", version="([^"]+)"'
+            r'(?:,\s*lifespan=[a-zA-Z_][a-zA-Z0-9_]*)?\)', source
+        )
         self.assertIsNotNone(match)
         self.assertEqual(self.config["version"], match.group(1))
         panel = (PROJECT / "app" / "static" / "index.html").read_text(encoding="utf-8")
