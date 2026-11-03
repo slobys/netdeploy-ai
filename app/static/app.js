@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.30 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.31 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.30';
+const CLIENT_VERSION = '0.3.31';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -23,9 +23,22 @@ function toast(message,bad=false){
  t.setAttribute('aria-live',bad?'assertive':'polite');
  toastTimer=setTimeout(()=>t.classList.add('hidden'),bad?9500:5300);
 }
-function dialog(content){el('#modal-content').innerHTML=content;el('#modal').classList.remove('hidden');}
-function closeDialog(){el('#modal').classList.add('hidden');el('#modal-content').innerHTML='';}
-function modalHead(title,isRoot=false){const back=state.hostPanel&&!isRoot?`<button class="server-back" data-action="back-host" data-id="${state.hostPanel.id}">← 返回这台服务器</button>`:"";return `<div class="modal-header"><div><h2>${escapeHtml(title)}</h2>${back}</div><button class="close" type="button" data-action="close-modal" aria-label="关闭">×</button></div>`;}
+let modalReturnFocus=null;
+function dialog(content){
+ const layer=el('#modal'),contentNode=el('#modal-content');
+ const opening=layer.classList.contains('hidden');
+ if(opening)modalReturnFocus=document.activeElement||null;
+ contentNode.innerHTML=content;
+ layer.classList.remove('hidden');
+ if(opening)contentNode.focus?.({preventScroll:true});
+}
+function closeDialog(){
+ el('#modal').classList.add('hidden');
+ el('#modal-content').innerHTML='';
+ if(modalReturnFocus?.isConnected!==false)modalReturnFocus?.focus?.({preventScroll:true});
+ modalReturnFocus=null;
+}
+function modalHead(title,isRoot=false){const back=state.hostPanel&&!isRoot?`<button class="server-back" data-action="back-host" data-id="${state.hostPanel.id}">← 返回这台服务器</button>`:"";return `<div class="modal-header"><div><h2 id="nd-modal-title">${escapeHtml(title)}</h2>${back}</div><button class="close" type="button" data-action="close-modal" aria-label="关闭">×</button></div>`;}
 async function loadAll(silent=false){
   if(state.loading||!state.token)return;
   state.loading=true;
@@ -112,7 +125,12 @@ function renderSection(){
  if(navBadge){navBadge.textContent=String(visibleProjects);navBadge.setAttribute('aria-label',`共 ${visibleProjects} 个项目`);}
  const navName={dashboard:['总览面板','运行概览','集中管理服务器与自动化部署任务'],projects:['项目中心','项目中心',`共 ${visibleProjects} 个项目 · 选择经过审核的部署模板或查看方案`],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','所有任务状态、审批和执行日志']};
  const [title,heading,sub]=navName[state.section];el('#crumb-current').textContent=title;el('#section-title').textContent=heading;el('#section-subtitle').textContent=sub;
- document.querySelectorAll('[data-nav]').forEach(b=>b.classList.toggle('active',b.classList.contains('nav-item')&&b.dataset.nav===state.section));
+ document.querySelectorAll('[data-nav]').forEach(b=>{
+   const navItem=b.classList.contains('nav-item');
+   const active=navItem&&b.dataset.nav===state.section;
+   b.classList.toggle('active',active);
+   if(navItem){if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}
+ });
  el('#hero').classList.toggle('hidden',state.section!=='dashboard');el('#stats').classList.toggle('hidden',state.section!=='dashboard');
  el('#projects-section').classList.toggle('hidden',!['dashboard','projects'].includes(state.section));
  // Both project surfaces share the readable compact cards. The Project Center
@@ -1453,7 +1471,27 @@ if(window.matchMedia('(hover: hover) and (prefers-reduced-motion: no-preference)
    card.style.setProperty('--hover-y',y+'%');
  },{passive:true});
 }
-document.addEventListener('keydown',e=>{const card=e.target.closest?.('[data-action="host-console"]');if(card&&e.target===card&&(e.key==='Enter'||e.key===' ')){e.preventDefault();openHostConsole(Number(card.dataset.id));}});
+document.addEventListener('keydown',e=>{
+ const layer=el('#modal'),contentNode=el('#modal-content');
+ if(layer&&!layer.classList.contains('hidden')){
+   if(e.key==='Escape'){
+     e.preventDefault();closeDialog();return;
+   }
+   if(e.key==='Tab'){
+     const nodes=Array.from(contentNode?.querySelectorAll?.('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')||[])
+       .filter(node=>node.getClientRects?.().length!==0);
+     if(!nodes.length){e.preventDefault();contentNode.focus?.();return;}
+     const first=nodes[0],last=nodes[nodes.length-1];
+     if(e.shiftKey&&(document.activeElement===first||!contentNode.contains?.(document.activeElement))){e.preventDefault();last.focus?.();}
+     else if(!e.shiftKey&&(document.activeElement===last||!contentNode.contains?.(document.activeElement))){e.preventDefault();first.focus?.();}
+     return;
+   }
+ }
+ const card=e.target.closest?.('[data-action="host-console"]');
+ if(card&&e.target===card&&(e.key==='Enter'||e.key===' ')){
+   e.preventDefault();openHostConsole(Number(card.dataset.id));
+ }
+});
 el('#refresh').addEventListener('click',async e=>{const button=e.currentTarget;button.classList.add('is-loading');button.disabled=true;try{await loadAll();}finally{button.classList.remove('is-loading');button.disabled=false;}});
 el('#logout').addEventListener('click',()=>{sessionStorage.removeItem('nd_token');state.token='';el('#login').classList.remove('hidden');});
 setInterval(()=>{if(state.token)loadAll(true);},5000);

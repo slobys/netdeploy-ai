@@ -109,7 +109,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.30';
+let runtimeVersion='0.3.31';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -372,9 +372,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.30';
+  runtimeVersion='0.3.31';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.30');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.31');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -811,5 +811,48 @@ function fingerprintFor(label) {
     'Pending approval must have a prominent next-action area');
   assert(css.includes('prefers-reduced-motion'),
     'Animation must respect reduced motion settings');
+
+  // Modals must establish a keyboard boundary and restore the opener on Esc.
+  assert(html.includes('aria-labelledby="nd-modal-title"'));
+  assert(html.includes('id="modal-content" tabindex="-1"'));
+  assert(html.includes('aria-label="主导航"'));
+  for(const destination of ['dashboard','projects','hosts','jobs']){
+    assert(html.includes('data-nav="'+destination+'" aria-label='),
+      'Collapsed sidebar requires an accessible label for '+destination);
+  }
+  const opener=makeElement();
+  opener.isConnected=true;
+  opener.focus=()=>{document.activeElement=opener;};
+  modal.focus=()=>{document.activeElement=modal;};
+  made.get('#modal').classList.add('hidden');
+  document.activeElement=opener;
+  evaluate("dialog(modalHead('键盘操作测试'))");
+  assert.equal(document.activeElement,modal,'Opening a dialog must focus its content');
+  assert(modal.innerHTML.includes('id="nd-modal-title"'));
+  let escapePrevented=false;
+  domHandlers.get('keydown')({key:'Escape',target:modal,
+    preventDefault(){escapePrevented=true;}});
+  assert(escapePrevented);
+  assert(made.get('#modal').classList.contains('hidden'));
+  assert.equal(document.activeElement,opener,'Escape must restore the original button');
+
+  evaluate("dialog(modalHead('Tab 循环测试'))");
+  const first=makeElement(),last=makeElement();
+  first.focus=()=>{document.activeElement=first;};
+  last.focus=()=>{document.activeElement=last;};
+  modal.querySelectorAll=()=>[first,last];
+  modal.contains=target=>target===first||target===last||target===modal;
+  document.activeElement=last;
+  let tabPrevented=false;
+  domHandlers.get('keydown')({key:'Tab',shiftKey:false,target:last,
+    preventDefault(){tabPrevented=true;}});
+  assert(tabPrevented,'Tab at the last control must stay inside the dialog');
+  assert.equal(document.activeElement,first);
+  document.activeElement=first;
+  domHandlers.get('keydown')({key:'Tab',shiftKey:true,target:first,
+    preventDefault(){}});
+  assert.equal(document.activeElement,last,'Shift+Tab must wrap backwards');
+  evaluate('closeDialog()');
+
   console.log('UI smoke: pending approval, plan expiry, duplicate prevention, fingerprint states and responsive CSS OK');
 })().catch(err=>{console.error(err);process.exitCode=1;});

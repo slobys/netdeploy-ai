@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'app/static/theme.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'app/static/theme.css'), 'utf8');
 const typography = fs.readFileSync(path.join(root, 'app/static/typography.css'), 'utf8');
+const refinement = fs.readFileSync(path.join(root, 'app/static/ui-refinement.css'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'app/static/index.html'), 'utf8');
 
 function node(data = {}) {
@@ -216,6 +217,35 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
      '.cloud-provider-links a','.login-box','.hero']){
     assert(css.includes(selector),'Missing themed component: '+selector);
   }
+
+
+  // UI refinements load last but consume semantic theme tokens, so light/dark
+  // and all six accent colors continue to use one source of truth.
+  assert(html.indexOf('/static/ui-refinement.css')>html.indexOf('/static/typography.css'));
+  for(const token of ['--theme-panel','--theme-title','--theme-action',
+                      '--theme-line','--theme-accent','--theme-danger']){
+    assert(refinement.includes(token), 'Refinement must reference palette token '+token);
+  }
+  for(const selector of ['#projects-section.is-catalog .project-grid','.host-item',
+                         '.modal-header','.modal-actions','.form-group input',
+                         '.topbar','.nav-item','.btn.primary']){
+    assert(refinement.includes(selector),'Refinement missing key UI surface '+selector);
+  }
+  assert(refinement.includes('grid-template-columns: repeat(3, minmax(0, 1fr))'),
+    'Balanced catalog needs three desktop columns');
+  for(const breakpoint of ['1150px','780px','650px','420px']){
+    assert(refinement.includes('max-width: '+breakpoint),'Missing responsive breakpoint '+breakpoint);
+  }
+  assert(refinement.includes('prefers-reduced-motion: reduce'));
+  assert(refinement.includes('pointer: coarse'),'Tap targets must work on touch devices');
+  const cleaned=refinement.replace(/\/\*[\s\S]*?\*\//g,'');
+  let depth=0;
+  for(const ch of cleaned){
+    if(ch==='{')depth++;
+    else if(ch==='}')depth--;
+    assert(depth>=0,'Refinement CSS has an early closing brace');
+  }
+  assert.equal(depth,0,'Refinement CSS must balance all blocks');
 
   // Primary buttons use accessible white-on-color contrast in every palette.
   function luminance(hex){
