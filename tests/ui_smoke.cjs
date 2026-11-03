@@ -883,6 +883,19 @@ function fingerprintFor(label) {
   await evaluate("codexAction('codex-disconnect')");
   assert(made.get('#codex-account-state').innerHTML.includes('使用 ChatGPT 账号连接 Codex'));
   evaluate('closeDialog()');
+  codexAccount={available:false,connected:false,pending:false,
+    startup_state:'starting',startup_message:'后台正在准备 Docker 和 Codex'};
+  await evaluate('showCodexSettings()');
+  assert(made.get('#codex-account-state').innerHTML.includes('后台正在准备 Docker 和 Codex'));
+  assert(made.get('#codex-account-state').innerHTML.includes('刷新启动状态'));
+  codexAccount={available:false,connected:false,pending:false,
+    startup_state:'failed',startup_message:'Docker Desktop 未启动'};
+  await evaluate('refreshCodexSettings()');
+  assert(made.get('#codex-account-state').innerHTML.includes('Docker Desktop 未启动'));
+  codexAccount={available:false,connected:false,pending:false};
+  await evaluate('refreshCodexSettings()');
+  assert(made.get('#codex-account-state').innerHTML.includes('QuickStart-NetDeploy.bat'));
+  evaluate('closeDialog()');
 
   console.log('UI smoke: pending approval, plan expiry, duplicate prevention, fingerprint states and responsive CSS OK');
 })().catch(err=>{console.error(err);process.exitCode=1;});

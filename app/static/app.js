@@ -1331,7 +1331,16 @@ async function refreshCodexSettings(){
    if(!el('#codex-account-state'))return;
    let content='';
    if(!status.available){
-     content='<div class="modal-tip warning">AI Worker 尚未运行。Docker 安装请启动 ai 服务：<code>docker compose --profile ai up -d --build</code>。Windows 本机模式可双击项目根目录的 Enable-Codex-Windows.bat 后重启 NetDeploy；普通部署功能不受影响。</div>';
+     if(status.startup_state==='starting'){
+       content='<div class="modal-tip">◌ '+escapeHtml(status.startup_message||'正在后台启动 Docker 和 Codex Worker…')+'</div>'+
+         '<div class="modal-actions"><button class="btn subtle" data-action="codex-refresh">刷新启动状态</button></div>';
+     }else{
+       const detail=status.startup_state==='failed'?
+         '自动启动尚未成功：'+escapeHtml(status.startup_message||'请检查 Docker Desktop 和 WSL 状态。'):
+         'Codex Worker 尚未运行。Windows 上双击 QuickStart-NetDeploy.bat 会尝试自动启动；首次需要安装 Docker Desktop。Docker/NAS 可运行 docker compose --profile ai up -d --build。';
+       content='<div class="modal-tip warning">'+detail+' 普通 VPS 管理和部署功能不受影响。</div>'+
+         '<div class="modal-actions"><button class="btn subtle" data-action="codex-refresh">重新检查</button></div>';
+     }
    }else if(status.connected){
      content='<div class="modal-tip success-note"><strong>✓ 已连接 ChatGPT 账号</strong><p>Codex 诊断将使用此账号可用的订阅额度。具体额度受 ChatGPT 套餐与账号权限约束，并非无限使用。</p></div>'+
        '<div class="modal-actions"><button class="btn danger" data-action="codex-disconnect">断开 ChatGPT 连接</button><button class="btn subtle" data-action="codex-refresh">刷新状态</button></div>';

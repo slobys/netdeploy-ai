@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import json
+import time
 import re
 import ipaddress
 import secrets
@@ -966,7 +968,21 @@ def job_access(id: str):
 
 @app.get("/api/codex/status", dependencies=[Depends(authorized)])
 def codex_connection_status():
-    return codex_status()
+    status = codex_status()
+    if status.get("available"):
+        return status
+    # Windows QuickStart launches Docker/Codex separately to keep VPS startup
+    # responsive. A small, local-only status file makes progress visible.
+    try:
+        record = json.loads((DATA_DIR / "codex-worker-startup.json").read_text(encoding="utf-8"))
+        state = record.get("state")
+        age = time.time() - float(record["epoch"])
+        if state in {"starting", "ready", "failed"} and 0 <= age <= 600:
+            status["startup_state"] = state
+            status["startup_message"] = str(record.get("message", ""))[:200]
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        pass
+    return status
 
 
 @app.post("/api/codex/connect", dependencies=[Depends(authorized)])

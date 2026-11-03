@@ -46,7 +46,9 @@ cd netdeploy-ai
 
 ## 使用 ChatGPT 订阅连接 Codex（可选）
 
-**Windows 本机启动**：需安装并运行 Docker Desktop（Linux 容器）。在项目目录双击 `Enable-Codex-Windows.bat`，它会生成独立 Worker 令牌、仅向 127.0.0.1 开放 Worker 服务。随后重启 NetDeploy AI（`QuickStart-NetDeploy.bat`）。
+**Windows 本机启动**：只需预先安装一次 [Docker Desktop](https://www.docker.com/products/docker-desktop/)（切换为本机 Linux 容器）。以后双击 `QuickStart-NetDeploy.bat` 即可：程序自动生成独立 Worker 令牌，在后台检测 Docker、按需启动 Docker Desktop 和 Codex Worker，并复用上次的 ChatGPT 登录状态；**不必再运行 `Enable-Codex-Windows.bat`，也不必打开 Codex 桌面程序**。首次启动时，Docker 镜像可能需要下载与构建；NetDeploy AI 面板会先正常打开，可在左侧「Codex AI」查看启动状态。没有安装 Docker、Docker 启动失败或网络异常都不影响普通 VPS 管理与部署。只有首次连接账号或登录失效时才需要重新授权。
+
+如不希望自动启动 Docker，在项目私有 `.env` 中添加 `NETDEPLOY_CODEX_AUTO_START=0`；其他功能仍正常使用。手动启用脚本仅保留作故障排查入口。Codex Worker 使用 Docker 的 `unless-stopped` 重启策略，Docker Desktop 已启动时会自动恢复容器。
 
 **Docker / NAS 启动**：在项目私有 `.env` 中设置至少 24 位随机 `NETDEPLOY_WORKER_TOKEN`（与管理员令牌不同），然后运行 `docker compose --profile ai up -d --build`。现有主程序不会把 SSH 密钥、数据库或 Docker Socket 挂载进 AI Worker。
 
