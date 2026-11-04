@@ -5,6 +5,8 @@ recipes may build commands for the remote SSH executor.
 """
 from __future__ import annotations
 
+import ipaddress
+
 import re
 from typing import Any
 
@@ -296,7 +298,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         raise ValueError("不支持该项目")
     options = dict(options or {})
     if project == "3x-ui":
-        if set(options) - {"panel_port", "access_mode", "tls_identity", "certificate_type", "ssh_ipv4"}:
+        if set(options) - {"panel_port", "access_mode", "tls_identity", "certificate_type", "ssh_ipv4", "public_ipv6"}:
             raise ValueError("3X-UI 部署选项包含未授权字段")
         port = validate_port(options.get("panel_port", DEFAULT_PORT))
         access_mode = options.get("access_mode", "local")
@@ -316,7 +318,23 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         else:
             if "tls_identity" in options or "certificate_type" in options or "ssh_ipv4" in options:
                 raise ValueError("仅 HTTPS 模式可填写证书标识")
-            options = {"panel_port": port, "access_mode": "npm"} if access_mode == "npm" else {"panel_port": port}
+            if access_mode == "npm":
+                ipv6 = options.get("public_ipv6")
+                if ipv6 is not None:
+                    try:
+                        address = ipaddress.IPv6Address(ipv6)
+                    except ValueError as exc:
+                        raise ValueError("公网 HTTP 的 IPv6 地址格式错误") from exc
+                    if not address.is_global or address.scope_id is not None:
+                        raise ValueError("公网 HTTP 只允许公网单播 IPv6 地址")
+                    ipv6 = str(address)
+                options = {"panel_port": port, "access_mode": "npm"}
+                if ipv6 is not None:
+                    options["public_ipv6"] = ipv6
+            else:
+                if "public_ipv6" in options:
+                    raise ValueError("本机模式不能填写公网 IPv6 监听地址")
+                options = {"panel_port": port}
     elif project == "3x-ui-http":
         if set(options) != {"panel_port"}:
             raise ValueError("HTTP 公网升级仅允许填写已核验的面板端口")
@@ -399,7 +417,9 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
     if meta["deployment"] == "guided":
         issues.append("此项目暂采用人工确认的引导模式；第一阶段不执行远程安装命令")
     if runnable and project == "3x-ui":
-        steps = deployment_steps(options["panel_port"], public_http=options.get("access_mode") == "npm")
+        steps = deployment_steps(options["panel_port"],
+                                 public_http=options.get("access_mode") == "npm",
+                                 public_ipv6=options.get("public_ipv6"))
         if options.get("access_mode") == "https":
             steps = steps + https_steps(options["tls_identity"], options["panel_port"], options.get("ssh_ipv4"))
     elif runnable and project == "3x-ui-http":
