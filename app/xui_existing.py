@@ -184,14 +184,30 @@ code="$(curl -4 --noproxy '*' --proto '=http' --silent \
 case "$code" in 200|301|302|303|307|308|401|403) ;; *)
   echo 'XUI_PUBLIC_HTTP_HEALTH_FAILED: cannot verify local HTTP response' >&2; exit 60 ;;
 esac
+__IPV6_HTTP_HEALTH__
 grep -E '^XUI_(USERNAME|PASSWORD|PANEL_PORT|WEB_BASE_PATH)=' /etc/x-ui/install-result.env
 """
 
 
-def public_http_access_script(port: int) -> str:
-    """Read credentials after verifying actual HTTP wildcard binding."""
+def public_http_access_script(port: int, hostname: str | None = None) -> str:
+    """Require a real IPv6 HTTP probe when returning an IPv6 direct URL."""
     validate_port(port)
+    ipv6_health = ""
+    if hostname and ":" in hostname:
+        try:
+            addr = ipaddress.IPv6Address(hostname)
+        except ValueError as exc:
+            raise ValueError("IPv6 服务器地址格式不正确") from exc
+        if not addr.is_global or addr.scope_id is not None:
+            raise ValueError("拒绝访问非公网 IPv6 HTTP 面板")
+        ipv6_health = r"""code6="$(curl -6 --noproxy '*' --proto '=http' --silent --output /dev/null \
+    --write-out '%{http_code}' --max-time 8 \
+    'http://[__IPV6__]:__PORT__/'"$path" 2>/dev/null)" || code6=000
+case "$code6" in 200|301|302|303|307|308|401|403) ;;
+    *) echo 'XUI_IPV6_HTTP_ACCESS_FAILED: IPv6 HTTP access could not be verified' >&2; exit 60 ;;
+esac""".replace("__IPV6__", str(addr))
     return (HTTP_ACCESS_TEMPLATE.replace("__PUBLIC_SOCKET_CHECK__", PUBLIC_SOCKET_CHECK)
+            .replace("__IPV6_HTTP_HEALTH__", ipv6_health)
             .replace("__PORT__", str(port)))
 
 
@@ -202,7 +218,11 @@ def public_http_url(hostname: str, port: int, web_path: str) -> str:
     try:
         address = ipaddress.ip_address(hostname)
     except ValueError as exc:
-        raise ValueError("公网 HTTP 需要 VPS SSH 地址是直接的公网 IPv4") from exc
-    if not isinstance(address, ipaddress.IPv4Address) or not address.is_global:
-        raise ValueError("SSH 地址不是公网 IPv4，拒绝生成虚假的直连地址")
-    return f"http://{address}:{port}/{web_path}"
+        raise ValueError("公网 HTTP 需要 VPS SSH 地址是直接的公网 IPv4 或 IPv6") from exc
+    if not address.is_global or (
+        isinstance(address, ipaddress.IPv6Address) and
+        (address.scope_id is not None or address.ipv4_mapped is not None)
+    ):
+        raise ValueError("SSH 地址不是公网 IP，拒绝生成虚假的直连地址")
+    authority = f"[{address}]" if isinstance(address, ipaddress.IPv6Address) else str(address)
+    return f"http://{authority}:{port}/{web_path}"
