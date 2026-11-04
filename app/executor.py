@@ -42,7 +42,9 @@ def validate_host(hostname: str, username: str, port: int) -> None:
             address = ipaddress.IPv6Address(hostname)
         except ValueError as exc:
             raise ValueError("IPv6 地址格式不正确，请直接填写地址，不要添加方括号或网卡区域号") from exc
-        if address.scope_id is not None or address.ipv4_mapped is not None or not address.is_global:
+        if (address.scope_id is not None or address.ipv4_mapped is not None or
+                address.is_multicast or address.is_unspecified or address.is_loopback or
+                not address.is_global):
             raise ValueError("SSH IPv6 地址必须是公网单播地址，不能使用内网、链路本地或带区域号的地址")
     elif not SAFE_HOST.fullmatch(hostname) or ".." in hostname or hostname.startswith("-"):
         raise ValueError("服务器地址只能使用合法 IPv4、IPv6 或 DNS 名称")
