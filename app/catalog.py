@@ -325,7 +325,8 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
                         address = ipaddress.IPv6Address(ipv6)
                     except ValueError as exc:
                         raise ValueError("公网 HTTP 的 IPv6 地址格式错误") from exc
-                    if not address.is_global or address.scope_id is not None:
+                    if (not address.is_global or address.is_multicast or
+                            address.scope_id is not None or address.ipv4_mapped is not None):
                         raise ValueError("公网 HTTP 只允许公网单播 IPv6 地址")
                     ipv6 = str(address)
                 options = {"panel_port": port, "access_mode": "npm"}
