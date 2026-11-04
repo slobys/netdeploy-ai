@@ -1074,8 +1074,12 @@ async function fingerprint(id){
    const target=el('#fingerprint-data');
    if(target){target.className='fingerprint-result';target.innerHTML=`<div class="fingerprint-verdict changed" role="alert">
       <div><strong>无法获取 SSH 主机公钥</strong><p>${escapeHtml(err.message)}</p></div></div>
-      <details class="fingerprint-guide"><summary>查看网络排查命令</summary>
+      <details class="fingerprint-guide"><summary>查看 SSH / IPv6 分步排查命令</summary>
+        <p>第一步 · 仅检查 TCP 端口。即使 TcpTestSucceeded=True，也不代表服务器已完成 SSH 协议协商。</p>
         <code class="fingerprint-command">Test-NetConnection -ComputerName ${escapeHtml(host.hostname)} -Port ${Number(host.port)}</code>
+        <p>第二步 · 读取 SSH 协议及服务器公钥（不使用账号密码，不会信任主机）。在 Windows PowerShell 运行：</p>
+        <code class="fingerprint-command">ssh-keyscan ${isIpv6Input(host.hostname)?'-6 ':'-4 '}-T 15 -p ${Number(host.port)} ${escapeHtml(host.hostname)}</code>
+        <p>若 TCP 检测成功但 ssh-keyscan 没有返回公钥，请检查 sshd 是否监听 IPv6、服务端 sshd 日志和 SSH 连接限制。若能返回公钥而本软件仍失败，请反馈错误代码排查算法或协商超时。<strong>扫描到的公钥必须再从云厂商独立控制台核对，不得直接信任。</strong></p>
       </details><div class="fingerprint-actions"><button class="btn primary" data-action="fingerprint" data-id="${id}">重新扫描</button><button class="btn subtle" data-action="back-host" data-id="${id}">返回服务器</button></div>`;}
    toast(err.message,true);
  }

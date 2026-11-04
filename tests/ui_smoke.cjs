@@ -870,6 +870,12 @@ function fingerprintFor(label) {
   assert.equal(document.activeElement,last,'Shift+Tab must wrap backwards');
   evaluate('closeDialog()');
 
+  assert(javascript.includes('ssh-keyscan ') && javascript.includes("?'-6 ':'-4 '") &&
+         javascript.includes('-T 15'),
+    'Fingerprint troubleshooting must distinguish TCP from SSH with IPv6 keyscan');
+  assert(javascript.includes('TcpTestSucceeded=True') && javascript.includes('不得直接信任'),
+    'SSH troubleshooting must explain port checks cannot validate host identities');
+
   assert(html.includes('data-action="codex-settings"'),
     'Codex settings must be accessible from the sidebar');
   await evaluate('showCodexSettings()');
