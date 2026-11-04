@@ -12,7 +12,7 @@ from typing import Any
 
 from .three_x_ui import DEFAULT_PORT, VERSION as XUI_VERSION, deployment_steps, validate_port
 from .xui_public_http import http_upgrade_steps
-from .https_upgrade import identify, https_steps
+from .https_upgrade import identify, https_steps, tls_family, is_ipv6_identity
 from .s_ui import VERSION as SUI_VERSION, steps as sui_steps
 from .sui_https import https_steps as sui_https_steps
 from .dockge import VERSION as DOCKGE_VERSION, steps as dockge_steps, reconfigure_steps as dockge_reconfigure_steps, validate_port as dockge_validate_port
@@ -293,12 +293,24 @@ def compatibility(project: str, facts: dict[str, Any], options: dict | None = No
     return not issues, issues
 
 
+def _tls_ssh_bindings(identity: str, options: dict) -> dict[str, str]:
+    """Validate the exact SSH family; do not allow arbitrary plan IP injections."""
+    ssh4, ssh6 = options.get("ssh_ipv4"), options.get("ssh_ipv6")
+    tls_family(identity, ssh4, ssh6)
+    result = {}
+    if ssh4 is not None:
+        result["ssh_ipv4"] = identify(ssh4)[1]
+    if ssh6 is not None:
+        result["ssh_ipv6"] = identify(ssh6)[1]
+    return result
+
+
 def build_plan(project: str, facts: dict[str, Any], options: dict | None = None) -> dict[str, Any]:
     if project not in CATALOG:
         raise ValueError("不支持该项目")
     options = dict(options or {})
     if project == "3x-ui":
-        if set(options) - {"panel_port", "access_mode", "tls_identity", "certificate_type", "ssh_ipv4", "public_ipv6"}:
+        if set(options) - {"panel_port", "access_mode", "tls_identity", "certificate_type", "ssh_ipv4", "ssh_ipv6", "public_ipv6"}:
             raise ValueError("3X-UI 部署选项包含未授权字段")
         port = validate_port(options.get("panel_port", DEFAULT_PORT))
         access_mode = options.get("access_mode", "local")
@@ -310,15 +322,11 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             mode, identity = identify(options.get("tls_identity", ""))
             if "certificate_type" in options and options["certificate_type"] != mode:
                 raise ValueError("保存的证书类型与 IP/域名不一致，请重新生成部署方案")
-            ssh_ip = options.get("ssh_ipv4")
-            if ssh_ip is not None and (mode != "domain" or identify(ssh_ip)[0] != "ip"):
-                raise ValueError("证书域名与 SSH 服务器公网 IPv4 不匹配")
+            pins = _tls_ssh_bindings(identity, options)
             options = {"panel_port": port, "access_mode": "https", "tls_identity": identity,
-                       "certificate_type": mode}
-            if ssh_ip is not None:
-                options["ssh_ipv4"] = ssh_ip
+                       "certificate_type": mode, **pins}
         else:
-            if "tls_identity" in options or "certificate_type" in options or "ssh_ipv4" in options:
+            if any(key in options for key in ("tls_identity", "certificate_type", "ssh_ipv4", "ssh_ipv6")):
                 raise ValueError("仅 HTTPS 模式可填写证书标识")
             if access_mode == "npm":
                 ipv6 = options.get("public_ipv6")
@@ -343,7 +351,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             raise ValueError("HTTP 公网升级仅允许填写已核验的面板端口")
         options = {"panel_port": validate_port(options["panel_port"])}
     elif project in {"s-ui", "s-ui-https"}:
-        allowed = {"access_mode", "tls_identity", "certificate_type", "ssh_ipv4"}
+        allowed = {"access_mode", "tls_identity", "certificate_type", "ssh_ipv4", "ssh_ipv6"}
         if project == "s-ui-https":
             allowed.discard("access_mode")
             allowed.add("source_job_id")
@@ -367,12 +375,9 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             tls_mode, identity = identify(options.get("tls_identity", ""))
             if "certificate_type" in options and options["certificate_type"] != tls_mode:
                 raise ValueError("S-UI 证书类型与 IP/域名不一致")
-            ssh_ip = options.get("ssh_ipv4")
-            if ssh_ip is not None and (tls_mode != "domain" or identify(ssh_ip)[0] != "ip"):
-                raise ValueError("S-UI 证书域名与 SSH IPv4 不匹配")
-            normalized = {"access_mode": "https", "tls_identity": identity, "certificate_type": tls_mode}
-            if ssh_ip is not None:
-                normalized["ssh_ipv4"] = ssh_ip
+            pins = _tls_ssh_bindings(identity, options)
+            normalized = {"access_mode": "https", "tls_identity": identity,
+                          "certificate_type": tls_mode, **pins}
             if project == "s-ui-https":
                 normalized.pop("access_mode")
                 if "source_job_id" in options:
@@ -394,7 +399,7 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
     elif project == "3x-ui-https":
         # Recovery after task history was cleared is allowed only when the API
         # independently verifies the *live* managed localhost installation.
-        allowed = {"panel_port", "tls_identity", "source_job_id", "certificate_type", "ssh_ipv4"}
+        allowed = {"panel_port", "tls_identity", "source_job_id", "certificate_type", "ssh_ipv4", "ssh_ipv6"}
         if set(options) - allowed or not {"panel_port", "tls_identity"} <= set(options):
             raise ValueError("3X-UI HTTPS 升级选项不完整或包含未授权字段")
         mode, identity = identify(options["tls_identity"])
@@ -403,13 +408,9 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         source = options.get("source_job_id")
         if source is not None and (not isinstance(source, str) or not re.fullmatch(r"[a-f0-9]{16}", source)):
             raise ValueError("3X-UI 原安装任务编号不合法")
-        ssh_ip = options.get("ssh_ipv4")
-        if ssh_ip is not None and (mode != "domain" or identify(ssh_ip)[0] != "ip"):
-            raise ValueError("证书域名与 SSH 服务器公网 IPv4 不匹配")
+        pins = _tls_ssh_bindings(identity, options)
         options = {"panel_port": validate_port(options["panel_port"]),
-                   "tls_identity": identity, "certificate_type": mode}
-        if ssh_ip is not None:
-            options["ssh_ipv4"] = ssh_ip
+                   "tls_identity": identity, "certificate_type": mode, **pins}
         if source is not None:
             options["source_job_id"] = source
     elif options:
@@ -424,17 +425,17 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
                                  public_http=options.get("access_mode") == "npm",
                                  public_ipv6=options.get("public_ipv6"))
         if options.get("access_mode") == "https":
-            steps = steps + https_steps(options["tls_identity"], options["panel_port"], options.get("ssh_ipv4"))
+            steps = steps + https_steps(options["tls_identity"], options["panel_port"], options.get("ssh_ipv4"), options.get("ssh_ipv6"))
     elif runnable and project == "3x-ui-http":
         steps = http_upgrade_steps(options["panel_port"])
     elif runnable and project == "3x-ui-https":
-        steps = https_steps(options["tls_identity"], options["panel_port"], options.get("ssh_ipv4"))
+        steps = https_steps(options["tls_identity"], options["panel_port"], options.get("ssh_ipv4"), options.get("ssh_ipv6"))
     elif runnable and project == "s-ui":
         steps = sui_steps(str(facts.get("ARCH", "")))
         if options.get("access_mode") == "https":
-            steps += sui_https_steps(options["tls_identity"], options.get("ssh_ipv4"))
+            steps += sui_https_steps(options["tls_identity"], options.get("ssh_ipv4"), options.get("ssh_ipv6"))
     elif runnable and project == "s-ui-https":
-        steps = sui_https_steps(options["tls_identity"], options.get("ssh_ipv4"))
+        steps = sui_https_steps(options["tls_identity"], options.get("ssh_ipv4"), options.get("ssh_ipv6"))
     elif runnable and project == "sing-box":
         steps = SINGBOX_STEPS
     elif runnable and project == "wg-easy":
@@ -495,6 +496,25 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             "hysteria2": ["需要单独实现 TLS 证书、身份认证和服务器配置"],
         }[project],
     }
+    if (project in {"3x-ui", "3x-ui-https", "s-ui", "s-ui-https"}
+            and options.get("certificate_type") in {"ip", "domain"}
+            and (options.get("ssh_ipv6") or is_ipv6_identity(options.get("tls_identity", "")))):
+        # Do not show the legacy IPv4/A-record guidance on a pinned IPv6 plan.
+        plan["warnings"] = [
+            note.replace("公网 IPv4", "公网 IPv6").replace("DNS A", "DNS AAAA")
+            for note in plan["warnings"]
+        ]
+        plan["warnings"].insert(
+            0, "IPv6 自动 HTTPS：远端必须实际分配目标全局 IPv6；域名所有 AAAA 记录必须指向该地址。"
+               "IPv6 HTTP-01 需要本机 UFW IPv6 开启，并在云厂商安全组放行公网 TCP 80。"
+               "成功后仍需独立验证公网 IPv6 的实际可达性。",
+        )
+        if options.get("certificate_type") == "ip":
+            plan["warnings"].append(
+                "公网 IPv6 IP 证书采用约 160 小时的 shortlived 配置，"
+                "由 NetDeploy 独立 Certbot 和每四小时续期定时器维护；"
+                "续期依赖 TCP 80 持续可达，严禁关闭续期任务。"
+            )
     if project in {"3x-ui", "s-ui"} and options.get("access_mode") == "npm":
         upstream_port = options["panel_port"] if project == "3x-ui" else 2095
         plan["npm_proxy"] = {

@@ -18,29 +18,130 @@ SAFE_DNS = re.compile(r"^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)
 
 
 def identify(hostname: str) -> tuple[str, str]:
+    """A certificate identity is a public DNS name or global unicast IP."""
     if not isinstance(hostname, str):
-        raise ValueError("证书标识必须是有效的公网 IPv4 或域名")
+        raise ValueError("证书标识必须是有效公网 IPv4、IPv6 或域名")
     hostname = hostname.strip().lower().rstrip(".")
     try:
         address = ipaddress.ip_address(hostname)
     except ValueError:
         if not SAFE_DNS.fullmatch(hostname) or hostname.endswith(".local") or hostname.endswith(".internal"):
-            raise ValueError("HTTPS 证书必须使用有效的公网 IPv4 或可解析的公网域名")
+            raise ValueError("HTTPS 证书必须使用有效的公网 IPv4、IPv6 或公网域名")
         return "domain", hostname
-    if address.version != 4 or not address.is_global:
-        raise ValueError("IP 证书仅支持公网 IPv4 地址；不能为内网/保留地址签发")
+    if (not address.is_global or address.is_multicast or address.is_unspecified or
+        (isinstance(address, ipaddress.IPv6Address) and
+         (address.scope_id is not None or address.ipv4_mapped is not None))):
+        raise ValueError("IP 证书仅支持公网单播 IPv4/IPv6，不能使用内网/保留/组播地址")
     return "ip", str(address)
 
 
-def https_steps(identity: str, port: int, ssh_ipv4: str | None = None) -> list[dict]:
+def is_ipv6_identity(identity: str) -> bool:
+    try:
+        return isinstance(ipaddress.ip_address(identity), ipaddress.IPv6Address)
+    except ValueError:
+        return False
+
+
+def url_authority(identity: str) -> str:
+    """Square brackets belong in HTTP URL authorities, never in cert names."""
+    return f"[{identity}]" if is_ipv6_identity(identity) else identity
+
+
+def tls_family(identity: str, ssh_ipv4: str | None = None,
+               ssh_ipv6: str | None = None) -> int:
+    """Preserve the existing IPv4 default for DNS names with no SSH pin."""
+    mode, identity = identify(identity)
+    if ssh_ipv4 is not None and ssh_ipv6 is not None:
+        raise ValueError("只允许绑定一个 SSH 公网 IP 地址")
+    if ssh_ipv4 is not None:
+        if mode != "domain" or identify(ssh_ipv4)[0] != "ip" or is_ipv6_identity(ssh_ipv4):
+            raise ValueError("SSH IPv4 绑定仅适用于域名证书与公网 IPv4")
+    if ssh_ipv6 is not None:
+        if mode != "domain" or identify(ssh_ipv6)[0] != "ip" or not is_ipv6_identity(ssh_ipv6):
+            raise ValueError("SSH IPv6 绑定仅适用于域名证书与公网 IPv6")
+    return 6 if ssh_ipv6 is not None or is_ipv6_identity(identity) else 4
+
+
+def tls_probe_args(identity: str, port: int, family: int) -> dict[str, str]:
+    """curl connects to loopback but verifies the original certificate identity.
+
+    Use a wildcard HOST1 with bracketed ::1 in --connect-to: it works with
+    Debian 12's curl 7.88 and does not rely on new IPv6 --resolve host support.
+    """
+    identity = identify(identity)[1]
+    validate_port(port)
+    if family not in (4, 6):
+        raise ValueError("TLS IP family invalid")
+    return {
+        "__TLS_CONNECT__": (f"::[::1]:{port}" if family == 6
+                            else f"{identity}:{port}:127.0.0.1:{port}"),
+        "__TLS_URL_HOST__": url_authority(identity),
+        "__TLS_CURL_FLAGS__": "-6 -g" if family == 6 else "",
+        "__TLS_IPV6_FAMILY__": "6" if family == 6 else "4",
+        "__PANEL_LISTEN_IP__": "::" if family == 6 else "0.0.0.0",
+    }
+
+
+IPV6_IDENTITY_PREFLIGHT = r'''# IPv6 HTTPS must validate the exact public SSH IPv6, not the outbound
+# privacy/SLAAC source address, which may differ from the inbound listener.
+command -v python3 >/dev/null
+command -v ip >/dev/null
+python3 - "__IDENTITY__" "__MODE__" "__SSH_IPV6__" <<'IPV6_GUARD'
+import ipaddress, socket, subprocess, sys
+identity, mode, ssh_ipv6 = sys.argv[1:]
+try:
+    expected = ipaddress.IPv6Address(ssh_ipv6 if mode == "domain" else identity)
+    if (not expected.is_global or expected.is_multicast or
+            expected.ipv4_mapped is not None or expected.scope_id is not None):
+        raise ValueError("not public unicast")
+    # Only an IPv6 address actually configured on this VPS may be used for
+    # direct HTTP-01. Never trust an external outbound IP-echo alone.
+    raw = subprocess.check_output(
+        ["ip", "-o", "-6", "addr", "show", "scope", "global"],
+        text=True, timeout=8,
+    )
+    assigned = set()
+    for line in raw.splitlines():
+        parts = line.split()
+        if "inet6" in parts:
+            assigned.add(ipaddress.IPv6Address(parts[parts.index("inet6") + 1].split("/")[0]))
+    if expected not in assigned:
+        raise ValueError("IPv6 address not assigned on VPS")
+    if mode == "domain":
+        answers = {
+            ipaddress.IPv6Address(result[4][0])
+            for result in socket.getaddrinfo(identity, None, socket.AF_INET6, socket.SOCK_STREAM)
+        }
+        # A wrong/extra AAAA target could receive the HTTP-01 challenge.
+        if answers != {expected}:
+            raise ValueError("AAAA records must all point to the pinned VPS IPv6")
+except Exception:
+    print("ND_IPV6_IDENTITY_MISMATCH: check VPS global IPv6 and domain AAAA records", file=sys.stderr)
+    sys.exit(28)
+IPV6_GUARD
+# Certbot's standalone HTTP-01 must be able to receive IPv6 on public TCP 80.
+# UFW with IPV6=no silently opens only IPv4 and would strand the challenge.
+if command -v ufw >/dev/null 2>&1 &&
+   LC_ALL=C ufw status | grep -Fxq 'Status: active'; then
+    grep -Eq '^[[:space:]]*IPV6="?yes"?([[:space:]]*#.*)?$' /etc/default/ufw || {
+        echo 'ND_UFW_IPV6_DISABLED: enable IPv6 in /etc/default/ufw before ACME' >&2
+        exit 29
+    }
+fi
+echo 'Public IPv6 identity and AAAA preflight passed; preparing UFW TCP 80'
+'''
+
+
+def https_steps(identity: str, port: int, ssh_ipv4: str | None = None,
+                ssh_ipv6: str | None = None) -> list[dict]:
     mode, identity = identify(identity)
     validate_port(port)
+    family = tls_family(identity, ssh_ipv4, ssh_ipv6)
+    transport = tls_probe_args(identity, port, family)
     if ssh_ipv4 is not None:
-        if mode != "domain":
-            raise ValueError("SSH IPv4 绑定仅适用于域名证书")
-        expected_mode, ssh_ipv4 = identify(ssh_ipv4)
-        if expected_mode != "ip":
-            raise ValueError("SSH 地址必须是公网 IPv4")
+        ssh_ipv4 = identify(ssh_ipv4)[1]
+    if ssh_ipv6 is not None:
+        ssh_ipv6 = identify(ssh_ipv6)[1]
     preflight = r"""set -eu
 test "$(id -u)" = 0
 test -x /usr/local/x-ui/x-ui || {
@@ -80,6 +181,12 @@ else
 fi
 echo 'Public identity and local-only panel preflight passed; preparing local UFW for TCP 80'
 """ + acme_ufw_script() + "\n"
+    if family == 6:
+        marker = "# Validate the requested hostname points to the actual public IPv4 egress."
+        if preflight.count(marker) != 1:
+            raise RuntimeError("HTTPS preflight changed: review IPv6 safety boundary")
+        preflight = (preflight.split(marker, 1)[0] +
+                     IPV6_IDENTITY_PREFLIGHT + acme_ufw_script() + "\n")
     domain_install = r"""set -eu
 export DEBIAN_FRONTEND=noninteractive
 if command -v certbot >/dev/null 2>&1 && command -v openssl >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
@@ -112,6 +219,12 @@ echo 'Certbot and renewal timer available'
                  r"""__CERTBOT_CMD__ certonly --non-interactive --agree-tos --register-unsafely-without-email \
     --standalone --preferred-challenges http --http-01-port 80 --cert-name "__IDENTITY__" \
     -d "__IDENTITY__" """)
+    if family == 6:
+        # Certbot standalone must bind its HTTP-01 challenger on IPv6.
+        issue_cmd = issue_cmd.replace(
+            "--standalone --preferred-challenges",
+            "--standalone --http-01-address :: --preferred-challenges",
+        )
     issue = r"""set -eu
 umask 077
 cert_log="$(mktemp /tmp/netdeploy-certbot.XXXXXXXX)"
@@ -233,9 +346,9 @@ printf '%s\n' "$cert_settings" | grep -Fxq "key: $key" || {
     echo 'XUI_KEY_SETTINGS_MISSING: x-ui did not persist the private key path; no public listener was opened.' >&2
     exit 39
 }
-"$panel_cli" setting -listenIP 0.0.0.0 >/dev/null
+"$panel_cli" setting -listenIP __PANEL_LISTEN_IP__ >/dev/null
 listen_settings="$("$panel_cli" setting -getListen true 2>/dev/null || true)"
-printf '%s\n' "$listen_settings" | grep -Fxq 'listenIP: 0.0.0.0' || {
+printf '%s\n' "$listen_settings" | grep -Fxq 'listenIP: __PANEL_LISTEN_IP__' || {
     echo 'XUI_LISTENER_SETTINGS_MISSING: x-ui did not persist its public listen IP; reverting to localhost.' >&2
     exit 39
 }
@@ -277,10 +390,10 @@ tls_ready=no
 last_curl_exit=0
 last_http_code=000
 for attempt in 1 2 3 4 5 6; do
-    last_http_code="$(curl --noproxy '*' --proto '=https' --tlsv1.2 \
+    last_http_code="$(curl __TLS_CURL_FLAGS__ --noproxy '*' --proto '=https' --tlsv1.2 \
         --silent --output /dev/null --write-out '%{http_code}' --connect-timeout 3 --max-time 7 \
-        --connect-to '__IDENTITY__:__PORT__:127.0.0.1:__PORT__' \
-        "https://__IDENTITY__:__PORT__/$web_path" 2>/dev/null)" && last_curl_exit=0 || last_curl_exit=$?
+        --connect-to '__TLS_CONNECT__' \
+        "https://__TLS_URL_HOST__:__PORT__/$web_path" 2>/dev/null)" && last_curl_exit=0 || last_curl_exit=$?
     case "$last_curl_exit:$last_http_code" in
         0:200|0:301|0:302|0:303|0:307|0:308|0:401|0:403)
             tls_ready=yes; break ;;
@@ -298,12 +411,22 @@ fi
 echo 'XUI_HTTPS_VERIFIED: trusted TLS and local listener passed for the selected address and panel port'
 echo 'HTTPS certificate verified; enabling only the approved local UFW panel port'
 """ + allow_port_script(port, "tcp") + """
+__IPV6_PUBLIC_HEALTH__
 changes_started=no
 trap - EXIT
 echo 'Public HTTPS is active; cloud security group must separately permit the selected TCP port'
 """
+    public_ipv6_health = ""
+    if family == 6:
+        pinned_v6 = ssh_ipv6 if ssh_ipv6 is not None else identity
+        resolve = (f"--resolve '{identity}:{port}:[{pinned_v6}]'"
+                   if mode == "domain" else "")
+        public_ipv6_health = "\n# Verify a real public IPv6 TLS handshake too (local routing to our own\n# assigned address cannot establish that the cloud security group is open).\ncode6=\"$(curl -6 -g --noproxy '*' --proto '=https' --tlsv1.2 \\\n    --silent --output /dev/null --write-out '%{http_code}' \\\n    --connect-timeout 3 --max-time 8 __PUBLIC_RESOLVE__ \\\n    \"https://__TLS_URL_HOST__:__PORT__/$web_path\" 2>/dev/null)\" || code6=000\ncase \"$code6\" in 200|301|302|303|307|308|401|403) ;;\n    *) echo 'ND_IPV6_PUBLIC_HTTPS_FAILED: IPv6 TLS or certificate identity failed; reverting to localhost' >&2\n       exit 36 ;;\nesac\n".replace(
+            "__PUBLIC_RESOLVE__", resolve
+        )
+    preflight_timeout = 60 if family == 6 else 35
     label = "检查公网 IP 和 ACME 80 端口" if mode == "ip" else "检查域名解析和 ACME 80 端口"
-    stages = [(label, preflight, 35),
+    stages = [(label, preflight, preflight_timeout),
               ("检查/安装支持 IP 证书的独立 Certbot 及续期" if mode == "ip"
                else "检查 Certbot / 自动等待 Ubuntu APT 锁", install, 600),
               ("申请证书、验证标识并配置自动续期", issue, 300),
@@ -313,9 +436,11 @@ echo 'Public HTTPS is active; cloud security group must separately permit the se
               "__CERTBOT_CMD__": certbot_command(mode),
               "__CERT_ROOT__": cert_root(mode), "__RENEW_TIMER__": renew_timer(mode),
               "__IDENTITY__": identity, "__PORT__": str(port),
-              "__SSH_IP__": ssh_ipv4 or "",
+              "__SSH_IP__": ssh_ipv4 or "", "__SSH_IPV6__": ssh_ipv6 or "",
               "__PUBLIC_SOCKET_CHECK__": PUBLIC_SOCKET_CHECK,
-              "__CHECK__": "checkip" if mode == "ip" else "checkhost"}
+              "__IPV6_PUBLIC_HEALTH__": public_ipv6_health,
+              "__CHECK__": "checkip" if mode == "ip" else "checkhost",
+              **transport}
     result = []
     for label, script, timeout in stages:
         for key, value in values.items():
@@ -324,10 +449,12 @@ echo 'Public HTTPS is active; cloud security group must separately permit the se
     return result
 
 
-def https_access_script(identity: str, port: int) -> str:
+def https_access_script(identity: str, port: int, ipv6: bool = False) -> str:
     """Read credentials only when HTTPS certificate and renewal remain healthy."""
     mode, identity = identify(identity)
     validate_port(port)
+    family = 6 if ipv6 or is_ipv6_identity(identity) else 4
+    transport = tls_probe_args(identity, port, family)
     script = r"""set -eu
 test "$(id -u)" = 0
 systemctl is-active --quiet x-ui
@@ -345,17 +472,18 @@ openssl x509 -in "$cert" -noout -checkend 86400 >/dev/null
 openssl x509 -in "$cert" -noout -__CHECK__ "__IDENTITY__" | grep -Fq 'does match'
 web_path="$(sed -n 's/^XUI_WEB_BASE_PATH=//p' /etc/x-ui/install-result.env)"
 printf '%s' "$web_path" | grep -Eq '^[A-Za-z0-9_-]{4,80}$'
-http_code="$(curl --noproxy '*' --proto '=https' --tlsv1.2 --silent \
+http_code="$(curl __TLS_CURL_FLAGS__ --noproxy '*' --proto '=https' --tlsv1.2 --silent \
     --output /dev/null --write-out '%{http_code}' --max-time 8 \
-    --connect-to '__IDENTITY__:__PORT__:127.0.0.1:__PORT__' \
-    "https://__IDENTITY__:__PORT__/$web_path")"
+    --connect-to '__TLS_CONNECT__' \
+    "https://__TLS_URL_HOST__:__PORT__/$web_path")"
 case "$http_code" in 200|301|302|303|307|308|401|403) ;; *) exit 38 ;; esac
 grep -E '^XUI_(USERNAME|PASSWORD|PANEL_PORT|WEB_BASE_PATH)=' /etc/x-ui/install-result.env
 """
     for key, value in {"__PORT__": str(port), "__IDENTITY__": identity,
                        "__CERT_ROOT__": cert_root(mode), "__RENEW_TIMER__": renew_timer(mode),
                        "__PUBLIC_SOCKET_CHECK__": PUBLIC_SOCKET_CHECK,
-                       "__CHECK__": "checkip" if mode == "ip" else "checkhost"}.items():
+                       "__CHECK__": "checkip" if mode == "ip" else "checkhost",
+                       **transport}.items():
         script = script.replace(key, value)
     return script
 
@@ -365,4 +493,4 @@ def https_url(identity: str, port: int, web_path: str) -> str:
     validate_port(port)
     if not re.fullmatch(r"[A-Za-z0-9_-]{4,80}", web_path):
         raise ValueError("无效的 Web 路径")
-    return f"https://{identity}:{port}/{web_path}"
+    return f"https://{url_authority(identity)}:{port}/{web_path}"

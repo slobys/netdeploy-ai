@@ -195,14 +195,15 @@ def normalize_ssh_address(hostname: str) -> str:
 def normalize_tls_domain(raw: str | None, ssh_hostname: str) -> str | None:
     """Optional HTTPS hostname is independent of the SSH IP literal.
 
-    IPv6 VPS can save an AAAA-backed domain for NPM. The built-in Certbot
-    scripts are still IPv4-only and are explicitly gated in tls_options.
+    IPv6 VPS can use a pinned AAAA-backed domain, or its own global IPv6
+    address for a short-lived certificate. Both paths still require approval
+    and the remote DNS/address/ACME/TLS checks.
     """
     if raw is None or not raw.strip():
         return None
     mode, domain = identify(raw)
     if mode != "domain":
-        raise ValueError("HTTPS 证书域名只能填写公网域名；留空时 IPv4 使用 IP 证书")
+        raise ValueError("HTTPS 证书域名只能填写公网域名；留空时默认申请相应公网 IP 证书")
     try:
         address = ipaddress.ip_address(ssh_hostname)
     except ValueError as exc:
@@ -217,17 +218,10 @@ def tls_identity(host: dict) -> str:
 
 
 def tls_options(host: dict) -> dict:
-    """Freeze reviewed TLS identities; never emit a broken IPv6 ACME plan."""
-    if is_ipv6_ssh(host["hostname"]):
-        raise HTTPException(
-            status_code=422,
-            detail="IPv6 VPS 已支持 SSH 安装 3X-UI / S-UI；当前内置自动证书流程仍仅支持 IPv4。"
-                   "请先选本机 SSH 隧道，或使用 NPM + 域名 AAAA 记录提供 HTTPS，"
-                   "不要把 IPv6 地址填入旧版 IP 证书流程。",
-        )
+    """Bind the reviewed DNS name to its pinned IPv4/IPv6 SSH endpoint."""
     result = {"tls_identity": tls_identity(host)}
     if host.get("tls_domain"):
-        result["ssh_ipv4"] = host["hostname"]
+        result["ssh_ipv6" if is_ipv6_ssh(host["hostname"]) else "ssh_ipv4"] = host["hostname"]
     return result
 
 
@@ -469,7 +463,7 @@ def read_existing_xui(host: dict) -> dict:
     if not executor.credential_ready(host):
         raise HTTPException(status_code=409, detail="SSH 登录凭据不可用，请先检查本机凭据库")
     try:
-        raw = executor.run(host, status_script(tls_identity(host)), timeout=26)
+        raw = executor.run(host, status_script(tls_identity(host), ipv6=is_ipv6_ssh(host["hostname"])), timeout=26)
         return parse_status(raw)
     except (SSHError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"无法读取现有 3X-UI 状态：{exc}") from exc
@@ -499,7 +493,7 @@ def xui_existing_access(id: int):
     port = status["port"]
     try:
         if status["access_mode"] == "https":
-            script = public_access_script(tls_identity(host), port)
+            script = public_access_script(tls_identity(host), port, ipv6=is_ipv6_ssh(host["hostname"]))
         elif status["access_mode"] == "http":
             script = public_http_access_script(port, host["hostname"])
         elif status["access_mode"] == "local":
@@ -1003,7 +997,7 @@ def job_access(id: str):
     if status and (not status["managed"] or status["service"] != "active" or status["port"] != port):
         raise HTTPException(status_code=409, detail="当前面板真实监听或端口状态未通过安全验证")
     if identity:
-        script = https_access_script(identity, port)
+        script = https_access_script(identity, port, ipv6=is_ipv6_ssh(host["hostname"]))
     elif status and status["access_mode"] == "http":
         script = public_http_access_script(port, host["hostname"])
     elif status and status["access_mode"] == "local":
