@@ -207,8 +207,8 @@ def normalize_tls_domain(raw: str | None, ssh_hostname: str) -> str | None:
         address = ipaddress.ip_address(ssh_hostname)
     except ValueError as exc:
         raise ValueError("使用证书域名时 SSH 服务器地址必须是公网 IPv4 或 IPv6") from exc
-    if not address.is_global:
-        raise ValueError("SSH 服务器 IP 必须是公网地址，不能为内网地址申请证书")
+    if not address.is_global or address.is_multicast:
+        raise ValueError("SSH 服务器 IP 必须是公网单播地址，不能为内网地址申请证书")
     return domain
 
 
