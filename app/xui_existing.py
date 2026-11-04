@@ -198,7 +198,7 @@ def public_http_access_script(port: int, hostname: str | None = None) -> str:
             addr = ipaddress.IPv6Address(hostname)
         except ValueError as exc:
             raise ValueError("IPv6 服务器地址格式不正确") from exc
-        if not addr.is_global or addr.scope_id is not None:
+        if not addr.is_global or addr.is_multicast or addr.scope_id is not None:
             raise ValueError("拒绝访问非公网 IPv6 HTTP 面板")
         ipv6_health = r"""code6="$(curl -6 --noproxy '*' --proto '=http' --silent --output /dev/null \
     --write-out '%{http_code}' --max-time 8 \
@@ -219,7 +219,7 @@ def public_http_url(hostname: str, port: int, web_path: str) -> str:
         address = ipaddress.ip_address(hostname)
     except ValueError as exc:
         raise ValueError("公网 HTTP 需要 VPS SSH 地址是直接的公网 IPv4 或 IPv6") from exc
-    if not address.is_global or (
+    if not address.is_global or address.is_multicast or (
         isinstance(address, ipaddress.IPv6Address) and
         (address.scope_id is not None or address.ipv4_mapped is not None)
     ):
