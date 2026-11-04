@@ -180,21 +180,35 @@ def require_password(password: str | None) -> str:
     return password
 
 
-def normalize_tls_domain(raw: str | None, ssh_hostname: str) -> str | None:
-    """TLS is optional and independent of the pinned SSH address.
+def is_ipv6_ssh(hostname: str) -> bool:
+    try:
+        return isinstance(ipaddress.ip_address(hostname), ipaddress.IPv6Address)
+    except ValueError:
+        return False
 
-    A configured domain must point to a publicly reachable SSH IPv4 VPS;
-    the actual DNS A / public IP match is rechecked in the fixed remote
-    ACME preflight before requesting any certificate.
+
+def normalize_ssh_address(hostname: str) -> str:
+    """Store one canonical IPv6 literal for SSH, known_hosts and job identity."""
+    return str(ipaddress.IPv6Address(hostname)) if is_ipv6_ssh(hostname) else hostname.strip()
+
+
+def normalize_tls_domain(raw: str | None, ssh_hostname: str) -> str | None:
+    """Optional HTTPS hostname is independent of the SSH IP literal.
+
+    IPv6 VPS can save an AAAA-backed domain for NPM. The built-in Certbot
+    scripts are still IPv4-only and are explicitly gated in tls_options.
     """
     if raw is None or not raw.strip():
         return None
     mode, domain = identify(raw)
     if mode != "domain":
-        raise ValueError("可选证书地址只能填写域名；不填域名时自动使用服务器 IPv4 申请 IP 证书")
-    ip_mode, _ = identify(ssh_hostname)
-    if ip_mode != "ip":
-        raise ValueError("填写证书域名时，SSH 服务器地址请使用公网 IPv4；域名只用于 HTTPS 证书")
+        raise ValueError("HTTPS 证书域名只能填写公网域名；留空时 IPv4 使用 IP 证书")
+    try:
+        address = ipaddress.ip_address(ssh_hostname)
+    except ValueError as exc:
+        raise ValueError("使用证书域名时 SSH 服务器地址必须是公网 IPv4 或 IPv6") from exc
+    if not address.is_global:
+        raise ValueError("SSH 服务器 IP 必须是公网地址，不能为内网地址申请证书")
     return domain
 
 
@@ -203,7 +217,14 @@ def tls_identity(host: dict) -> str:
 
 
 def tls_options(host: dict) -> dict:
-    """Freeze separately reviewed TLS identity and SSH IP into plan options."""
+    """Freeze reviewed TLS identities; never emit a broken IPv6 ACME plan."""
+    if is_ipv6_ssh(host["hostname"]):
+        raise HTTPException(
+            status_code=422,
+            detail="IPv6 VPS 已支持 SSH 安装 3X-UI / S-UI；当前内置自动证书流程仍仅支持 IPv4。"
+                   "请先选本机 SSH 隧道，或使用 NPM + 域名 AAAA 记录提供 HTTPS，"
+                   "不要把 IPv6 地址填入旧版 IP 证书流程。",
+        )
     result = {"tls_identity": tls_identity(host)}
     if host.get("tls_domain"):
         result["ssh_ipv4"] = host["hostname"]
@@ -294,6 +315,7 @@ def create_host(body: HostCreate):
             raise HTTPException(status_code=422, detail="此设备未启用 Windows 系统凭据保管库，请选择临时密码登录")
     # Do not pass credentials into the database, responses, plan or logs.
     data = body.model_dump(exclude={"password"})
+    data["hostname"] = normalize_ssh_address(body.hostname)
     data["tls_domain"] = domain
     host = store.add_host(data)
     if body.auth_mode == "password":
@@ -318,8 +340,9 @@ def edit_host(id: int, body: HostEdit):
         )
         if selected_domain is not None:
             selected_domain = normalize_tls_domain(selected_domain, body.hostname)
+        normalized_hostname = normalize_ssh_address(body.hostname)
         endpoint_changed = (
-            original["hostname"].lower() != body.hostname.lower()
+            original["hostname"].lower() != normalized_hostname.lower()
             or int(original["port"]) != body.port
             or original["username"] != body.username
         )
@@ -328,7 +351,7 @@ def edit_host(id: int, body: HostEdit):
                 raise ValueError("该 VPS 有部署历史，只能修改名称。若改 IP / 端口 / 账号，请新建服务器以保留旧任务安全记录")
             if endpoint_changed:
                 executor.clear_password(id)
-            host = store.update_host(id, body.name.strip(), body.hostname.strip(),
+            host = store.update_host(id, body.name.strip(), normalized_hostname,
                                      body.port, body.username.strip(), selected_domain)
     except (ValueError, VaultUnavailable) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -478,7 +501,7 @@ def xui_existing_access(id: int):
         if status["access_mode"] == "https":
             script = public_access_script(tls_identity(host), port)
         elif status["access_mode"] == "http":
-            script = public_http_access_script(port)
+            script = public_http_access_script(port, host["hostname"])
         elif status["access_mode"] == "local":
             script = ACCESS_SCRIPT
         else:
@@ -747,6 +770,8 @@ def new_job(body: NewJob):
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             options["access_mode"] = "npm"
+            if is_ipv6_ssh(host["hostname"]):
+                options["public_ipv6"] = host["hostname"]
         elif body.access_mode not in {None, "local"}:
             raise HTTPException(status_code=422, detail="3X-UI 不支持该证书配置模式")
         if options["panel_port"] == host["port"]:
@@ -758,7 +783,8 @@ def new_job(body: NewJob):
             raise HTTPException(status_code=422, detail="S-UI 管理端口 2095 与 SSH 端口相同，请先检查 VPS")
         if host["facts"].get("SUI_PRESENT") != "no":
             raise HTTPException(status_code=409, detail="S-UI 已安装或冲突检查不完整，请先查看现有面板；禁止覆盖重装")
-        access_mode = body.access_mode or "https"
+        # Pure IPv6 VPS must not inherit legacy IPv4-only HTTPS defaults.
+        access_mode = body.access_mode or ("local" if is_ipv6_ssh(host["hostname"]) else "https")
         if access_mode not in {"https", "local", "npm"}:
             raise HTTPException(status_code=422, detail="S-UI 不支持该证书配置模式")
         options = {"access_mode": access_mode}
@@ -816,6 +842,8 @@ def new_job(body: NewJob):
         options = {"panel_port": host_port, "access_mode": mode,
                    "public_confirmed": bool(body.confirm_public or public_default_plan)}
     elif body.project == "3x-ui-http":
+        if is_ipv6_ssh(host["hostname"]):
+            raise HTTPException(status_code=422, detail="IPv6 现有 3X-UI 公网 HTTP 升级尚未验收，请使用本机模式或新建 NPM 部署计划")
         if body.access_mode is not None or body.panel_port is not None or body.source_job_id:
             raise HTTPException(status_code=422, detail="现有 3X-UI HTTP 监听修改不允许覆盖端口或证书选项")
         status = read_existing_xui(host)
@@ -977,7 +1005,7 @@ def job_access(id: str):
     if identity:
         script = https_access_script(identity, port)
     elif status and status["access_mode"] == "http":
-        script = public_http_access_script(port)
+        script = public_http_access_script(port, host["hostname"])
     elif status and status["access_mode"] == "local":
         script = ACCESS_SCRIPT
     elif status:
