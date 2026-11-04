@@ -685,8 +685,11 @@ function enableAuthToggle(){
  select.addEventListener('change',toggle);toggle();
 }
 function isIpv4Input(value){const parts=String(value||'').split('.');return parts.length===4&&parts.every(v=>/^\d{1,3}$/.test(v)&&String(Number(v))===v&&Number(v)<=255);}
+function isIpv6Input(value){const v=String(value||'').trim();return v.includes(':')&&/^[0-9a-fA-F:.]+$/.test(v)&&v.split(':').length>=3&&!v.includes(':::');}
+function isSshIpInput(value){return isIpv4Input(value)||isIpv6Input(value);}
+function displayIpHost(value){return isIpv6Input(value)?'['+value+']':value;}
 function certHost(host){return host.tls_domain||host.hostname;}
-function certLabel(host){return host.tls_domain||!isIpv4Input(host.hostname)?`域名证书 · ${escapeHtml(certHost(host))}`:`IP 证书 · ${escapeHtml(host.hostname)}`;}
+function certLabel(host){return isIpv6Input(host.hostname)?'IPv6 SSH · 3X-UI / S-UI 可安装；HTTPS 请用 NPM + AAAA 域名':host.tls_domain||!isIpv4Input(host.hostname)?`域名证书 · ${escapeHtml(certHost(host))}`:`IP 证书 · ${escapeHtml(host.hostname)}`;}
 function setupProgress(step){
  const steps=['服务器信息','SSH 指纹','连接检测','网络端口','选择软件'];
  return `<ol class="setup-progress" aria-label="服务器添加进度">${steps.map((text,i)=>`<li class="${i+1===step?'current':i+1<step?'finished':''}" ${i+1===step?'aria-current="step"':''}>
@@ -931,12 +934,12 @@ function addHost(){
  state.setupFlowId=null;
  state.hostPanel=null;
  dialog(modalHead('第 1 步 · 添加 Linux VPS')+setupProgress(1)+
-  `<p class="helptext">SSH 用服务器公网 IPv4 连接；域名是可选的 HTTPS 证书地址，不能代替 SSH IP。保存后直接进入指纹验证，不再返回首页。</p>
+  `<p class="helptext">SSH 支持公网 IPv4 或 IPv6（IPv6 不要添加 [ ]）。IPv6 VPS 可直接安装 3X-UI / S-UI，当前内置证书流程仍限 IPv4；IPv6 请选本机访问或 NPM + 域名 AAAA。</p>
   <form id="add-host-form"><div class="form-group"><label>服务器名称</label><input name="name" placeholder="例如：日本 VPS 01" required maxlength="60"/></div>
-  <div class="form-group"><label>服务器公网 IPv4（用于 SSH 连接）</label><input name="hostname" placeholder="例如：45.32.35.195" required inputmode="decimal"/></div>
-  <div class="form-group"><label>HTTPS 证书域名（可选，不填就申请 IP 证书）</label>
+  <div class="form-group"><label>服务器公网 IPv4 / IPv6（用于 SSH 连接）</label><input name="hostname" placeholder="例如：45.32.35.195 或 2606:4700:4700::1111" required inputmode="text" spellcheck="false"/></div>
+  <div class="form-group"><label>HTTPS 域名（可选；IPv6 推荐用于 NPM）</label>
     <input name="tls_domain" placeholder="例如：ts.example.com" autocomplete="off"/>
-    <p class="helptext">如果填写域名，请先将其 DNS A 记录指向上面的 VPS IPv4。部署时自动验证，无需再选择证书类型。</p></div>
+    <p class="helptext">IPv4 的内置 HTTPS 使用 A 记录；IPv6 VPS 建议配置 AAAA 记录并由 NPM 统一申请证书（内置 Certbot 的 IPv6 自动签发尚未支持）。</p></div>
   <div class="form-2"><div class="form-group"><label>SSH 用户名</label><input name="username" value="root" required/></div>
     <div class="form-group"><label>SSH 端口</label><input name="port" type="number" min="1" max="65535" value="22" required/></div></div>
   ${authSelect()}
@@ -950,7 +953,7 @@ function addHost(){
    d.port=Number(d.port);d.tls_domain=String(d.tls_domain||'').trim()||null;
    d.remember_password=d.remember_password==='on';
    if(d.auth_mode!=='password')delete d.password;
-   if(!isIpv4Input(String(d.hostname).trim())){toast('SSH 地址请填写 VPS 公网 IPv4；如果有域名，请填写下方的可选 HTTPS 证书域名框',true);return;}
+   if(!isSshIpInput(String(d.hostname).trim())){toast('SSH 地址请填写 VPS 公网 IPv4 或 IPv6（IPv6 不带方括号）；IPv6 格式和公网属性由服务器再次校验',true);return;}
    const existing=state.hosts.find(h=>h.hostname.toLowerCase()===String(d.hostname).toLowerCase()&&h.port===d.port);
    if(existing){
      if((existing.tls_domain||'')!==(d.tls_domain||'')){
@@ -977,9 +980,9 @@ function addHost(){
 function editHost(id){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
  const locked=Boolean(host.job_count);
- dialog(modalHead('编辑 VPS 服务器')+`<p class="helptext">SSH 地址建议填写公网 IPv4；HTTPS 域名可以单独编辑，不会影响 SSH 连接与已信任的主机指纹。</p>
+ dialog(modalHead('编辑 VPS 服务器')+`<p class="helptext">SSH 地址支持公网 IPv4 / IPv6；HTTPS 域名可以单独编辑，不会影响 SSH 连接与已信任的主机指纹。</p>
  <form id="edit-host-form"><div class="form-group"><label>显示名称</label><input name="name" maxlength="60" required value="${escapeHtml(host.name)}"/></div>
- <div class="form-group"><label>服务器公网 IPv4（SSH 地址）</label><input name="hostname" required value="${escapeHtml(host.hostname)}" ${locked?'readonly':''}/></div>
+ <div class="form-group"><label>服务器公网 IPv4 / IPv6（SSH 地址）</label><input name="hostname" required value="${escapeHtml(host.hostname)}" ${locked?'readonly':''}/></div>
  <div class="form-group"><label>HTTPS 证书域名（可选，不填使用服务器 IP）</label>
    <input name="tls_domain" value="${escapeHtml(host.tls_domain||'')}" placeholder="例如：ts.example.com"/>
    <p class="helptext">此项可单独修改；有待审批的 HTTPS 计划时会使旧计划失效，避免用旧域名部署。</p></div>
