@@ -305,6 +305,8 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         if access_mode not in {"local", "https", "npm"}:
             raise ValueError("不支持的 3X-UI 访问方式")
         if access_mode == "https":
+            if "public_ipv6" in options:
+                raise ValueError("IPv6 公网 HTTP 标识不能混入 HTTPS 证书方案")
             mode, identity = identify(options.get("tls_identity", ""))
             if "certificate_type" in options and options["certificate_type"] != mode:
                 raise ValueError("保存的证书类型与 IP/域名不一致，请重新生成部署方案")
