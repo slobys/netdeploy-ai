@@ -6,6 +6,8 @@ narrowly scoped change enforcing localhost-only HTTP or an approved public HTTP 
 """
 from __future__ import annotations
 
+import ipaddress
+
 import re
 
 from .firewall import allow_port_script
@@ -26,10 +28,19 @@ def validate_port(port: object) -> int:
     return port
 
 
-def deployment_steps(port: int, public_http: bool = False) -> list[dict]:
+def deployment_steps(port: int, public_http: bool = False, public_ipv6: str | None = None) -> list[dict]:
     validate_port(port)
     if type(public_http) is not bool:
         raise ValueError('是否公开 HTTP 必须是布尔值')
+    if public_ipv6 is not None:
+        try:
+            address = ipaddress.IPv6Address(public_ipv6)
+        except ValueError as exc:
+            raise ValueError("3X-UI 公网 IPv6 目标地址非法") from exc
+        if (not public_http or not address.is_global or address.is_multicast or
+                address.scope_id is not None or address.ipv4_mapped is not None):
+            raise ValueError("3X-UI 仅允许在已审查的公网 HTTP 模式绑定公网 IPv6")
+        public_ipv6 = str(address)
     scripts = [
         (
             "检查 root / systemd / 现有 3X-UI 和 TCP 端口",
@@ -150,6 +161,7 @@ case "$http_code" in
        echo '3X-UI HTTP health check failed' >&2; exit 24;;
 esac
 __ALLOW_PORT__
+__IPV6_PUBLIC_HEALTH__
 echo '__SUCCESS_MESSAGE__'
 """,
             45,
@@ -169,7 +181,20 @@ netdeploy_public_socket __PORT__ || {
     systemctl stop x-ui >/dev/null 2>&1 || true
     echo 'XUI_PUBLIC_HTTP_LISTENER_MISSING: not bound to wildcard IP' >&2; exit 20
 }"""
+    ipv6_health = ""
+    if public_ipv6:
+        # A wildcard IPv4 listener is NOT proof that this VPS serves IPv6.
+        # Verify an actual IPv6 HTTP handshake before claiming public access.
+        ipv6_health = r"""v6_code="$(curl -6 --noproxy '*' --proto '=http' --silent --output /dev/null \
+    --write-out '%{http_code}' --max-time 8 \
+    'http://[__PUBLIC_IPV6__]:__PORT__/'"$web_path" 2>/dev/null)" || v6_code=000
+case "$v6_code" in 200|301|302|303|307|308|401|403) ;;
+    *) systemctl stop x-ui >/dev/null 2>&1 || true
+       echo 'XUI_IPV6_HTTP_FAILED: IPv6 web listener or local UFW route could not be verified; service stopped' >&2
+       exit 24 ;;
+esac""".replace("__PUBLIC_IPV6__", public_ipv6)
     values = {
+        "__IPV6_PUBLIC_HEALTH__": ipv6_health,
         "__LISTEN_INSTALL_POLICY__": public_install if public_http else local_install,
         "__BIND_NOTICE__": "Official installer validated for public HTTP" if public_http else "Official installer patched to localhost HTTP",
         "__LISTENER_CHECK__": public_listener if public_http else local_listener,

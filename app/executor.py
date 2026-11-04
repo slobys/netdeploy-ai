@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import os
 import re
 import secrets
@@ -29,8 +30,24 @@ class SSHError(Exception):
 
 
 def validate_host(hostname: str, username: str, port: int) -> None:
-    if not SAFE_HOST.fullmatch(hostname) or ".." in hostname or hostname.startswith("-"):
-        raise ValueError("服务器地址只能使用合法 IPv4 地址或 DNS 名称；暂不支持 IPv6")
+    """Allow DNS/IPv4 and public IPv6 literals, but never zone IDs or shell data.
+
+    A bare IPv6 literal is stored for socket/Paramiko/OpenSSH. Brackets belong
+    only in HTTP(S) URLs or OpenSSH nonstandard-port known_hosts entries.
+    """
+    if not isinstance(hostname, str) or not hostname or hostname != hostname.strip():
+        raise ValueError("SSH 地址无效，请填写服务器公网 IPv4、IPv6 或 DNS 名称")
+    if ":" in hostname:
+        try:
+            address = ipaddress.IPv6Address(hostname)
+        except ValueError as exc:
+            raise ValueError("IPv6 地址格式不正确，请直接填写地址，不要添加方括号或网卡区域号") from exc
+        if (address.scope_id is not None or address.ipv4_mapped is not None or
+                address.is_multicast or address.is_unspecified or address.is_loopback or
+                not address.is_global):
+            raise ValueError("SSH IPv6 地址必须是公网单播地址，不能使用内网、链路本地或带区域号的地址")
+    elif not SAFE_HOST.fullmatch(hostname) or ".." in hostname or hostname.startswith("-"):
+        raise ValueError("服务器地址只能使用合法 IPv4、IPv6 或 DNS 名称")
     if not SAFE_USER.fullmatch(username) or username.startswith("-"):
         raise ValueError("SSH 用户名不合法")
     if not 1 <= int(port) <= 65535:
