@@ -37,7 +37,8 @@ def deployment_steps(port: int, public_http: bool = False, public_ipv6: str | No
             address = ipaddress.IPv6Address(public_ipv6)
         except ValueError as exc:
             raise ValueError("3X-UI 公网 IPv6 目标地址非法") from exc
-        if not public_http or not address.is_global or address.scope_id is not None:
+        if (not public_http or not address.is_global or address.is_multicast or
+                address.scope_id is not None or address.ipv4_mapped is not None):
             raise ValueError("3X-UI 仅允许在已审查的公网 HTTP 模式绑定公网 IPv6")
         public_ipv6 = str(address)
     scripts = [
