@@ -90,7 +90,7 @@ def classify_hostkey_handshake_error(error: BaseException) -> tuple[str, bool]:
         return (
             "SSH_BANNER_FAILED：TCP 已连接，但 SSH 服务未及时返回完整协议标识或握手提前结束。"
             "可能是服务器负载、MaxStartups、连接拦截或 Banner 超时；"
-            "建议使用 ssh-keyscan -6 检查真实 SSH 响应。",
+            "建议按 IPv4/IPv6 地址使用 ssh-keyscan -4/-6 检查真实 SSH 响应。",
             True,
         )
     if any(term in message for term in (
@@ -104,7 +104,7 @@ def classify_hostkey_handshake_error(error: BaseException) -> tuple[str, bool]:
         )
     return (
         "SSH_HANDSHAKE_FAILED：TCP 22 可达，但尚未完成 SSH 密钥交换；"
-        "请用 ssh-keyscan -6 验证是否返回主机密钥，并检查 sshd 日志。",
+        "请用 ssh-keyscan -4/-6 验证是否返回主机密钥，并检查 sshd 日志。",
         False,
     )
 
