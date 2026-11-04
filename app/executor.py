@@ -54,6 +54,61 @@ def validate_host(hostname: str, username: str, port: int) -> None:
         raise ValueError("SSH 端口不合法")
 
 
+
+# Fingerprint scans are unauthenticated, read-only SSH key-exchange probes.
+# Treat remote exception messages as untrusted; expose only fixed diagnostics.
+SSH_SCAN_CONNECT_TIMEOUT = 8
+SSH_SCAN_NEGOTIATION_TIMEOUT = 15
+
+
+def classify_hostkey_handshake_error(error: BaseException) -> tuple[str, bool]:
+    """Return a redacted diagnosis and whether ONE retry could help.
+
+    No retry for algorithm/protocol incompatibility. Transient banner resets
+    and sshd MaxStartups drops can recover; retries never skip key verification.
+    """
+    message = str(error).lower()
+    if any(term in message for term in (
+        "incompatible ssh peer", "no matching", "no acceptable",
+        "algorithm negotiation", "key exchange negotiation",
+    )):
+        return (
+            "SSH_ALGORITHM_MISMATCH：服务器响应了 SSH，但密钥交换或主机密钥算法不兼容。"
+            "请检查 sshd 日志与 OpenSSH/Paramiko 版本；不会自动降低加密算法要求。",
+            False,
+        )
+    if any(term in message for term in (
+        "indecipherable protocol", "invalid ssh identification", "invalid ssh version",
+        "invalid ssh banner",
+    )):
+        return (
+            "SSH_PROTOCOL_UNEXPECTED：TCP 端口已响应，但收到的不是有效 SSH-2.0 协议标识；"
+            "请确认 22 端口实际运行 sshd，而不是代理或其他服务。",
+            False,
+        )
+    if "banner" in message or "no existing session" in message:
+        return (
+            "SSH_BANNER_FAILED：TCP 已连接，但 SSH 服务未及时返回完整协议标识或握手提前结束。"
+            "可能是服务器负载、MaxStartups、连接拦截或 Banner 超时；"
+            "建议使用 ssh-keyscan -6 检查真实 SSH 响应。",
+            True,
+        )
+    if any(term in message for term in (
+        "negotiation timed out", "connection reset", "connection closed",
+        "connection aborted", "eof",
+    )) or isinstance(error, EOFError):
+        return (
+            "SSH_HANDSHAKE_INTERRUPTED：TCP 已连接，但 SSH 协商过程中断或超时。"
+            "请检查 VPS 的 sshd 日志、MaxStartups/MaxSessions 和网络连接策略。",
+            True,
+        )
+    return (
+        "SSH_HANDSHAKE_FAILED：TCP 22 可达，但尚未完成 SSH 密钥交换；"
+        "请用 ssh-keyscan -6 验证是否返回主机密钥，并检查 sshd 日志。",
+        False,
+    )
+
+
 @dataclass
 class SSHConfig:
     keyfile: str
@@ -316,44 +371,65 @@ if ! command -v ss >/dev/null 2>&1; then echo UDP_51820=unknown; elif ss -Hlun |
 
         address = host["hostname"]
         port = int(host["port"])
-        sock = None
-        transport = None
-        try:
-            sock = socket.create_connection((address, port), timeout=8)
-            sock.settimeout(8)
-            transport = paramiko.Transport(sock)
-            transport.start_client(timeout=8)
-            key = transport.get_remote_server_key()
-            if key is None:
-                raise SSHError("已连接 SSH 端口，但服务器没有提供主机公钥，请检查 SSH 服务配置")
-            key_type = key.get_name()
-            supported = {"ssh-ed25519", "ssh-rsa", "ecdsa-sha2-nistp256",
-                         "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521"}
-            if key_type not in supported:
-                raise SSHError(f"暂不支持该 SSH 主机密钥类型：{key_type}")
-            public_key = key.asbytes()
-            digest = base64.b64encode(hashlib.sha256(public_key).digest()).decode("ascii").rstrip("=")
-            host_token = address if port == 22 else f"[{address}]:{port}"
-            return {
-                "key": f"{host_token} {key_type} {key.get_base64()}",
-                "fingerprint": f"SHA256:{digest}",
-                "key_type": key_type,
-            }
-        except socket.gaierror as exc:
-            raise SSHError("无法解析服务器地址，请检查 VPS IP 或域名是否填写正确") from exc
-        except (socket.timeout, TimeoutError) as exc:
-            raise SSHError(f"SSH 连接超时（{address}:{port}）：请检查云防火墙、安全组及 SSH 端口是否放行") from exc
-        except ConnectionRefusedError as exc:
-            raise SSHError(f"SSH 端口拒绝连接（{address}:{port}）：请确认 sshd 已启动并监听此端口") from exc
-        except (paramiko.SSHException, EOFError) as exc:
-            raise SSHError("SSH 握手失败：端口已响应，但不是可正常协商的 SSH 服务；请检查 sshd 和服务器日志") from exc
-        except OSError as exc:
-            raise SSHError(f"无法连接 SSH 端口（{address}:{port}）：请检查本机网络、服务器 IP 和防火墙") from exc
-        finally:
-            if transport is not None:
-                transport.close()
-            if sock is not None:
-                sock.close()
+        # Python's create_connection selects AF_INET6 for a numeric IPv6
+        # literal. Do NOT bracket it (brackets are only for URL/known_hosts).
+        # Only a transient pre-auth banner failure is retried, at most once.
+        for attempt in range(2):
+            sock = None
+            transport = None
+            try:
+                sock = socket.create_connection(
+                    (address, port), timeout=SSH_SCAN_CONNECT_TIMEOUT
+                )
+                sock.settimeout(SSH_SCAN_NEGOTIATION_TIMEOUT)
+                transport = paramiko.Transport(sock)
+                transport.banner_timeout = SSH_SCAN_NEGOTIATION_TIMEOUT
+                transport.start_client(timeout=SSH_SCAN_NEGOTIATION_TIMEOUT)
+                key = transport.get_remote_server_key()
+                if key is None:
+                    raise SSHError("已连接 SSH 端口，但服务器没有提供主机公钥，请检查 SSH 服务配置")
+                key_type = key.get_name()
+                supported = {"ssh-ed25519", "ssh-rsa", "ecdsa-sha2-nistp256",
+                             "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521"}
+                if key_type not in supported:
+                    raise SSHError(f"暂不支持该 SSH 主机密钥类型：{key_type}")
+                public_key = key.asbytes()
+                digest = base64.b64encode(
+                    hashlib.sha256(public_key).digest()
+                ).decode("ascii").rstrip("=")
+                host_token = address if port == 22 else f"[{address}]:{port}"
+                return {
+                    "key": f"{host_token} {key_type} {key.get_base64()}",
+                    "fingerprint": f"SHA256:{digest}",
+                    "key_type": key_type,
+                }
+            except socket.gaierror as exc:
+                raise SSHError("无法解析服务器地址，请检查 VPS IP 或域名是否填写正确") from exc
+            except (socket.timeout, TimeoutError) as exc:
+                raise SSHError(
+                    f"SSH 连接超时（{address}:{port}）：请检查网络、服务器负载和 sshd 状态"
+                ) from exc
+            except ConnectionRefusedError as exc:
+                raise SSHError(
+                    f"SSH 端口拒绝连接（{address}:{port}）：请确认 sshd 已启动并监听此端口"
+                ) from exc
+            except (paramiko.SSHException, EOFError) as exc:
+                message, transient = classify_hostkey_handshake_error(exc)
+                if transient and attempt == 0:
+                    # Only an unauthenticated connection probe is repeated.
+                    time.sleep(0.8)
+                    continue
+                raise SSHError(message) from exc
+            except OSError as exc:
+                raise SSHError(
+                    f"无法连接 SSH 端口（{address}:{port}）：请检查本机网络与 VPS 防火墙"
+                ) from exc
+            finally:
+                if transport is not None:
+                    transport.close()
+                if sock is not None:
+                    sock.close()
+        raise SSHError("SSH_HANDSHAKE_FAILED：未能取得主机公钥，请检查 sshd 日志")
 
 
     @staticmethod

@@ -31,6 +31,7 @@
 ## IPv6 VPS 支持（3X-UI / S-UI）
 
 - 添加服务器时可填写 **公网 IPv4 或 IPv6**（例如 `2606:4700:4700::1111`，**不要加方括号**），连接过程保持 SSH 指纹核验、密码/密钥认证与部署审批。支持纯 IPv6 和双栈 VPS；连接地址由用户选择。
+- **SSH 指纹排查**：Windows `Test-NetConnection -ComputerName IPv6 -Port 22` 的 `TcpTestSucceeded=True` 只代表 TCP 端口可达，不能证明 sshd 正常协商。若步骤 2 扫描失败，可以在 PowerShell 执行 `ssh-keyscan -6 -T 15 -p 22 IPv6` 区分 SSH 协议异常与扫描超时。NetDeploy 会区分 Banner、算法和连接中断，仅对临时 Banner/握手中断在未认证阶段有限重试；扫描返回的指纹仍须去云厂商控制台独立核对，软件绝不自动信任。
 - **3X-UI**：IPv6 VPS 可选择本机 SSH 隧道、NPM 反向代理或内置自动 HTTPS。IP 证书采用约 160 小时的短有效期配置和独立 Certbot 续期；域名 HTTPS 要求 DNS AAAA 正确。HTTPS 成功会显示 `https://[IPv6]:端口/路径`（域名证书则显示域名 URL）；NPM 模式仍保持明确的公网明文 HTTP 风险提示。
 - **S-UI**：IPv6 VPS 同样可选择本机 SSH 隧道、NPM 或自动 HTTPS。签发并校验证书后才开放管理端口 2095；**订阅端口 2096 始终仅监听本机 `127.0.0.1`**。HTTPS 失败会尝试恢复本机监听；异常服务不会回退成公网明文 HTTP。
 - **自动证书检查**：IPv6 签发前验证目标地址确实分配给 VPS；若使用域名，则要求其全部 AAAA 记录指向当前 IPv6。Certbot 使用 IPv6 TCP 80 接受 HTTP-01 挑战，签发后校验可信证书链、IPv6 TLS 监听和本机公网 IPv6 连接。IPv6 IP 证书使用独立 Certbot 每四小时检查续期；域名使用系统 Certbot 定时器。
