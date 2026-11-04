@@ -1,8 +1,7 @@
 """IPv6 VPS support for pinned SSH and safe 3X-UI/S-UI deployment modes.
 
-The audited Certbot automation was originally IPv4-only. For IPv6 hosts the
-built-in HTTPS route is intentionally blocked until an IPv6 ACME+TLS end-to-end
-review; local SSH tunnel and NPM reverse proxy modes remain available.
+IPv6 hosts retain local SSH and NPM choices; HTTPS plans require explicit
+IPv6 public identity/AAAA/ACME validation before exposing a panel.
 """
 import pytest
 from fastapi import HTTPException
@@ -42,14 +41,14 @@ def test_ipv6_rejects_private_scoped_and_malformed_ssh(address):
         validate_host(address, "root", 22)
 
 
-def test_ipv6_domain_can_be_saved_but_internal_acme_does_not_produce_bad_plan():
+def test_ipv6_domain_and_ip_can_be_used_for_reviewed_acme_plans():
     assert normalize_tls_domain("panel.example.com", V6) == "panel.example.com"
-    with pytest.raises(HTTPException) as err:
-        tls_options({"hostname": V6, "tls_domain": "panel.example.com"})
-    assert err.value.status_code == 422
-    assert "IPv6" in str(err.value.detail)
-    with pytest.raises(HTTPException):
-        tls_options({"hostname": V6, "tls_domain": None})
+    assert tls_options({"hostname": V6, "tls_domain": "panel.example.com"}) == {
+        "tls_identity": "panel.example.com", "ssh_ipv6": V6
+    }
+    assert tls_options({"hostname": V6, "tls_domain": None}) == {
+        "tls_identity": V6
+    }
 
 
 def test_ipv6_xui_http_direct_url_brackets_and_health_check():

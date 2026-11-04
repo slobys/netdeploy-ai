@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import ipaddress
 from .three_x_ui import validate_port
-from .https_upgrade import identify, https_url
+from .https_upgrade import identify, https_url, tls_probe_args, is_ipv6_identity, url_authority
 from .listening import PUBLIC_SOCKET_CHECK
 
 
@@ -64,10 +64,17 @@ elif netdeploy_public_socket "$port"; then
     # A public listener is safe to open only when the existing TLS identity
     # validates against the actual hostname with the OS trust store.
     if test -n '__IDENTITY__'; then
-        code="$(curl --noproxy '*' --proto '=https' --tlsv1.2 --silent \
+        if [ "__TLS_FAMILY__" = 6 ]; then
+            tls_flags='-6 -g'
+            tls_connect="::[::1]:$port"
+        else
+            tls_flags=''
+            tls_connect="__IDENTITY__:$port:127.0.0.1:$port"
+        fi
+        code="$(curl $tls_flags --noproxy '*' --proto '=https' --tlsv1.2 --silent \
           --output /dev/null --write-out '%{http_code}' --max-time 7 \
-          --connect-to '__IDENTITY__:'"$port"':127.0.0.1:'"$port" \
-          'https://__IDENTITY__:'"$port"'/'"$web_path" 2>/dev/null || true)"
+          --connect-to "$tls_connect" \
+          'https://__TLS_URL_HOST__:'"$port"'/'"$web_path" 2>/dev/null || true)"
         case "$code" in
           200|301|302|303|307|308|401|403)
             echo 'XUI_LISTENER=https'
@@ -93,10 +100,13 @@ fi
 """
 
 
-def status_script(hostname: str) -> str:
-    """Hostname is never sent into a command unless independently validated."""
+def status_script(hostname: str, ipv6: bool = False) -> str:
+    """Hostname is validated before any script interpolation."""
     identity = _public_identity(hostname)
+    family = 6 if ipv6 or (identity is not None and is_ipv6_identity(identity)) else 4
     return (STATUS_TEMPLATE.replace("__PUBLIC_SOCKET_CHECK__", PUBLIC_SOCKET_CHECK)
+            .replace("__TLS_FAMILY__", str(family))
+            .replace("__TLS_URL_HOST__", url_authority(identity) if identity else "")
             .replace("__IDENTITY__", identity or ""))
 
 
@@ -143,23 +153,28 @@ netdeploy_public_socket __PORT__ || {
 }
 web_path="$(sed -n 's/^XUI_WEB_BASE_PATH=//p' /etc/x-ui/install-result.env)"
 printf '%s' "$web_path" | grep -Eq '^[A-Za-z0-9_-]{4,80}$'
-code="$(curl --noproxy '*' --proto '=https' --tlsv1.2 --silent \
+code="$(curl __TLS_CURL_FLAGS__ --noproxy '*' --proto '=https' --tlsv1.2 --silent \
   --output /dev/null --write-out '%{http_code}' --max-time 8 \
-  --connect-to '__IDENTITY__:__PORT__:127.0.0.1:__PORT__' \
-  'https://__IDENTITY__:__PORT__/'"$web_path" 2>/dev/null || true)"
+  --connect-to '__TLS_CONNECT__' \
+  'https://__TLS_URL_HOST__:__PORT__/'"$web_path" 2>/dev/null || true)"
 case "$code" in 200|301|302|303|307|308|401|403) ;; *) echo 'TLS verification failed' >&2; exit 44 ;; esac
 # Only this explicit authenticated endpoint may return initial login credentials.
 grep -E '^XUI_(USERNAME|PASSWORD|PANEL_PORT|WEB_BASE_PATH)=' /etc/x-ui/install-result.env
 """
 
 
-def public_access_script(hostname: str, port: int) -> str:
+def public_access_script(hostname: str, port: int, ipv6: bool = False) -> str:
     validate_port(port)
     identity = _public_identity(hostname)
     if not identity:
         raise ValueError("当前 SSH 地址不能安全匹配 HTTPS 证书")
-    return (PUBLIC_ACCESS_TEMPLATE.replace("__PUBLIC_SOCKET_CHECK__", PUBLIC_SOCKET_CHECK)
-            .replace("__IDENTITY__", identity).replace("__PORT__", str(port)))
+    family = 6 if ipv6 or is_ipv6_identity(identity) else 4
+    script = PUBLIC_ACCESS_TEMPLATE.replace("__PUBLIC_SOCKET_CHECK__", PUBLIC_SOCKET_CHECK)
+    values = {"__IDENTITY__": identity, "__PORT__": str(port),
+              **tls_probe_args(identity, port, family)}
+    for key, value in values.items():
+        script = script.replace(key, value)
+    return script
 
 
 def direct_url(hostname: str, port: int, web_path: str) -> str:

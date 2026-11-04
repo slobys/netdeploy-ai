@@ -7,7 +7,9 @@ The subscription listener TCP 2096 must remain on 127.0.0.1 throughout.
 from __future__ import annotations
 
 from .firewall import acme_ufw_script, allow_port_script
-from .https_upgrade import https_steps as xui_https_steps, identify
+from .https_upgrade import (https_steps as xui_https_steps, identify, tls_family,
+                            tls_probe_args, is_ipv6_identity, url_authority,
+                            IPV6_IDENTITY_PREFLIGHT)
 from .listening import PUBLIC_SOCKET_CHECK
 from .s_ui import HTTPS_STATUS_GUARD, LOCAL_LISTENER_GUARD, PORT
 from .certbot_runtime import cert_root, renew_timer
@@ -100,7 +102,7 @@ PY
     # Remove TLS metadata only, preserving initial credentials and web path.
     if [ -f "$record" ]; then
         temp="$(mktemp /var/lib/netdeploy/s-ui/.rollback.XXXXXXXX)"
-        grep -Ev '^SUI_TLS_(MODE|IDENTITY)=' "$record" > "$temp" || true
+        grep -Ev '^SUI_TLS_(MODE|IDENTITY|FAMILY)=' "$record" > "$temp" || true
         chmod 600 "$temp"
         mv -f "$temp" "$record"
     fi
@@ -133,7 +135,7 @@ try:
         if len(rows) != 1 or rows[0][1] != expected:
             raise RuntimeError("SUI_HTTPS_PREVIOUS_SETTINGS_CHANGED: " + item)
     for item, value in (("webCertFile", cert), ("webKeyFile", key),
-                        ("webDomain", "__WEB_DOMAIN__"), ("webListen", "0.0.0.0")):
+                        ("webDomain", "__WEB_DOMAIN__"), ("webListen", "__PANEL_LISTEN_IP__")):
         conn.execute("UPDATE settings SET value=? WHERE key=?", (value, item))
     conn.commit()
 finally:
@@ -148,27 +150,29 @@ for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
     if systemctl is-active --quiet s-ui &&
        netdeploy_public_socket 2095 &&
        test "$(ss -Hltn 'sport = :2096' | awk '{print $4}')" = '127.0.0.1:2096'; then
-        code="$(curl -4 --noproxy '*' --proto '=https' --tlsv1.2 --silent \
+        code="$(curl __TLS_CURL_FLAGS__ --noproxy '*' --proto '=https' --tlsv1.2 --silent \
             --output /dev/null --write-out '%{http_code}' --max-time 8 \
-            --connect-to '__IDENTITY__:2095:127.0.0.1:2095' \
-            'https://__IDENTITY__:2095/'"$web_path"'/' 2>/dev/null)" || code=000
+            --connect-to '__TLS_CONNECT__' \
+            'https://__TLS_URL_HOST__:2095/'"$web_path"'/' 2>/dev/null)" || code=000
         case "$code" in 200|301|302|303|307|308|401|403) ready=yes; break ;; esac
     fi
     sleep 1
 done
 if [ "$ready" != yes ]; then
-    echo 'SUI_HTTPS_VERIFY_FAILED: HTTPS identity/IPv4 not verified; rolling back' >&2
+    echo 'SUI_HTTPS_VERIFY_FAILED: trusted HTTPS identity on selected IP family not verified; rolling back' >&2
     exit 36
 fi
 
 # Open only the reviewed management port in local UFW, not subscription 2096.
 """ + allow_port_script(PORT, "tcp") + r"""
+__IPV6_PUBLIC_HEALTH__
 # Record HTTPS identity atomically only after successful TLS/UFW validation.
 temp="$(mktemp /var/lib/netdeploy/s-ui/.result.XXXXXXXX)"
 cp "$record" "$temp"
 {
     printf 'SUI_TLS_MODE=%s\n' '__MODE__'
     printf 'SUI_TLS_IDENTITY=%s\n' '__IDENTITY__'
+__SUI_TLS_FAMILY_RECORD__
 } >> "$temp"
 chmod 600 "$temp"
 mv -f "$temp" "$record"
@@ -182,14 +186,18 @@ echo 'Cloud security group must separately allow TCP 2095 from your management I
 """
 
 
-def https_steps(identity: str, ssh_ipv4: str | None = None) -> list[dict]:
-    """Build four immutable HTTPS stages, sharing tested 3X-UI ACME logic."""
+def https_steps(identity: str, ssh_ipv4: str | None = None,
+                ssh_ipv6: str | None = None) -> list[dict]:
+    """Build four immutable HTTPS stages, sharing reviewed 3X-UI ACME steps."""
     mode, identity = identify(identity)
+    family = tls_family(identity, ssh_ipv4, ssh_ipv6)
     if ssh_ipv4 is not None:
-        if mode != "domain" or identify(ssh_ipv4)[0] != "ip":
-            raise ValueError("S-UI SSH IPv4 binding requires a domain certificate")
-        _, ssh_ipv4 = identify(ssh_ipv4)
-    core = xui_https_steps(identity, PORT, ssh_ipv4)
+        ssh_ipv4 = identify(ssh_ipv4)[1]
+    if ssh_ipv6 is not None:
+        ssh_ipv6 = identify(ssh_ipv6)[1]
+    transport = tls_probe_args(identity, PORT, family)
+    transport["__TLS_CURL_FLAGS__"] = "-6 -g" if family == 6 else "-4"
+    core = xui_https_steps(identity, PORT, ssh_ipv4, ssh_ipv6)
     root = cert_root(mode)
     dep = dict(core[1])
     issuer = dict(core[2])
@@ -213,18 +221,40 @@ RENEW_HOOK"""
     script = script.replace("netdeploy-xui-reload.sh", "netdeploy-sui-reload.sh")
     script = script.replace("existing 3X-UI localhost listener", "existing S-UI localhost listener")
     issuer["script"] = script
+    preflight = PRECHECK
+    public_health = ""
+    if family == 6:
+        # Replace only the IPv4 identity/AAAA section; S-UI service/port
+        # checks above remain unchanged, as does the original IPv4 path.
+        marker = 'public_ip="$(curl --proto'
+        if preflight.count(marker) != 1:
+            raise RuntimeError("S-UI preflight changed: review IPv6 identity check")
+        preflight = (preflight.split(marker, 1)[0] +
+                     IPV6_IDENTITY_PREFLIGHT + acme_ufw_script())
+        pin = ssh_ipv6 if ssh_ipv6 is not None else identity
+        resolver = f"--resolve '{identity}:{PORT}:[{pin}]'" if mode == "domain" else ""
+        public_health = r"""code6="$(curl -6 -g --noproxy '*' --proto '=https' --tlsv1.2 \
+    --silent --output /dev/null --write-out '%{http_code}' --max-time 8 \
+    __PUBLIC_RESOLVE__ 'https://__TLS_URL_HOST__:2095/'"$web_path"'/' 2>/dev/null)" || code6=000
+case "$code6" in 200|301|302|303|307|308|401|403) ;;
+*) echo 'SUI_IPV6_PUBLIC_HTTPS_FAILED: IPv6 TLS identity failed; rolling back' >&2; exit 36 ;;
+esac""".replace("__PUBLIC_RESOLVE__", resolver)
+    family_record = ("    printf 'SUI_TLS_FAMILY=6\\n'\n" if family == 6 else "")
     values = {
         "__IDENTITY__": identity, "__MODE__": mode,
         "__CERT_ROOT__": root, "__RENEW_TIMER__": renew_timer(mode),
-        "__SSH_IP__": ssh_ipv4 or "",
+        "__SSH_IP__": ssh_ipv4 or "", "__SSH_IPV6__": ssh_ipv6 or "",
         "__CHECK__": "checkip" if mode == "ip" else "checkhost",
+        "__IPV6_PUBLIC_HEALTH__": public_health,
+        "__SUI_TLS_FAMILY_RECORD__": family_record,
+        **transport,
         "__WEB_DOMAIN__": identity if mode == "domain" else "",
         "__LOCAL_GUARD__": LOCAL_LISTENER_GUARD,
         "__HTTPS_GUARD__": HTTPS_STATUS_GUARD,
     }
     result = []
     for label, script, timeout in (
-        ("检查 S-UI 本机监听、公网 IP/域名及 TCP 80", PRECHECK, 55),
+        ("检查 S-UI 本机监听、公网 IP/域名及 TCP 80", preflight, 65 if family == 6 else 55),
         (dep["label"], dep["script"], dep["timeout"]),
         ("申请可信 IP/域名证书并配置 S-UI 自动续期", issuer["script"], issuer["timeout"]),
         ("启用 S-UI HTTPS、验收后开放管理端口（失败回退）", ACTIVATE, 120),

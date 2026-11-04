@@ -386,16 +386,16 @@ async function createHostPlan(id,project,panelPort=null,absenceVerified=false,tl
  }
  if(project==='3x-ui'&&panelPort===null){
    const detectedHost=certHost(host);
-   const ip=!host.tls_domain&&isIpv4Input(host.hostname);
+   const ip=!host.tls_domain&&(isIpv4Input(host.hostname)||isIpv6Input(host.hostname));
    const ipv6=isIpv6Input(host.hostname);
    dialog(modalHead('安装 3X-UI · 自定义面板端口')+`
-     <div class="xui-port-config"><span class="chip" id="xui-cert-mode-chip">${ipv6?'IPv6 VPS · 本机 / NPM 模式':ip?'公网 IP · 自动申请 IP 证书':'域名 · 自动申请域名证书'}</span>
-       <p>SSH 服务器：${escapeHtml(host.hostname)}。${ipv6?'IPv6 安装支持 SSH 隧道本机访问；需要域名 HTTPS 时请配置 AAAA 并交给 NPM。':`默认自动申请 ${ip?"IP":"域名"} 证书；也可让 NPM 统一管理证书。`}</p>
+     <div class="xui-port-config"><span class="chip" id="xui-cert-mode-chip">${ipv6?'IPv6 VPS · IP / AAAA HTTPS':ip?'公网 IP · 自动申请 IP 证书':'域名 · 自动申请域名证书'}</span>
+       <p>SSH 服务器：${escapeHtml(host.hostname)}。${ipv6?'IPv6 可选择本机 SSH、NPM 或自动 HTTPS。IP 证书有效期约 160 小时；域名需配置正确的 AAAA 记录，并开放 TCP 80 供 ACME 验证。':`默认自动申请 ${ip?"IP":"域名"} 证书；也可让 NPM 统一管理证书。`}</p>
        <form id="xui-custom-port-form"><div class="form-group">
          <label>3X-UI 管理端口（可自行修改）</label>
          <input name="port" type="number" min="1024" max="65535" value="24443" required/>
          <p class="helptext">允许 1024–65535，不能与 SSH 端口 ${host.port} 相同。程序会预检端口占用。</p>
-       </div><div class="form-group"><label>HTTPS 处理方式</label><select name="tls_strategy">${ipv6?'<option value="local">本机 SSH 隧道访问（推荐）</option>':'<option value="https">自动申请 SSL 证书（IP / 域名）</option>'}<option value="npm">不申请证书，使用 NPM 反向代理</option></select></div><div class="modal-actions"><button class="btn ghost" type="button" data-action="back-host" data-id="${id}">返回</button>
+       </div><div class="form-group"><label>HTTPS 处理方式</label><select name="tls_strategy">${ipv6?'<option value="local">本机 SSH 隧道访问（默认）</option>':''}<option value="https">自动申请 HTTPS 证书（IPv4 / IPv6 IP 或域名）</option><option value="npm">不申请证书，使用 NPM 反向代理</option></select></div><div class="modal-actions"><button class="btn ghost" type="button" data-action="back-host" data-id="${id}">返回</button>
          <button class="btn primary" type="submit">生成安装与 HTTPS 方案 →</button></div></form>
      </div>`);
    const form=el('#xui-custom-port-form');
@@ -690,7 +690,7 @@ function isIpv6Input(value){const v=String(value||'').trim();return v.includes('
 function isSshIpInput(value){return isIpv4Input(value)||isIpv6Input(value);}
 function displayIpHost(value){return isIpv6Input(value)?'['+value+']':value;}
 function certHost(host){return host.tls_domain||host.hostname;}
-function certLabel(host){return isIpv6Input(host.hostname)?'IPv6 SSH · 3X-UI / S-UI 可安装；HTTPS 请用 NPM + AAAA 域名':host.tls_domain||!isIpv4Input(host.hostname)?`域名证书 · ${escapeHtml(certHost(host))}`:`IP 证书 · ${escapeHtml(host.hostname)}`;}
+function certLabel(host){return isIpv6Input(host.hostname)?(host.tls_domain?'IPv6 SSH · 域名证书（DNS AAAA）':'IPv6 SSH · 短期 IP 证书（160 小时）'):host.tls_domain||!isIpv4Input(host.hostname)?`域名证书 · ${escapeHtml(certHost(host))}`:`IP 证书 · ${escapeHtml(host.hostname)}`;}
 function setupProgress(step){
  const steps=['服务器信息','SSH 指纹','连接检测','网络端口','选择软件'];
  return `<ol class="setup-progress" aria-label="服务器添加进度">${steps.map((text,i)=>`<li class="${i+1===step?'current':i+1<step?'finished':''}" ${i+1===step?'aria-current="step"':''}>
@@ -935,12 +935,12 @@ function addHost(){
  state.setupFlowId=null;
  state.hostPanel=null;
  dialog(modalHead('第 1 步 · 添加 Linux VPS')+setupProgress(1)+
-  `<p class="helptext">SSH 支持公网 IPv4 或 IPv6（IPv6 不要添加 [ ]）。IPv6 VPS 可直接安装 3X-UI / S-UI，当前内置证书流程仍限 IPv4；IPv6 请选本机访问或 NPM + 域名 AAAA。</p>
+  `<p class="helptext">SSH 支持公网 IPv4 或 IPv6（IPv6 不要添加 [ ]）。IPv6 VPS 可选择本机访问、NPM 或内置 HTTPS；IPv6 IP 证书需要短期续期，域名证书须配置指向当前 VPS 的 AAAA 记录。</p>
   <form id="add-host-form"><div class="form-group"><label>服务器名称</label><input name="name" placeholder="例如：日本 VPS 01" required maxlength="60"/></div>
   <div class="form-group"><label>服务器公网 IPv4 / IPv6（用于 SSH 连接）</label><input name="hostname" placeholder="例如：45.32.35.195 或 2606:4700:4700::1111" required inputmode="text" spellcheck="false"/></div>
   <div class="form-group"><label>HTTPS 域名（可选；IPv6 推荐用于 NPM）</label>
     <input name="tls_domain" placeholder="例如：ts.example.com" autocomplete="off"/>
-    <p class="helptext">IPv4 的内置 HTTPS 使用 A 记录；IPv6 VPS 建议配置 AAAA 记录并由 NPM 统一申请证书（内置 Certbot 的 IPv6 自动签发尚未支持）。</p></div>
+    <p class="helptext">IPv4 内置 HTTPS 核验 DNS A；IPv6 核验 DNS AAAA、实际网卡 IPv6 及 TCP 80。仍可选择 NPM，所有公网端口需另外设置云防火墙。</p></div>
   <div class="form-2"><div class="form-group"><label>SSH 用户名</label><input name="username" value="root" required/></div>
     <div class="form-group"><label>SSH 端口</label><input name="port" type="number" min="1" max="65535" value="22" required/></div></div>
   ${authSelect()}
@@ -1121,7 +1121,7 @@ function chooseHost(project){
  dialog(modalHead(`${p.deployment==='install'?'部署':'部署规划'} ${p.name}`)+`<form id="plan-form"><p class="helptext">选择目标 VPS，点击生成方案时会自动进行最新的只读环境检测，无需提前手动扫描。</p>
  <div class="form-group"><label>目标服务器</label><select name="host_id" id="plan-host-id" required>${state.hosts.map(h=>`<option value="${h.id}">${escapeHtml(h.name)} (${escapeHtml(h.hostname)})</option>`).join('')}</select></div>
  ${project==='3x-ui'||project==='s-ui'?`${project==='3x-ui'?'<details><summary class="mini">高级设置（可选）：面板端口，默认 24443</summary><div class="form-group"><label>3X-UI 管理端口</label><input name="panel_port" type="number" min="1024" max="65535" value="24443" required/></div></details>':'<div class="modal-tip">S-UI 管理端口固定 2095/TCP；订阅 2096/TCP 始终仅本机监听，不直接开放公网。</div>'}
- <div class="form-group"><label>面板 HTTPS 处理方式</label><select id="tls-strategy" name="tls_strategy"><option value="https">自动申请 SSL 证书（目前仅公网 IPv4）</option><option value="npm">不申请证书，交给 NPM 反向代理提供 HTTPS</option><option value="local">不申请证书，仅通过本机 SSH 隧道访问</option></select></div><div class="modal-tip" id="cert-strategy-note"><b id="cert-type-preview">证书类型自动识别中</b><p class="helptext" id="cert-strategy-help">自动申请证书需要 TCP 80 完成 ACME HTTP-01 验证。</p></div>`:''}
+ <div class="form-group"><label>面板 HTTPS 处理方式</label><select id="tls-strategy" name="tls_strategy"><option value="https">自动申请 SSL 证书（公网 IPv4 / IPv6）</option><option value="npm">不申请证书，交给 NPM 反向代理提供 HTTPS</option><option value="local">不申请证书，仅通过本机 SSH 隧道访问</option></select></div><div class="modal-tip" id="cert-strategy-note"><b id="cert-type-preview">证书类型自动识别中</b><p class="helptext" id="cert-strategy-help">自动申请证书需要 TCP 80 完成 ACME HTTP-01 验证。</p></div>`:''}
  ${project==='dockge'?`<div class="form-group"><label>Dockge Apps 宿主机端口（可选）</label>
 <input name="dockge_port" type="number" min="1024" max="65535" placeholder="留空自动随机分配 20000–59999"/>
 <p class="helptext">可自定义 1024–65535，不能与 VPS SSH 端口冲突；容器内部端口保持 5001。</p></div>
@@ -1134,24 +1134,27 @@ function chooseHost(project){
    const preview=()=>{
      const host=state.hosts.find(h=>h.id===Number(target?.value));
      if(!host)return;
-     const ip=!host.tls_domain&&isIpv4Input(host.hostname);
+     const ip=!host.tls_domain&&(isIpv4Input(host.hostname)||isIpv6Input(host.hostname));
      const ipv6=isIpv6Input(host.hostname);
      const indicator=el('#cert-type-preview');
      const strategy=el('#tls-strategy');
-     const httpsOption=strategy?.querySelector('option[value="https"]');
-     if(httpsOption)httpsOption.disabled=ipv6;
-     if(ipv6&&strategy?.value==='https')strategy.value='local';
      const npm=strategy?.value==='npm';
      const local=strategy?.value==='local';
-     if(indicator)indicator.textContent=local?'SSH 隧道访问 · 不申请证书':npm?'由 NPM 统一签发 HTTPS（本面板不申请证书）':ipv6?'IPv6 请用 NPM + AAAA 域名或本机模式':ip?`不填域名：使用 ${host.hostname} 申请 IP 证书`:`已设置 ${host.tls_domain}：自动申请域名证书`;
+     if(indicator)indicator.textContent=local?'SSH 隧道访问 · 不申请证书':npm?'由 NPM 统一签发 HTTPS（本面板不申请证书）':ip?`使用 ${host.hostname} 申请公网 IP 证书${ipv6?'（160 小时）':''}`:`使用 ${host.tls_domain} 申请域名证书（${ipv6?'AAAA':'A'}）`;
      const note=el('#cert-strategy-note');
      if(note)note.dataset.proxyMode=npm?'npm':'https';
      const help=el('#cert-strategy-help');
-     if(help)help.textContent=local?'本机模式不会公开管理端口；请使用 SSH 隧道或安全反向代理。':npm?'不使用 Certbot，不占用 80 端口。S-UI 仅监听本机；3X-UI 原始 HTTP 将按风险审批公开，IPv6 会额外核验。':'自动签发证书需 TCP 80；当前内置流程暂未支持 IPv6。';
+     if(help)help.textContent=local?'本机模式不会公开管理端口；请使用 SSH 隧道或安全反向代理。':npm?'不使用 Certbot，不占用 80 端口。S-UI 仅监听本机；3X-UI 原始 HTTP 将按风险审批公开，IPv6 会额外核验。':ipv6?'IPv6 HTTPS 要求公网 IPv6 已分配到 VPS，DNS AAAA 正确（如填写），并放行 TCP 80 和管理端口。':'自动签发证书需要公网 TCP 80 完成 ACME 验证。';
    };
-   target?.addEventListener('change',preview);
+   const hostChanged=()=>{
+     const host=state.hosts.find(h=>h.id===Number(target?.value));
+     const strategy=el('#tls-strategy');
+     if(strategy)strategy.value=host&&isIpv6Input(host.hostname)?'local':'https';
+     preview();
+   };
+   target?.addEventListener('change',hostChanged);
    el('#tls-strategy')?.addEventListener('change',preview);
-   preview();
+   hostChanged();
  }
  el('#plan-form').addEventListener('submit',async e=>{
   e.preventDefault();const form=e.currentTarget,fd=new FormData(form);

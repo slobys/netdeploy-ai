@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from .https_upgrade import identify
+from .https_upgrade import identify, url_authority
 from .certbot_runtime import IP_CONFIG_DIR, IP_RENEW_TIMER
 from .listening import PUBLIC_SOCKET_CHECK
 
@@ -303,9 +303,19 @@ sui_https_verified() {
     identity="$(sed -n 's/^SUI_TLS_IDENTITY=//p' "$record")"
     test "$(grep -c '^SUI_TLS_MODE=' "$record")" = 1 || return 1
     test "$(grep -c '^SUI_TLS_IDENTITY=' "$record")" = 1 || return 1
-    case "$identity" in ''|*[!a-z0-9.-]*) return 1 ;; esac
+    family="$(sed -n 's/^SUI_TLS_FAMILY=//p' "$record")"
+    case "$family" in
+        '') family=4 ;;
+        6) test "$(grep -c '^SUI_TLS_FAMILY=' "$record")" = 1 || return 1 ;;
+        *) return 1 ;;
+    esac
+    case "$identity" in ''|*[!a-z0-9.:-]*) return 1 ;; esac
     case "$mode" in
-        ip) printf '%s' "$identity" | grep -Eq '^[0-9.]+$' || return 1
+        ip) if [ "$family" = 6 ]; then
+                printf '%s' "$identity" | grep -Eq '^[0-9a-f:]+$' || return 1
+            else
+                printf '%s' "$identity" | grep -Eq '^[0-9.]+$' || return 1
+            fi
             check=checkip
             cert_root='__IP_CERT_ROOT__'
             timer='__IP_CERT_TIMER__' ;;
@@ -327,10 +337,20 @@ sui_https_verified() {
         grep -Fq 'does match' || return 1
     path="$(sed -n 's/^SUI_WEB_BASE_PATH=//p' "$record")"
     printf '%s' "$path" | grep -Eq '^[a-f0-9]{24}$' || return 1
-    code="$(curl --noproxy '*' --proto '=https' --tlsv1.2 -4 --silent \
+    if [ "$family" = 6 ]; then
+        tls_host="$identity"
+        [ "$mode" != ip ] || tls_host="[$identity]"
+        tls_connect='::[::1]:2095'
+        tls_flags='-6 -g'
+    else
+        tls_host="$identity"
+        tls_connect="$identity:2095:127.0.0.1:2095"
+        tls_flags=-4
+    fi
+    code="$(curl $tls_flags --noproxy '*' --proto '=https' --tlsv1.2 --silent \
         --output /dev/null --write-out '%{http_code}' --connect-timeout 3 --max-time 8 \
-        --connect-to "$identity:2095:127.0.0.1:2095" \
-        "https://$identity:2095/$path/" 2>/dev/null)" || return 1
+        --connect-to "$tls_connect" \
+        "https://$tls_host:2095/$path/" 2>/dev/null)" || return 1
     case "$code" in 200|301|302|303|307|308|401|403) ;; *) return 1 ;; esac
     return 0
 }
@@ -483,7 +503,7 @@ def parse_access(raw: str, host: dict) -> dict:
     }
     if access_mode == "https":
         identity = _sui_identity(values.get("SUI_TLS_IDENTITY", ""))
-        result["direct_url"] = f"https://{identity}:{PORT}/{path}/"
+        result["direct_url"] = f"https://{url_authority(identity)}:{PORT}/{path}/"
         result["certificate_identity"] = identity
     else:
         result["local_url"] = f"http://127.0.0.1:{PORT}/{path}/"
