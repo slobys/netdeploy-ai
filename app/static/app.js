@@ -115,7 +115,8 @@ function render(){
       ${duplicate>1?`<span class="host-card-hint">${duplicate} 条记录共用此 SSH 地址</span>`:''}
       <button class="host-card-delete" type="button" data-action="delete-host" data-id="${h.id}" aria-label="删除 ${escapeHtml(h.name)} 的本地服务器记录">删除服务器</button>
     </article>`;
- }).join(''):`<div class="empty"><span class="empty-icon">▤</span><span>还没有 VPS。添加后点击卡片，即可在同一个控制台管理连接、部署与端口。</span><button class="btn primary" data-action="add-host">＋ 添加第一台 VPS</button></div>`;
+ }).join('')+`<button class="host-add-card" type="button" data-action="add-host" aria-label="添加 VPS 服务器" title="添加 VPS 服务器">＋</button>`:
+ `<div class="empty"><span class="empty-icon">▤</span><span>还没有 VPS。添加后点击卡片，即可在同一个控制台管理连接、部署与端口。</span><button class="btn primary" data-action="add-host">＋ 添加第一台 VPS</button></div>`;
  el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${isExistingXuiPlan(j)?'<span class="chip success">已安装 · 无需审批</span>':chip(j.status)}<button class="btn ${j.status==='planned'?'primary':'subtle'}" data-action="${isExistingXuiPlan(j)?'installed-xui':historicalHttpsFailure(j)?'regenerate-plan':planNeedsUpdate(j)&&j.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(isExistingXuiPlan(j)?j.host_id:j.id)}">${escapeHtml(jobNextAction(j))} →</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
  renderSection();
 }
@@ -139,7 +140,6 @@ function renderSection(){
  el('#projects-section').classList.toggle('is-catalog',state.section==='projects');
  el('#hosts-section').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
  el('#jobs-section').classList.toggle('hidden',!['dashboard','jobs'].includes(state.section));
- el('#main-cta').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
 }
 function isPlanExpired(job){
  if(job.status!=='planned')return false;

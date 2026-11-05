@@ -78,6 +78,26 @@
   min-height: 40px;
 }
 .host-list { align-items: stretch; }
+.host-add-card {
+  display: grid;
+  place-items: center;
+  min-height: 72px;
+  padding: 8px;
+  border: 1px dashed var(--theme-line-strong);
+  border-radius: var(--nd-card-radius);
+  color: var(--theme-accent);
+  background: transparent;
+  font-size: 32px;
+  line-height: 1;
+}
+.host-add-card:hover {
+  border-color: var(--theme-accent);
+  background: var(--theme-panel-2);
+}
+.host-add-card:focus-visible {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: 3px;
+}
 .host-item {
   border-color: var(--theme-line);
   box-shadow: 0 1px 1px color-mix(in srgb, #000 9%, transparent);
