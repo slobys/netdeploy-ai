@@ -24,7 +24,8 @@ from .catalog import CATALOG, build_plan
 from .executor import SSHConfig, SSHError, SSHExecutor, validate_host
 from .store import Store
 from .tasks import JobRunner
-from .ai import diagnose, codex_status, codex_connect, codex_cancel, codex_logout
+from .ai import (diagnose, codex_status, codex_connect, codex_cancel, codex_logout,
+                 interpret_panel_command)
 from .os_keyring import VaultUnavailable
 from .https_upgrade import identify, https_access_script, https_url
 from .firewall import (PortRule, FirewallBatch, STATUS_SCRIPT, allow_port_script,
@@ -1030,8 +1031,8 @@ def codex_connection_status():
     status = codex_status()
     if status.get("available"):
         return status
-    # Windows QuickStart launches Docker/Codex separately to keep VPS startup
-    # responsive. A small, local-only status file makes progress visible.
+    # Native Windows Codex starts in the background. Expose its local progress
+    # while the worker's account API is still unavailable.
     try:
         record = json.loads((DATA_DIR / "codex-worker-startup.json").read_text(encoding="utf-8"))
         state = record.get("state")
@@ -1066,6 +1067,57 @@ def codex_disconnect():
         return codex_logout()
     except RuntimeError as exc:
         raise HTTPException(503, detail=str(exc)) from exc
+
+
+class CodexCommand(BaseModel):
+    prompt: str = Field(min_length=1, max_length=1000)
+
+
+@app.post("/api/codex/command", dependencies=[Depends(authorized)])
+def codex_command(body: CodexCommand):
+    prompt = body.prompt.strip()
+    if not prompt:
+        raise HTTPException(422, detail="请输入要执行的面板操作")
+
+    # Construct choices from the current panel records. Hostnames, credentials,
+    # remote facts, logs and deployment scripts are deliberately excluded.
+    hosts = {h["id"]: str(h["name"])[:120] for h in store.hosts()[:100]}
+    jobs = [
+        {key: job[key] for key in ("id", "host_id", "project", "status")}
+        for job in store.jobs() if job["host_id"] in hosts
+    ]
+    projects = {key: project["name"] for key, project in CATALOG.items()
+                if not project.get("internal")}
+    actions = {
+        "none": None,
+        **{section: {"type": "section", "section": section}
+           for section in ("hosts", "projects", "jobs")},
+        **{f"host:{host_id}": {"type": "host", "id": host_id} for host_id in hosts},
+        **{f"job:{job['id']}": {"type": "job", "id": job["id"]} for job in jobs},
+        **{f"deploy:{key}": {"type": "deployment", "project": key} for key in projects},
+    }
+    try:
+        decision = interpret_panel_command({
+            "prompt": prompt,
+            "hosts": [{"id": host_id, "name": name} for host_id, name in hosts.items()],
+            "jobs": jobs,
+            "projects": projects,
+            "actions": list(actions),
+        })
+    except RuntimeError as exc:
+        raise HTTPException(503, detail=str(exc)) from exc
+
+    choice, host_id, message = (decision.get(key) for key in ("action", "host_id", "message"))
+    if not isinstance(choice, str) or choice not in actions or not isinstance(message, str) or not message.strip():
+        raise HTTPException(502, detail="Codex 返回了无效的面板操作，请重新描述")
+    action = actions[choice]
+    if action and action["type"] == "deployment":
+        if type(host_id) is not int or host_id not in hosts:
+            raise HTTPException(502, detail="Codex 未选中明确的目标服务器，请指定服务器名称")
+        action = {**action, "host_id": host_id}
+    elif host_id is not None:
+        raise HTTPException(502, detail="Codex 返回了无效的操作目标，请重试")
+    return {"message": message[:3000], "action": action}
 
 
 @app.post("/api/jobs/{id}/diagnose", dependencies=[Depends(authorized)])

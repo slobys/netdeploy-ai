@@ -1,5 +1,6 @@
 """Codex account integration: isolated device login, admin-only proxy, no API fallback."""
 import importlib
+import json
 import os
 import sys
 import threading
@@ -24,6 +25,7 @@ def test_codex_admin_routes_are_protected_and_use_worker_proxy(monkeypatch):
         ("post", "/api/codex/connect"),
         ("post", "/api/codex/cancel"),
         ("post", "/api/codex/logout"),
+        ("post", "/api/codex/command"),
     ]:
         assert getattr(client, method)(path).status_code == 401
     monkeypatch.setattr(main, "codex_status", lambda: {"available": True, "connected": False})
@@ -167,3 +169,79 @@ def test_worker_cancel_and_rejects_untrusted_device_verification_url(monkeypatch
         assert client.post("/account/device-login", headers=WORKER).status_code == 503
     finally:
         monkeypatch.undo()
+
+
+def test_panel_command_shares_only_summary_and_maps_an_allowed_target(monkeypatch):
+    monkeypatch.setattr(main.store, "hosts", lambda: [
+        {"id": 7, "name": "东京", "hostname": "private.example", "facts": {"SECRET": "hidden"}}
+    ])
+    monkeypatch.setattr(main.store, "jobs", lambda: [
+        {"id": "test-job", "host_id": 7, "project": "s-ui", "status": "failed",
+         "logs": "private logs", "plan": {"script": "private script"}}
+    ])
+
+    def interpret(data):
+        assert data["prompt"] == "在东京部署 S-UI"
+        assert data["hosts"] == [{"id": 7, "name": "东京"}]
+        assert data["jobs"] == [
+            {"id": "test-job", "host_id": 7, "project": "s-ui", "status": "failed"}
+        ]
+        assert "deploy:s-ui-https" not in data["actions"]
+        return {"action": "deploy:s-ui", "host_id": 7, "message": "请先检查部署选项"}
+
+    monkeypatch.setattr(main, "interpret_panel_command", interpret)
+    client = TestClient(main.app)
+    response = client.post("/api/codex/command", headers=ADMIN,
+                           json={"prompt": " 在东京部署 S-UI "})
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": "请先检查部署选项",
+        "action": {"type": "deployment", "project": "s-ui", "host_id": 7},
+    }
+    assert client.post("/api/codex/command", headers=ADMIN,
+                       json={"prompt": "   "}).status_code == 422
+
+
+@pytest.mark.parametrize(("action", "host_id"), [
+    ("approve", None), ("job:missing", None), ("deploy:s-ui-https", 1),
+    ("deploy:s-ui", 99), ("deploy:s-ui", None), ("deploy:s-ui", True),
+    ("hosts", 1),
+])
+def test_panel_command_rejects_unauthorized_or_invalid_actions(monkeypatch, action, host_id):
+    monkeypatch.setattr(main.store, "hosts", lambda: [{"id": 1, "name": "测试"}])
+    monkeypatch.setattr(main.store, "jobs", lambda: [])
+    monkeypatch.setattr(main, "interpret_panel_command", lambda _: {
+        "action": action, "host_id": host_id, "message": "无效操作",
+    })
+    response = TestClient(main.app).post("/api/codex/command", headers=ADMIN,
+                                         json={"prompt": "打开面板"})
+    assert response.status_code == 502
+
+
+def test_panel_worker_requires_login_and_uses_structured_ephemeral_turn(monkeypatch):
+    _, client = _worker_client(monkeypatch)
+    data = {
+        "prompt": "打开部署任务", "hosts": [], "jobs": [], "projects": {},
+        "actions": ["none", "jobs"],
+    }
+    assert client.post("/panel-command", json=data).status_code == 401
+    assert client.post("/panel-command", headers=WORKER, json=data).status_code == 409
+    FakeCodex.logged_in = True
+
+    def start(self, **kwargs):
+        assert kwargs["ephemeral"] and kwargs["sandbox"] == "read_only"
+        assert kwargs["approval_mode"] == "deny_all"
+        assert kwargs["config"]["features"]["shell_tool"] is False
+        assert kwargs["config"]["features"]["apps"] is False
+
+        def run(prompt, *, output_schema):
+            assert json.loads(prompt) == data
+            assert output_schema["properties"]["action"]["enum"] == data["actions"]
+            return SimpleNamespace(final_response='{"action":"jobs","host_id":null,"message":"打开任务列表"}')
+
+        return SimpleNamespace(run=run)
+
+    monkeypatch.setattr(FakeCodex, "thread_start", start)
+    result = client.post("/panel-command", headers=WORKER, json=data)
+    assert result.status_code == 200
+    assert result.json()["action"] == "jobs"

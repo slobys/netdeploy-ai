@@ -35,7 +35,14 @@ try {
         exit 0
     }
     & git -C $root merge-base --is-ancestor $localHead $remoteHead
-    if ($LASTEXITCODE -ne 0) { throw '本地和远程提交出现分叉，已停止更新，禁止强制覆盖。' }
+    if ($LASTEXITCODE -ne 0) {
+        & git -C $root merge-base --is-ancestor $remoteHead $localHead
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host '[NetDeploy AI] 本地包含尚未发布的提交，继续启动本地版本。' -ForegroundColor Green
+            exit 0
+        }
+        throw '本地和远程提交出现分叉，已停止更新，禁止强制覆盖。'
+    }
 
     $dataPath = Join-Path $root 'data'
     if (Test-Path $dataPath) {

@@ -45,6 +45,13 @@ def test_windows_start_is_native_and_docker_independent():
 
 def test_docker_context_endpoint_allowlist_is_strict():
     worker = _script("scripts/Enable-Codex-Windows.ps1")
+    native_start, docker_worker = worker.split("function Find-DockerCommand", 1)
+    assert "[switch]$UseDocker" in native_start
+    assert "if (-not $UseDocker)" in native_start
+    assert "QuickStart-Windows.ps1" in native_start
+    assert "exit $LASTEXITCODE" in native_start
+    assert "Start-DockerDesktopBackground" not in native_start
+    assert "Start-DockerDesktopBackground" in docker_worker
     match = re.search(r"if \(\$endpoint -match '([^']+)'\)", worker)
     assert match, "The Docker endpoint must be checked before using a context"
     pattern = re.compile(match.group(1))

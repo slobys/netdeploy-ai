@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "files": [
+          "app/static/index.html"
+        ],
+        "createdAt": "2026-11-05T01:13:09.537Z",
+        "reason": "Agent: existing dashboard CSS uses only locally installed Inter with system fallbacks and does not load any webfont; preserve existing typography for this feature."
+      }
+    ]
+  }
+}

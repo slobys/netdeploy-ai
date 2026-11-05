@@ -1,9 +1,14 @@
 ﻿# Isolated Codex Worker bootstrap. -Auto is non-blocking for the parent starter.
-# It may launch Docker Desktop, but never starts the NetDeploy API container.
-param([switch]$Auto)
+# The legacy Docker worker requires an explicit -UseDocker switch.
+param([switch]$Auto, [switch]$UseDocker)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+if (-not $UseDocker) {
+    if ($Auto) { return }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'QuickStart-Windows.ps1')
+    exit $LASTEXITCODE
+}
 Set-Location $root
 
 function Write-CodexStartupState {

@@ -129,6 +129,14 @@ const context = vm.createContext({
   setTimeout(){return 1;},
   fetch:async (url,opts={})=>{
     if(url==='/api/codex/status')return {ok:true,status:200,json:async()=>codexAccount};
+    if(url==='/api/codex/command'){
+      assert.equal(opts.method,'POST');
+      assert.equal(JSON.parse(opts.body).prompt,'准备部署 S-UI 到 Test VPS');
+      return {ok:true,status:200,json:async()=>({
+        message:'<b>请查看部署选项</b>',
+        action:{type:'deployment',project:'s-ui',host_id:1},
+      })};
+    }
     if(url==='/api/codex/connect'){
       assert.equal(opts.method,'POST');
       codexAccount={available:true,connected:false,pending:true,
@@ -885,6 +893,22 @@ function fingerprintFor(label) {
   assert(made.get('#codex-account-state').innerHTML.includes('https://auth.openai.com/codex/device'));
   codexAccount={available:true,connected:true,pending:false,auth_type:'chatgpt'};
   await evaluate('refreshCodexSettings()');
+  assert(!made.get('#codex-command-form').classList.contains('hidden'));
+  evaluate(`state.hosts=[fixtures.host];state.catalog['s-ui']={name:'S-UI',deployment:'install'};`);
+  document.querySelector('#codex-prompt').value='准备部署 S-UI 到 Test VPS';
+  const beforeAssistantPlan=planCreations;
+  const codexForm=made.get('#codex-command-form');
+  await codexForm.dispatch('submit',{currentTarget:codexForm,preventDefault(){}});
+  assert.equal(made.get('#codex-command-result').textContent,'<b>请查看部署选项</b>');
+  assert.equal(made.get('#codex-command-result').innerHTML,'','Treat model output as text');
+  const codexOpen=made.get('#codex-command-open');
+  assert(codexOpen.textContent.includes('Test VPS'));
+  assert(!modal.innerHTML.includes('id="plan-form"'),'Wait for the user to open the suggested action');
+  codexOpen.onclick();
+  assert(modal.innerHTML.includes('<option value="1" selected>Test VPS'));
+  assert.equal(planCreations,beforeAssistantPlan,'Opening a wizard must not create a plan');
+  assert.equal(evaluate("codexPanelAction({type:'approve',id:'anything'})"),null);
+  await evaluate('showCodexSettings()');
   assert(made.get('#codex-account-state').innerHTML.includes('已连接 ChatGPT 账号'));
   await evaluate("codexAction('codex-disconnect')");
   assert(made.get('#codex-account-state').innerHTML.includes('使用 ChatGPT 账号连接 Codex'));

@@ -1119,11 +1119,11 @@ async function preflight(id){
   <div class="checks">${Object.entries(f).map(([k,v])=>`<div class="check">${escapeHtml(k)} <b class="right">${escapeHtml(v)}</b></div>`).join('')}</div><div class="modal-tip">此结果用于部署方案筛选；审批时还会重新预检以防环境发生变化。</div><div class="modal-actions"><button class="btn primary" data-action="close-modal">完成</button></div>`);
  }catch(err){toast(err.message,true);}
 }
-function chooseHost(project){
+function chooseHost(project,selectedHostId=null){
  const p=state.catalog[project];
  if(!state.hosts.length){addHost();return;}
  dialog(modalHead(`${p.deployment==='install'?'部署':'部署规划'} ${p.name}`)+`<form id="plan-form"><p class="helptext">选择目标 VPS，点击生成方案时会自动进行最新的只读环境检测，无需提前手动扫描。</p>
- <div class="form-group"><label>目标服务器</label><select name="host_id" id="plan-host-id" required>${state.hosts.map(h=>`<option value="${h.id}">${escapeHtml(h.name)} (${escapeHtml(h.hostname)})</option>`).join('')}</select></div>
+ <div class="form-group"><label>目标服务器</label><select name="host_id" id="plan-host-id" required>${state.hosts.map(h=>`<option value="${h.id}"${h.id===selectedHostId?' selected':''}>${escapeHtml(h.name)} (${escapeHtml(h.hostname)})</option>`).join('')}</select></div>
  ${project==='3x-ui'||project==='s-ui'?`${project==='3x-ui'?'<details><summary class="mini">高级设置（可选）：面板端口，默认 24443</summary><div class="form-group"><label>3X-UI 管理端口</label><input name="panel_port" type="number" min="1024" max="65535" value="24443" required/></div></details>':'<div class="modal-tip">S-UI 管理端口固定 2095/TCP；订阅 2096/TCP 始终仅本机监听，不直接开放公网。</div>'}
  <div class="form-group"><label>面板 HTTPS 处理方式</label><select id="tls-strategy" name="tls_strategy"><option value="https">自动申请 SSL 证书（公网 IPv4 / IPv6）</option><option value="npm">不申请证书，交给 NPM 反向代理提供 HTTPS</option><option value="local">不申请证书，仅通过本机 SSH 隧道访问</option></select></div><div class="modal-tip" id="cert-strategy-note"><b id="cert-type-preview">证书类型自动识别中</b><p class="helptext" id="cert-strategy-help">自动申请证书需要 TCP 80 完成 ACME HTTP-01 验证。</p></div>`:''}
  ${project==='dockge'?`<div class="form-group"><label>Dockge Apps 宿主机端口（可选）</label>
@@ -1345,7 +1345,8 @@ async function refreshCodexSettings(){
  codexStatusLoading=true;
  try{
    const status=await api('/codex/status');
-   if(!el('#codex-account-state'))return;
+   if(el('#codex-account-state')!==node)return;
+   el('#codex-command-form')?.classList.toggle('hidden',!status.connected);
    let content='';
    if(!status.available){
      if(status.startup_state==='starting'){
@@ -1377,17 +1378,80 @@ async function refreshCodexSettings(){
        (status.error?'<div class="modal-tip warning">'+escapeHtml(status.error)+'</div>':'')+
        '<div class="modal-actions"><button class="btn primary" data-action="codex-connect">使用 ChatGPT 账号连接 Codex</button><button class="btn subtle" data-action="codex-refresh">刷新状态</button></div>';
    }
-   el('#codex-account-state').innerHTML=content;
+   node.innerHTML=content;
  }catch(err){
    const target=el('#codex-account-state');
    if(target)target.innerHTML='<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>';
  }finally{codexStatusLoading=false;}
 }
 async function showCodexSettings(){
- dialog(modalHead('Codex AI · ChatGPT 账号连接',true)+
-   '<div class="modal-tip"><strong>只读 AI 诊断</strong><p>Worker 不接收 NetDeploy 的 SSH 凭据或管理员令牌，也不执行部署操作。Windows 原生进程仍使用当前 Windows 用户权限，请只在可信的本机环境使用；只读沙箱不等于与 Docker 相同的隔离。</p></div>'+
-   '<div id="codex-account-state" role="status" aria-live="polite"><div class="scan-state">正在检查 Codex 连接状态…</div></div>');
+ dialog(modalHead('Codex AI · 面板助手',true)+
+   '<div id="codex-account-state" role="status" aria-live="polite"><div class="scan-state">正在检查 Codex 连接状态…</div></div>'+
+   '<form id="codex-command-form" class="hidden">'+
+   '<div class="form-group"><label for="codex-prompt">想在面板里做什么？</label>'+
+   '<textarea id="codex-prompt" rows="3" maxlength="1000" required placeholder="例如：在东京 VPS 上准备部署 S-UI"></textarea></div>'+
+   '<p class="helptext">Codex 会收到你的指令、服务器名称、近期任务状态和项目名称。请勿输入凭据。打开向导后，由你生成并审批方案。</p>'+
+   '<div class="modal-actions"><button type="submit" class="btn primary">发送指令</button></div>'+
+   '<pre id="codex-command-result" class="pre hidden" role="status" aria-live="polite"></pre>'+
+   '<div class="modal-actions"><button id="codex-command-open" type="button" class="btn subtle hidden"></button></div></form>');
+ el('#codex-command-form').addEventListener('submit',submitCodexCommand);
  await refreshCodexSettings();
+}
+
+function codexPanelAction(action){
+ const sections={hosts:'服务器管理',projects:'项目中心',jobs:'部署任务'};
+ if(action?.type==='section'&&Object.hasOwn(sections,action.section)){
+   return {label:'打开'+sections[action.section],open:()=>{closeDialog();go(action.section);}};
+ }
+ if(action?.type==='host'){
+   const host=state.hosts.find(h=>h.id===action.id);
+   if(host)return {label:'打开服务器 '+host.name,open:()=>openHostConsole(host.id)};
+ }
+ if(action?.type==='job'){
+   const job=state.jobs.find(j=>j.id===action.id);
+   if(job)return {label:'打开任务 '+job.id,open:()=>showJob(job.id)};
+ }
+ if(action?.type==='deployment'){
+   const host=state.hosts.find(h=>h.id===action.host_id);
+   const project=catalogProjects(state.catalog).find(([key])=>key===action.project)?.[1];
+   if(host&&project)return {
+     label:`打开 ${host.name} 的 ${project.name} 部署向导`,
+     open:()=>chooseHost(action.project,host.id)
+   };
+ }
+ return null;
+}
+
+async function submitCodexCommand(event){
+ event.preventDefault();
+ const form=event.currentTarget,submit=form.querySelector('button[type="submit"]');
+ const prompt=el('#codex-prompt').value.trim();
+ if(!prompt||submit.disabled)return;
+ const result=el('#codex-command-result'),open=el('#codex-command-open');
+ open.classList.add('hidden');
+ open.onclick=null;
+ result.classList.remove('hidden');
+ result.textContent='Codex 正在理解指令…';
+ submit.disabled=true;
+ try{
+   const reply=await api('/codex/command',{method:'POST',body:JSON.stringify({prompt})});
+   if(!result.isConnected)return;
+   result.textContent=reply.message;
+   const action=codexPanelAction(reply.action);
+   if(!action)return;
+   open.textContent=action.label;
+   open.classList.remove('hidden');
+   open.onclick=()=>{
+     const current=codexPanelAction(reply.action);
+     if(!current){toast('目标已不可用，请重新发送指令',true);return;}
+     state.activeJob=null;
+     state.hostPanel=null;
+     state.setupFlowId=null;
+     current.open();
+   };
+ }catch(err){
+   result.textContent=err.message;
+ }finally{submit.disabled=false;}
 }
 async function codexAction(name){
  if(name==='codex-disconnect'&&!window.confirm('确定断开当前 ChatGPT 连接？这将清除 Worker 保存的 Codex 登录状态。'))return;

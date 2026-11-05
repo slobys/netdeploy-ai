@@ -5,16 +5,38 @@ container worker. No SSH secrets or administrator token are passed by API.
 """
 from __future__ import annotations
 
-import json
 import os
 import httpx
 from .tasks import sanitize
 
 
-def diagnose(job: dict, facts: dict) -> str:
+def _worker_post(path: str, data: dict) -> dict:
     url = os.getenv("NETDEPLOY_CODEX_WORKER_URL", "").rstrip("/")
     if not url:
-        raise RuntimeError("Codex 尚未就绪：Windows 请正常启动 QuickStart；Docker/NAS 请启动 ai 服务")
+        raise RuntimeError("Codex 尚未就绪。请在面板的 Codex AI 中查看连接状态")
+    try:
+        # Never send worker credentials or context through an HTTP(S) proxy.
+        with httpx.Client(timeout=90, trust_env=False, follow_redirects=False) as client:
+            response = client.post(
+                url + path, json=data,
+                headers={"X-Worker-Token": os.getenv("NETDEPLOY_WORKER_TOKEN", "")},
+            )
+        if response.status_code == 409:
+            raise RuntimeError("请先在 Codex AI 页面完成 ChatGPT 账号登录")
+        response.raise_for_status()
+        result = response.json()
+        if not isinstance(result, dict):
+            raise ValueError("Invalid worker response")
+        return result
+    except (httpx.HTTPError, ValueError) as exc:
+        raise RuntimeError("Codex 请求失败，请检查连接、授权或套餐额度") from exc
+
+
+def interpret_panel_command(data: dict) -> dict:
+    return _worker_post("/panel-command", data)
+
+
+def diagnose(job: dict, facts: dict) -> str:
     data = {
         "project": job["project"],
         "status": job["status"],
@@ -24,20 +46,7 @@ def diagnose(job: dict, facts: dict) -> str:
         "device": {k: v for k, v in (facts or {}).items() if k in {"OS_ID", "OS_VERSION", "ARCH", "DOCKER", "COMPOSE", "SYSTEMD"}},
         "logs": sanitize(job["logs"][-5000:]),
     }
-    try:
-        # The worker is localhost or a private Compose DNS name. Never send
-        # the worker token/data through a user-configured HTTP(S) proxy.
-        with httpx.Client(timeout=90, trust_env=False, follow_redirects=False) as client:
-            res = client.post(
-                url + "/diagnose", json=data,
-                headers={"X-Worker-Token": os.getenv("NETDEPLOY_WORKER_TOKEN", "")},
-            )
-        if res.status_code == 409:
-            raise RuntimeError("请先在 Codex AI 页面完成 ChatGPT 账号登录")
-        res.raise_for_status()
-        return res.json().get("message", "AI 未返回有效诊断")
-    except (httpx.HTTPError, ValueError) as exc:
-        raise RuntimeError("隔离 Codex Worker 未就绪、未授权或响应失败；普通部署功能不受影响") from exc
+    return _worker_post("/diagnose", data).get("message", "AI 未返回有效诊断")
 
 def _worker_account_request(route: str, *, method: str = "GET") -> dict:
     """Allow only fixed internal routes; never forward arbitrary panel URLs."""

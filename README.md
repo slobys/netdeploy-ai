@@ -15,7 +15,7 @@
 - **HTTPS 证书**：3X-UI、S-UI 可自动申请 IP/域名证书，也可交给 NPM 统一管理 HTTPS。
 - **端口管理**：管理 VPS 上的 UFW 规则，提供常见云厂商安全组入口。
 - **自定义界面**：多种主题颜色、明暗模式和阅读字号。
-- **Codex AI（可选）**：管理员用自己的 ChatGPT 账号登录，只读分析安装日志；不需要另填 API Key。
+- **Codex AI（可选）**：使用自己的 ChatGPT 账号，通过自然语言查询任务、打开面板页面、准备部署向导或分析安装日志，无需另填 API Key。
 
 ## 支持的项目
 
@@ -57,15 +57,17 @@ cd netdeploy-ai
 
 **Windows 默认原生模式（无需 Docker）**：只需安装 Git 和 Python。运行 `QuickStart-NetDeploy.bat` 后，后台自动创建专用 Python 环境并安装官方 Codex SDK，**不启动 Docker Desktop、WSL 或 Codex 桌面软件**。首次下载 SDK 的 Windows 运行组件可能需要一些时间，后台「Codex AI」可显示进度。连接自己的 ChatGPT 账号并完成首次设备码授权后，正常重启会复用登录状态（登录失效时需重新授权）。
 
+旧的 `Enable-Codex-Windows.bat` 入口也会进入原生启动流程。请用普通 Windows 用户权限启动面板。
+
 原生 Worker 仅监听 `127.0.0.1:8789`，使用 `%LOCALAPPDATA%\NetDeployAI\codex-native` 下的独立工作区、SDK 环境与登录目录；不会把 NetDeploy 的 SSH 密码、管理员令牌或数据库路径传给 Worker。Windows 原生沙箱开启 `prefer_mxc`，只读诊断禁止提权审批；**但同一 Windows 用户下的进程隔离不等于 Docker / 独立用户的强隔离**。请在可信的本机使用，不要把后台公开到互联网。
 
 如需关闭自动启动，在本机 `.env` 添加 `NETDEPLOY_CODEX_AUTO_START=0`；不影响其他 VPS 管理功能。之前安装的 Docker 版 Worker 不会被自动卸载或清除数据，但 Windows 默认不再调用它。
 
 **Docker / NAS 启动**：在项目私有 `.env` 中设置至少 24 位随机 `NETDEPLOY_WORKER_TOKEN`（与管理员令牌不同），然后运行 `docker compose --profile ai up -d --build`。现有主程序不会把 SSH 密钥、数据库或 Docker Socket 挂载进 AI Worker。
 
-进入后台左侧 **Codex AI** → **使用 ChatGPT 账号连接**，在浏览器打开官方验证页并输入一次性设备代码。设备码登录（Beta）需要在 ChatGPT 安全设置中启用。授权成功后，打开部署任务点击 **AI 只读排障**。
+进入后台左侧 **Codex AI** → **使用 ChatGPT 账号连接**，在浏览器打开官方验证页并输入一次性设备代码。设备码登录需要在 ChatGPT 安全设置中启用。授权后，可以在同一窗口输入「最近哪些部署失败了」或「在东京 VPS 上准备部署 S-UI」。Codex 根据当前面板快照回复，面板会提供打开目标页面或部署向导的按钮。部署时，由你生成方案、检查风险并批准执行。查看具体安装失败原因时，可以在对应任务中点击 **AI 只读排障**。
 
-登录凭据分别保存在 Windows 原生 Worker 的专属 `CODEX_HOME` 或 Docker/NAS Worker 的私有 `codex-auth` 卷中；请像密码一样保护，退出登录可清除授权。点击「AI 只读排障」会将脱敏的任务日志摘录和基本系统信息发送给 Codex，请勿把私密数据写进部署日志。ChatGPT 套餐额度有限，个人登录不能共享给其他用户；AI 不会直接审批或执行 VPS 安装。Codex 不可用不影响普通部署。
+登录凭据分别保存在 Windows 原生 Worker 的专属 `CODEX_HOME` 或 Docker/NAS Worker 的私有 `codex-auth` 卷中，退出登录可清除授权。面板指令会将输入文字、服务器名称、近期任务状态和项目名称等摘要发送给 Codex。使用「AI 只读排障」时会另外发送脱敏的日志摘录和基本系统信息。请勿在指令、名称或日志中填写凭据。ChatGPT 套餐额度有限，个人登录仅供本人使用。
 
 ## 如何部署软件？
 
