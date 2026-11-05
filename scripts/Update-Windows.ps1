@@ -2,6 +2,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+. (Join-Path $PSScriptRoot 'Windows-Loopback.ps1')
 Set-Location $root
 try {
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -22,10 +23,7 @@ try {
     if ((& git -C $root status --porcelain --untracked-files=normal)) {
         throw '检测到未提交的代码变更；为避免覆盖，已停止更新。请先提交、暂存或备份修改。'
     }
-    if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
-        $listener = Get-NetTCPConnection -State Listen -LocalPort 8787 -ErrorAction SilentlyContinue
-        if ($listener) { throw '检测到 8787 端口正在监听；请先在服务窗口按 Ctrl+C 停止 NetDeploy AI，然后再更新。' }
-    }
+    if (-not (Test-NetDeployPortAvailable)) { throw '本机 8787 无法绑定。请先停止使用该端口的服务，再更新 NetDeploy AI。' }
     & git -C $root fetch --prune origin main
     if ($LASTEXITCODE -ne 0) { throw 'GitHub 拉取失败，未修改本地代码。' }
     $localHead = (& git -C $root rev-parse HEAD).Trim()

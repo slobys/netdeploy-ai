@@ -25,7 +25,7 @@ def _script(path):
 def test_windows_start_is_native_and_docker_independent():
     starter = _script("scripts/Start-Windows.ps1")
     quickstart = _script("scripts/QuickStart-Windows.ps1")
-    assert "Start-NetDeploy.bat" in quickstart
+    assert "Start-Windows.ps1" in quickstart
     assert "NETDEPLOY_CODEX_NATIVE_AUTO_START = '1'" in starter
     assert "NETDEPLOY_CODEX_AUTO_START" in starter
     assert "NETDEPLOY_WORKER_TOKEN=$workerToken" in starter

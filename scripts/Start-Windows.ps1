@@ -1,4 +1,6 @@
 ﻿# NetDeploy AI Windows starter. Never writes credentials to the Git checkout history.
+param([switch]$Background)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -113,24 +115,29 @@ try {
     New-Item -Path $env:NETDEPLOY_DATA -ItemType Directory -Force | Out-Null
 
     Write-Host '[NetDeploy AI] 本地地址：http://127.0.0.1:8787' -ForegroundColor Green
-    Write-Host '[NetDeploy AI] 服务就绪后自动打开默认浏览器；按 Ctrl+C 停止。'
-    # Poll readiness from a separate PowerShell job while uvicorn runs in the
-    # foreground, so the console still receives Ctrl+C and live server logs.
-    $browserJob = Start-Job -ArgumentList 'http://127.0.0.1:8787' -ScriptBlock {
-        param([string]$url)
-        for ($i = 0; $i -lt 60; $i++) {
-            try {
-                $result = Invoke-WebRequest -UseBasicParsing -Uri "$url/api/health" -TimeoutSec 2
-                if ($result.StatusCode -eq 200) {
-                    Start-Process $url
-                    break
-                }
-            } catch {}
-            Start-Sleep -Milliseconds 500
+    $browserJob = $null
+    $loggingArgs = @()
+    if ($Background) {
+        # QuickStart opens the browser and redirects output to disk.
+        $loggingArgs = @('--no-access-log')
+    } else {
+        Write-Host '[NetDeploy AI] 服务就绪后自动打开默认浏览器；按 Ctrl+C 停止。'
+        $browserJob = Start-Job -ArgumentList 'http://127.0.0.1:8787' -ScriptBlock {
+            param([string]$url)
+            for ($i = 0; $i -lt 60; $i++) {
+                try {
+                    $result = Invoke-WebRequest -UseBasicParsing -Uri "$url/api/health" -TimeoutSec 2
+                    if ($result.StatusCode -eq 200) {
+                        Start-Process $url
+                        break
+                    }
+                } catch {}
+                Start-Sleep -Milliseconds 500
+            }
         }
     }
     try {
-        & $venvPython -m uvicorn app.main:app --host 127.0.0.1 --port 8787 --workers 1
+        & $venvPython -m uvicorn app.main:app --host 127.0.0.1 --port 8787 --workers 1 @loggingArgs
         if ($LASTEXITCODE -ne 0) { throw "服务启动失败，退出代码：$LASTEXITCODE" }
     } finally {
         if ($null -ne $browserJob) {

@@ -51,7 +51,7 @@ cd netdeploy-ai
 
 启动后在浏览器访问 **http://127.0.0.1:8787**。Windows 本机模式首次启动可自动登录。
 
-**以后启动或更新：** 先在旧服务窗口按 `Ctrl+C` 停止，再双击项目文件夹中的 `QuickStart-NetDeploy.bat`。程序会检查更新并保留本地数据。
+**以后启动或更新：** 双击项目文件夹中的 `QuickStart-NetDeploy.bat`。面板正在运行时会直接打开网页。停止面板后再次双击会检查更新、备份本地数据并在后台启动。需要在终端查看输出或用 `Ctrl+C` 停止时，可单独运行 `Start-NetDeploy.bat`。
 
 ## 使用 ChatGPT 订阅连接 Codex（可选）
 

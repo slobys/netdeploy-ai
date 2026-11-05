@@ -1,30 +1,45 @@
-"""Windows quick-start must never mistake an already-running old version
-for a successfully updated local service.
-"""
+"""Windows QuickStart distinguishes reopening from an actual update."""
 from pathlib import Path
+import subprocess
+import sys
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_launcher_refuses_stale_running_panel_without_opening_old_browser():
-    root = Path(__file__).resolve().parents[1]
-    launcher = (root / "scripts" / "QuickStart-Windows.ps1").read_text(encoding="utf-8-sig")
-    assert "Invoke-RestMethod -Uri 'http://127.0.0.1:8787/api/health'" in launcher
-    assert "$health.version" in launcher
-    assert "Start-Process 'http://127.0.0.1:8787'" not in launcher
-    assert "if ($health.ok -and $health.version)" in launcher
-    # The error must be thrown OUTSIDE the health probe try/catch; otherwise
-    # it gets silently swallowed and the user only sees generic port conflict.
-    existing = launcher.split("if ($runningVersion) {", 1)[1].split(
-        "throw '本机 8787 端口", 1
-    )[0]
-    assert launcher.index('if ($runningVersion) {') > launcher.index("} catch {")
+def test_launcher_reuses_running_panel_before_the_update():
+    launcher = (ROOT / "scripts" / "QuickStart-Windows.ps1").read_text(encoding="utf-8-sig")
+    existing, update = launcher.split("$update = ", 1)
+    assert "Get-NetDeployPanelVersion" in existing
+    assert "$health.security -ceq 'local-only'" in existing
+    assert "Start-Process $panelUrl\n        return" in existing
+    assert "Update-Windows.ps1" in update
 
-    assert "throw" in existing
-    assert "Ctrl+C" in existing
-    assert "exit 0" not in existing
-    assert "仍在运行的面板版本" in existing
-    assert "不会更新或重新启动" in existing
-    assert "git" in launcher
-    assert "Update-Windows.ps1" in launcher
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Requires Windows PowerShell")
+def test_loopback_port_probe_releases_its_socket_and_detects_real_listeners():
+    script = """
+$ErrorActionPreference = 'Stop'
+. ./scripts/Windows-Loopback.ps1
+function Get-NetTCPConnection { throw 'CIM listener data must not be used' }
+$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+$listener.Start()
+$port = $listener.LocalEndpoint.Port
+try {
+    if (Test-NetDeployPortAvailable -Port $port) { throw 'Accepted an active listener' }
+} finally {
+    $listener.Stop()
+}
+if (-not (Test-NetDeployPortAvailable -Port $port)) { throw 'Stopped listener left port blocked' }
+if (-not (Test-NetDeployPortAvailable -Port $port)) { throw 'Probe leaked its socket' }
+"""
+    subprocess.run(
+        ["powershell.exe", "-NoProfile", "-Command", script],
+        cwd=ROOT,
+        check=True,
+        timeout=15,
+    )
 
 
 def test_current_version_is_consistent_between_server_frontend_and_docs():

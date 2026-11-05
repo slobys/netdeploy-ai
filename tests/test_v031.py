@@ -138,7 +138,7 @@ def test_bootstrap_scripts_are_in_repo_without_embedding_secrets():
     quick = (base/"scripts"/"QuickStart-Windows.ps1").read_text(encoding="utf-8-sig")
     starter = (base/"scripts"/"Start-Windows.ps1").read_text(encoding="utf-8-sig")
     js = (base/"app"/"static"/"app.js").read_text(encoding="utf-8")
-    assert "Update-Windows.ps1" in quick and "Start-NetDeploy.bat" in quick
+    assert "Update-Windows.ps1" in quick and "Start-Windows.ps1" in quick
     assert "NETDEPLOY_LOCAL_AUTO_LOGIN = '1'" in starter
     assert "--host 127.0.0.1" in starter
     assert "tryLocalLogin" in js and "confirmDeleteJob" in js

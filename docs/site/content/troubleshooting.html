@@ -1,5 +1,5 @@
 <h2 id="panel-not-open">Windows 本地页面打不开</h2>
-<ol><li>确认运行 NetDeploy 的 PowerShell 窗口还在，没有按 <code>Ctrl+C</code>。</li><li>打开 <code>http://127.0.0.1:8787/api/health</code> 检查后台版本。</li><li>若提示 8787 端口被占用，先停止旧实例，不要强行同时启动两个服务；之后按 <code>Ctrl+F5</code> 刷新网页。</li></ol>
+<ol><li>通过 QuickStart 启动的面板在后台运行。双击 QuickStart 可重新打开网页。</li><li>打开 <code>http://127.0.0.1:8787/api/health</code> 检查后台版本。</li><li>若提示 8787 无法绑定，请检查实际使用该端口的程序。通过 QuickStart 启动失败时可查看 <code>.build/quickstart.stdout.log</code> 和 <code>.build/quickstart.stderr.log</code>。</li></ol>
 <h2 id="ssh-refused">SSH 连接被拒绝 / 超时</h2>
 <p>从 Windows PowerShell 检查：</p>
 <pre><code>Test-NetConnection YOUR_VPS_IP -Port 22</code></pre>
