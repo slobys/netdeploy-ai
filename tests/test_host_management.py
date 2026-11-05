@@ -238,13 +238,13 @@ def test_rekey_atomic_replace_failure_keeps_old_key(tmp_path, monkeypatch):
                                [scanned(host, old_key)["fingerprint"]])
     assert (tmp_path / "known_hosts").read_bytes() == original
 
-def test_ui_prioritizes_projects_and_preserves_server_controls():
+def test_ui_prioritizes_servers_and_respects_reduced_motion():
     root = Path(__file__).resolve().parents[1]
     html = (root/"app"/"static"/"index.html").read_text(encoding="utf-8")
     js = (root/"app"/"static"/"app.js").read_text(encoding="utf-8")
     css = (root/"app"/"static"/"app-enhanced.css").read_text(encoding="utf-8")
-    assert html.index('id="projects-section"') < html.index('id="hosts-section"')
-    assert 'data-action="add-host"' in html.split('<main class="content"')[0]
+    assert html.index('id="hosts-section"') < html.index('id="projects-section"')
+    assert 'data-action="add-host"' in html.split('<section class="hero"')[0]
     for control in ("edit-host", "delete-host", "fingerprint",
                     "preflight", "prepare-rekey", "rekey-form"):
         assert control in js

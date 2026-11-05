@@ -21,6 +21,12 @@ function makeElement() {
     innerHTML: '',
     textContent: '',
     value: '',
+    children: [],
+    append(...nodes) { this.children.push(...nodes); },
+    replaceChildren() {
+      this.children.forEach(node=>{node.isConnected=false;});
+      this.children=[];
+    },
     disabled: false,
     dataset: {},
     classList: {
@@ -45,6 +51,7 @@ const modal = made.get('#modal-content');
 const fingerprintTarget = makeElement();
 const approveForm = makeElement();
 const document = {
+  createElement() { return makeElement(); },
   querySelector(selector) {
     if (selector === '#fingerprint-data') {
       return modal.innerHTML.includes('id="fingerprint-data"') ? fingerprintTarget : null;
@@ -330,6 +337,8 @@ function fingerprintFor(label) {
     'Compact layout must not remove any deployment or guide action');
   assert(made.get('#projects-section').classList.contains('is-featured'),
     'Dashboard should activate the compact featured presentation');
+  assert(typographyCss.includes('repeat(auto-fit,minmax(min(100%,246px),1fr))'),
+    'Five cards should flow into one row on wide screens and wrap naturally');
   assert(typographyCss.includes('#projects-section:is(.is-featured,.is-catalog) .project')&&
     typographyCss.includes('min-height:0'),
     'Both project surfaces must override the old 240/267px minimum heights');
@@ -353,10 +362,9 @@ function fingerprintFor(label) {
     'Dashboard heading/link must be visible again after leaving Project Center');
   evaluate(`state.catalog={...fixtures.featuredCatalog,dockge:{name:'Dockge',subtitle:'Compose stacks',category:'容器',deployment:'install'}};render();`);
   assert.equal((made.get('#project-grid').innerHTML.match(/class="project"/g)||[]).length,6,
-    'All six projects are available from the deployment workspace');
-  assert(made.get('#project-grid').innerHTML.includes('data-project="dockge"'));
-  assert(html.indexOf('id="projects-section"')<html.indexOf('id="hosts-section"'),
-    'The overview prioritizes deployment before server operations');
+    'All six projects are available in the complete catalog');
+  assert(typographyCss.includes('#projects-section.is-featured .project[data-project="dockge"]{display:none}'),
+    'New Dockge card stays in Project Center so home still shows five curated cards');
   evaluate('state.section="projects";renderSection();');
   assert(made.get('#section-subtitle').textContent.includes('共 6 个项目'));
   assert(made.get('#project-grid').innerHTML.includes('data-project="dockge"'));
@@ -891,8 +899,9 @@ function fingerprintFor(label) {
   assert(javascript.includes('TcpTestSucceeded=True') && javascript.includes('不得直接信任'),
     'SSH troubleshooting must explain port checks cannot validate host identities');
 
-  assert(html.includes('data-action="codex-settings"'),
-    'Codex settings must be accessible from the sidebar');
+  assert(html.includes('id="codex-launcher"')&&html.includes('data-action="codex-settings"'),
+    'Codex chat has a launcher and a separate account settings entry');
+  evaluate("state.token='test';closeCodexChat(false)");
   await evaluate('showCodexSettings()');
   assert(made.get('#codex-account-state').innerHTML.includes('使用 ChatGPT 账号连接 Codex'));
   await evaluate("codexAction('codex-connect')");
@@ -900,28 +909,39 @@ function fingerprintFor(label) {
   assert(made.get('#codex-account-state').innerHTML.includes('https://auth.openai.com/codex/device'));
   codexAccount={available:true,connected:true,pending:false,auth_type:'chatgpt'};
   await evaluate('refreshCodexSettings()');
-  assert(!made.get('#codex-command-form').classList.contains('hidden'));
+  assert(made.get('#codex-account-state').innerHTML.includes('已连接 ChatGPT 账号'));
+  assert(!modal.innerHTML.includes('id="codex-command-form"'));
+  evaluate('closeDialog()');
+  await evaluate("toggleCodexChat(el('#codex-launcher'))");
+  assert(!made.get('#codex-send').disabled);
   evaluate(`state.hosts=[fixtures.host];state.catalog['s-ui']={name:'S-UI',deployment:'install'};`);
   document.querySelector('#codex-prompt').value='打开 Test VPS 的 S-UI 部署向导';
   const beforeAssistantPlan=planCreations;
   const codexForm=made.get('#codex-command-form');
   await codexForm.dispatch('submit',{currentTarget:codexForm,preventDefault(){}});
-  assert.equal(made.get('#codex-command-result').textContent,'<b>请查看部署选项</b>');
-  assert.equal(made.get('#codex-command-result').innerHTML,'','Treat model output as text');
-  const codexOpen=made.get('#codex-command-open');
+  const messages=made.get('#codex-messages');
+  assert.equal(messages.children[0].children[1].textContent,'打开 Test VPS 的 S-UI 部署向导');
+  const assistantMessage=messages.children[1];
+  assert.equal(assistantMessage.children[1].textContent,'<b>请查看部署选项</b>');
+  assert.equal(assistantMessage.children[1].innerHTML,'','Treat model output as text');
+  const codexOpen=assistantMessage.children[2];
   assert(codexOpen.textContent.includes('Test VPS'));
   assert(!modal.innerHTML.includes('id="plan-form"'),'Wait for the user to open the suggested action');
-  codexOpen.onclick();
+  await codexOpen.dispatch('click');
   assert(modal.innerHTML.includes('<option value="1" selected>Test VPS'));
   assert.equal(planCreations,beforeAssistantPlan,'Opening a wizard must not create a plan');
   assert.equal(evaluate("codexPanelAction({type:'approve',id:'anything'})"),null);
-  await evaluate('showCodexSettings()');
+  assert(made.get('#codex-chat').classList.contains('hidden'));
+  evaluate('closeDialog()');
+  await evaluate("toggleCodexChat(el('#codex-launcher'))");
+  assert.equal(messages.children.length,2,'Keep the transcript when the chat closes');
   document.querySelector('#codex-prompt').value='为 Test VPS 生成 S-UI 部署方案';
   await codexForm.dispatch('submit',{currentTarget:codexForm,preventDefault(){}});
   assert(modal.innerHTML.includes('S-UI · 部署任务'));
   assert(modal.innerHTML.includes('id="approve-form"'),'Show the generated draft for review immediately');
   assert(modal.innerHTML.includes('管理面板通过 SSH 隧道访问'));
   assert.equal(codexApprovalRequests,0,'Opening an AI draft must never submit approval');
+  assert.equal(messages.children[3].children[2].textContent,'查看部署方案');
   await evaluate('showCodexSettings()');
   assert(made.get('#codex-account-state').innerHTML.includes('已连接 ChatGPT 账号'));
   await evaluate("codexAction('codex-disconnect')");
@@ -940,6 +960,8 @@ function fingerprintFor(label) {
   await evaluate('refreshCodexSettings()');
   assert(made.get('#codex-account-state').innerHTML.includes('QuickStart-NetDeploy.bat'));
   evaluate('closeDialog()');
+  evaluate('logout()');
+  assert.equal(messages.children.length,0,'Remove conversation messages on panel logout');
 
   console.log('UI smoke: pending approval, plan expiry, duplicate prevention, fingerprint states and responsive CSS OK');
 })().catch(err=>{console.error(err);process.exitCode=1;});

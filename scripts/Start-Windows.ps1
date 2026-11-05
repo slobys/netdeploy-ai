@@ -20,7 +20,14 @@ try {
     }
     if (-not (Test-Path $venvPython -PathType Leaf)) { throw '找不到虚拟环境中的 python.exe。' }
 
-    $reqHash = (Get-FileHash -Algorithm SHA256 (Join-Path $root 'requirements.txt')).Hash
+    # Use .NET directly so QuickStart works even when Get-FileHash is unavailable.
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $requirements = [System.IO.File]::ReadAllBytes((Join-Path $root 'requirements.txt'))
+        $reqHash = [System.BitConverter]::ToString($sha256.ComputeHash($requirements)).Replace('-', '')
+    } finally {
+        $sha256.Dispose()
+    }
     $marker = Join-Path $root '.venv\.requirements.sha256'
     if (-not (Test-Path $marker) -or ((Get-Content $marker -Raw).Trim() -ne $reqHash)) {
         Write-Host '[NetDeploy AI] 正在安装或更新依赖...'

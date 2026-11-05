@@ -11,15 +11,6 @@
         ],
         "createdAt": "2026-11-05T01:13:09.537Z",
         "reason": "Agent: existing dashboard CSS uses only locally installed Inter with system fallbacks and does not load any webfont; preserve existing typography for this feature."
-      },
-      {
-        "rule": "icon-tile-stack",
-        "value": "*",
-        "files": [
-          "app/static/index.html"
-        ],
-        "createdAt": "2026-11-05T02:17:58.838Z",
-        "reason": "Agent: Chrome geometry at 320, 375 and 1440 px confirms the login glyph and h1 share one flex row; the source scan reports an icon above the heading."
       }
     ]
   }

@@ -8,7 +8,7 @@ async function api(path, opts={}) {
   const resp = await fetch('/api'+path,{...opts,headers:{'X-Admin-Token':state.token,...(opts.body?{'Content-Type':'application/json'}:{}),...(opts.headers||{})},cache:'no-store'});
   let data;
   try{data=await resp.json();}catch{data={detail:`HTTP ${resp.status}`};}
-  if(!resp.ok){if(resp.status===401){sessionStorage.removeItem('nd_token');state.token='';el('#login').classList.remove('hidden');}throw Error(typeof data.detail==='string'?data.detail:`操作失败 (${resp.status})`);}
+  if(!resp.ok){if(resp.status===401)logout();throw Error(typeof data.detail==='string'?data.detail:`操作失败 (${resp.status})`);}
   return data;
 }
 let toastTimer=null;
@@ -84,9 +84,7 @@ async function loadAll(silent=false){
 }
 function stateText(status){return ({planned:'等待审批',queued:'已排队',running:'正在执行',completed:'执行完成',failed:'执行失败',interrupted:'执行中断',partial:'部分完成 · 等待验收',invalidated:'服务器已重装，计划失效'})[status]||status;}
 function chip(status){const cls=status==='completed'?'success':status==='failed'||status==='interrupted'||status==='invalidated'?'error':'warn';return `<span class="chip ${cls}">${escapeHtml(stateText(status))}</span>`;}
-const projectIcons={"3x-ui":"panel","3x-ui-https":"lock","sing-box":"terminal","hysteria2":"bolt","wg-easy":"shield","s-ui":"panel","s-ui-https":"lock","dockge":"package"};
-function uiIcon(name){return `<svg class="nd-icon" aria-hidden="true"><use href="#nd-${name}"/></svg>`;}
-function projectIcon(project){return uiIcon(Object.hasOwn(projectIcons,project)?projectIcons[project]:'package');}
+const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡","s-ui-https":"🔒","dockge":"▣"};
 // Single source of truth: public projects, excluding internal upgrade recipes.
 function catalogProjects(catalog){return Object.entries(catalog||{}).filter(([,project])=>project&&!project.internal);}
 function render(){
@@ -96,36 +94,36 @@ function render(){
  const loneInstalledSui=hosts.length===1&&hosts[0].facts?.SUI_PRESENT==='yes';
  const loneInstalledDockge=hosts.length===1&&hosts[0].facts?.DOCKGE_PRESENT==='yes';
  el('#stats').innerHTML = [
-  ['已添加服务器',hosts.length,'server','已有环境检测结果 '+hosts.filter(h=>!!h.facts).length+' 台'],
-  ['项目模板',projects.length,'package','固定、可审核的部署计划'],
-  ['完成任务',jobs.filter(j=>j.status==='completed').length,'check','安装完成仍需业务配置'],
-  ['待处理任务',jobs.filter(j=>['failed','interrupted','partial'].includes(j.status)||(j.status==='planned'&&j.plan?.executable)).length,'tasks','需确认或排障的任务']
- ].map(([label,val,icon,desc])=>`<div class="stat"><div class="top">${uiIcon(icon)}<span>${label}</span></div><strong>${val}</strong><small>${desc}</small></div>`).join('');
+  ['已添加服务器',hosts.length,'▤','已通过 SSH 扫描 '+hosts.filter(h=>!!h.facts).length+' 台'],
+  ['项目模板',projects.length,'⬡','固定、可审核的部署计划'],
+  ['完成任务',jobs.filter(j=>j.status==='completed').length,'✓','安装完成仍需业务配置'],
+  ['待处理任务',jobs.filter(j=>['failed','interrupted','partial'].includes(j.status)||(j.status==='planned'&&j.plan?.executable)).length,'⌁','需确认或排障的任务']
+ ].map(([label,val,ico,desc])=>`<div class="stat"><div class="top"><span>${label}</span><span class="icon">${ico}</span></div><strong>${val}</strong><small>${desc}</small></div>`).join('');
  el('#project-grid').innerHTML = projects.map(([key,p])=>`
- <div class="project" data-project="${escapeHtml(key)}"><div class="project-head"><div class="project-icon">${projectIcon(key)}</div><h3>${escapeHtml(p.name)}</h3><span class="project-kind">${escapeHtml(p.category)}</span></div>
- <p>${escapeHtml(p.subtitle)}</p><div class="project-footer">
+ <div class="project" data-project="${escapeHtml(key)}"><div class="project-head"><div class="project-icon">${symbol[key]}</div><span class="project-kind">${escapeHtml(p.category)}</span></div>
+ <h3>${escapeHtml(p.name)}</h3><p>${escapeHtml(p.subtitle)}</p><div class="project-footer">
  <span class="status ${p.deployment==='install'?'':'muted'}">${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'已安装 · 无需审批':p.deployment==='install'?'自动安装 Beta':'方案引导'}</span>
  <button class="btn subtle" data-action="${key==='3x-ui'&&loneInstalledXui?'installed-xui':key==='s-ui'&&loneInstalledSui?'installed-sui':key==='dockge'&&loneInstalledDockge?'installed-dockge':'plan'}" ${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'data-id="'+hosts[0].id+'"':'data-project="'+escapeHtml(key)+'"'}>${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'查看已安装面板':p.deployment==='install'?'部署项目':'查看方案'} →</button></div></div>`).join('');
  el('#host-list').innerHTML=hosts.length?hosts.map(h=>{
    const duplicate=hosts.filter(x=>x.hostname.toLowerCase()===h.hostname.toLowerCase()&&x.port===h.port).length;
    const status=!h.credential_ready?'需要登录凭据':h.facts?'最近检测成功':'待连接检测';
    const statusClass=!h.credential_ready?'error':h.facts?'success':'warn';
-   return `<article class="host-item interactive-card" data-action="host-console" data-id="${h.id}">
-      <div class="host-card-top"><div class="host-icon">${uiIcon('server')}</div><div class="host-title"><b>${escapeHtml(h.name)}</b><span class="chip ${statusClass}">${status}</span></div><button class="text-action host-card-open" type="button" data-action="host-console" data-id="${h.id}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台">管理服务器 →</button></div>
+   return `<article class="host-item interactive-card" role="button" tabindex="0" data-action="host-console" data-id="${h.id}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台">
+      <div class="host-card-top"><div class="host-icon">▤</div><div class="host-title"><b>${escapeHtml(h.name)}</b><span class="chip ${statusClass}">${status}</span></div><span class="host-card-open">管理服务器 →</span></div>
       <div class="host-card-address">${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port}</div>
       <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span><span class="host-cert-detail">${h.tls_domain?'域名证书 '+escapeHtml(h.tls_domain):'IP 证书（未填域名）'}</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}${h.facts?.SUI_PRESENT==='yes'?'<span class="host-installed-xui">S-UI 已安装</span>':''}${h.facts?.DOCKGE_PRESENT==='yes'?'<span class="host-installed-xui">Dockge / Apps 已安装</span>':''}</div>
       ${duplicate>1?`<span class="host-card-hint">${duplicate} 条记录共用此 SSH 地址</span>`:''}
       <button class="host-card-delete" type="button" data-action="delete-host" data-id="${h.id}" aria-label="删除 ${escapeHtml(h.name)} 的本地服务器记录">删除服务器</button>
     </article>`;
- }).join(''):`<div class="empty"><span class="empty-icon">${uiIcon('server')}</span><span>添加 VPS 后，可在这里管理连接、部署与端口。</span><button class="btn primary" data-action="add-host">添加第一台 VPS</button></div>`;
- el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${projectIcon(j.project)}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${isExistingXuiPlan(j)?'<span class="chip success">已安装 · 无需审批</span>':chip(j.status)}<div class="job-controls"><button class="btn ${j.status==='planned'?'primary':'subtle'}" data-action="${isExistingXuiPlan(j)?'installed-xui':historicalHttpsFailure(j)?'regenerate-plan':planNeedsUpdate(j)&&j.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(isExistingXuiPlan(j)?j.host_id:j.id)}">${escapeHtml(jobNextAction(j))} →</button>${["queued","running"].includes(j.status)?"":`<button class="btn ghost" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div></div>`;}).join(''):`<div class="empty"><span class="empty-icon">${uiIcon('tasks')}</span><span>选择项目并生成方案后，任务会出现在这里。</span></div>`;
+ }).join(''):`<div class="empty"><span class="empty-icon">▤</span><span>还没有 VPS。添加后点击卡片，即可在同一个控制台管理连接、部署与端口。</span><button class="btn primary" data-action="add-host">＋ 添加第一台 VPS</button></div>`;
+ el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${isExistingXuiPlan(j)?'<span class="chip success">已安装 · 无需审批</span>':chip(j.status)}<button class="btn ${j.status==='planned'?'primary':'subtle'}" data-action="${isExistingXuiPlan(j)?'installed-xui':historicalHttpsFailure(j)?'regenerate-plan':planNeedsUpdate(j)&&j.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(isExistingXuiPlan(j)?j.host_id:j.id)}">${escapeHtml(jobNextAction(j))} →</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
  renderSection();
 }
 function renderSection(){
  const visibleProjects=catalogProjects(state.catalog).length;
  const navBadge=el('#project-nav-count');
  if(navBadge){navBadge.textContent=String(visibleProjects);navBadge.setAttribute('aria-label',`共 ${visibleProjects} 个项目`);}
- const navName={dashboard:['总览面板','部署工作台','选择项目与目标 VPS，审阅部署方案后执行。'],projects:['项目中心','项目中心',`共 ${visibleProjects} 个项目 · 选择经过审核的部署模板或查看方案`],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','所有任务状态、审批和执行日志']};
+ const navName={dashboard:['总览面板','运行概览','集中管理服务器与自动化部署任务'],projects:['项目中心','项目中心',`共 ${visibleProjects} 个项目 · 选择经过审核的部署模板或查看方案`],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','所有任务状态、审批和执行日志']};
  const [title,heading,sub]=navName[state.section];el('#crumb-current').textContent=title;el('#section-title').textContent=heading;el('#section-subtitle').textContent=sub;
  document.querySelectorAll('[data-nav]').forEach(b=>{
    const navItem=b.classList.contains('nav-item');
@@ -133,7 +131,7 @@ function renderSection(){
    b.classList.toggle('active',active);
    if(navItem){if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}
  });
- el('#codex-shortcut').classList.toggle('hidden',state.section!=='dashboard');el('#stats').classList.toggle('hidden',state.section!=='dashboard');
+ el('#hero').classList.toggle('hidden',state.section!=='dashboard');el('#stats').classList.toggle('hidden',state.section!=='dashboard');
  el('#projects-section').classList.toggle('hidden',!['dashboard','projects'].includes(state.section));
  // Both project surfaces share the readable compact cards. The Project Center
  // hides its redundant second heading; dashboard keeps the curated heading/link.
@@ -141,7 +139,7 @@ function renderSection(){
  el('#projects-section').classList.toggle('is-catalog',state.section==='projects');
  el('#hosts-section').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
  el('#jobs-section').classList.toggle('hidden',!['dashboard','jobs'].includes(state.section));
- el('#main-cta').classList.toggle('hidden',state.section!=='hosts');
+ el('#main-cta').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
 }
 function isPlanExpired(job){
  if(job.status!=='planned')return false;
@@ -184,7 +182,7 @@ function hostTaskLink(job){
  const name=job.plan?.name||state.catalog[job.project]?.name||job.project;
  return `<button type="button" class="server-history-item ${job.status==='planned'&&job.plan?.executable&&!stale?'is-pending':''}" data-action="${openExisting?'installed-xui':updateFailedHttps?'regenerate-plan':planNeedsUpdate(job)&&!stale&&job.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(openExisting?job.host_id:job.id)}"
     aria-label="${escapeHtml(name)}，${escapeHtml(stale?'已失效':jobLabel(job))}，${escapeHtml(action)}">
-   <span class="server-task-icon" aria-hidden="true">${projectIcon(job.project)}</span>
+   <span class="server-task-icon" aria-hidden="true">${symbol[job.project]||'▣'}</span>
    <span class="server-task-title"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(stale?'服务器重装前的历史':isExistingXuiPlan(job)?'面板已存在，不需要执行安装审批':historicalHttpsFailure(job)?'旧版脚本的失败记录，不代表新版仍存在相同问题':isPlanExpired(job)&&job.plan?.executable?'审批计划已过期':jobLabel(job))} · ${escapeHtml(job.created_at.slice(0,16).replace('T',' '))}</small></span>
    <span class="server-task-next">${escapeHtml(action)} <span aria-hidden="true">→</span></span></button>`;
 }
@@ -204,7 +202,7 @@ function openHostConsole(id,tab='overview'){
  if(tab==='overview'){
    let next='';
    if(installedXui&&!related.some(j=>['running','queued'].includes(j.status))){
-     next=`<section class="server-next-action is-ready">
+     next=`<section class="server-next-action is-ready"><span class="server-next-kicker">已安装 · 无需部署审批</span>
        <h3>检测到 3X-UI 已安装</h3><p>直接查看现有面板的登录地址与已保存的初始账号信息。若 HTTPS 尚未完成，可在面板详情中继续配置，不会重新安装。</p>
        <button type="button" class="btn primary" data-action="installed-xui" data-id="${id}">查看 3X-UI 面板信息 →</button>
      </section>`;
@@ -214,16 +212,17 @@ function openHostConsole(id,tab='overview'){
      const detail=pending?(active.needs_refresh?'GitHub 已更新经过审核的固定脚本。请生成最新方案，避免继续执行旧版 HTTPS 命令；更新方案不会直接修改 VPS。':isPlanExpired(active)?'计划创建超过 10 分钟，出于安全考虑必须重新检测。点击即可生成最新方案，不会直接安装。':'目前还未开始在 VPS 上安装。点击下面按钮，核对目标和风险后即可一次确认启动。'):
         running?'可直接查看安装进度，无需重复创建部署任务。':'查看具体失败原因或继续完成后续配置，无需重复安装已部署的软件。';
      next=`<section class="server-next-action ${pending?'pending':''}" aria-label="当前待办任务">
+       <span class="server-next-kicker">${pending?'下一步 · 待审批':running?'正在执行 · 任务进度':'需要处理 · 部署任务'}</span>
        <h3>${header}</h3><p>${detail}</p>
        <button type="button" class="btn primary" data-action="${planNeedsUpdate(active)?'regenerate-plan':'job'}" data-id="${escapeHtml(active.id)}">${jobNextAction(active)} →</button>
      </section>`;
    }else if(!ready){
-     next=`<section class="server-next-action">
+     next=`<section class="server-next-action"><span class="server-next-kicker">下一步 · 连接服务器</span>
        <h3>检查 SSH 连接与服务器环境</h3><p>首次使用先确认主机指纹，随后检测系统。之后创建部署任务时会自动复核，无须每次手动检测。</p>
        <button type="button" class="btn primary" data-action="host-tab" data-id="${id}" data-tab="security">检查 SSH 身份 →</button>
      </section>`;
    }else{
-     next=`<section class="server-next-action is-ready">
+     next=`<section class="server-next-action is-ready"><span class="server-next-kicker">可以继续</span>
        <h3>这台 VPS 已有可用的连接信息</h3><p>直接选择开源项目，系统会自动检查运行环境并生成部署方案。</p>
        <button type="button" class="btn primary" data-action="host-tab" data-id="${id}" data-tab="deploy">选择软件，一键部署 →</button>
      </section>`;
@@ -250,7 +249,7 @@ function openHostConsole(id,tab='overview'){
      ${pending.length?`<div class="server-pending-shortcut"><strong>你有 ${pending.length} 个等待审批的计划</strong>
        <button class="btn primary" data-action="${planNeedsUpdate(pending[0])?'regenerate-plan':'job'}" data-id="${escapeHtml(pending[0].id)}">${planNeedsUpdate(pending[0])?'刷新方案并继续':'立即继续审批'} →</button></div>`:''}
      <div class="server-project-grid">${visible.map(([key,project])=>`<button class="server-project-choice" data-action="server-install" data-id="${id}" data-project="${escapeHtml(key)}">
-       <span class="project-choice-icon">${projectIcon(key)}</span><strong>${escapeHtml(project.name)}</strong>${(key==='3x-ui'&&installedXui)||(key==='s-ui'&&host.facts?.SUI_PRESENT==='yes')||(key==='dockge'&&host.facts?.DOCKGE_PRESENT==='yes')?'<span class="chip success">已安装</span>':''}<small>${escapeHtml(project.subtitle)}</small>
+       <span class="project-choice-icon">${symbol[key]||'▣'}</span><strong>${escapeHtml(project.name)}</strong>${(key==='3x-ui'&&installedXui)||(key==='s-ui'&&host.facts?.SUI_PRESENT==='yes')||(key==='dockge'&&host.facts?.DOCKGE_PRESENT==='yes')?'<span class="chip success">已安装</span>':''}<small>${escapeHtml(project.subtitle)}</small>
        <span class="project-choice-link">${(key==='3x-ui'&&installedXui)||(key==='s-ui'&&host.facts?.SUI_PRESENT==='yes')||(key==='dockge'&&host.facts?.DOCKGE_PRESENT==='yes')?'已安装 · 查看面板信息':project.deployment==='install'?'安装 / 继续配置':'查看部署方案'} →</span>
      </button>`).join('')}</div>`;
  }else if(tab==='network'){
@@ -282,7 +281,7 @@ function openHostConsole(id,tab='overview'){
        <button class="btn danger" data-action="delete-host" data-id="${id}">删除本地服务器记录</button>
      </div>`;
  }
- const header=`<div class="server-console"><div class="server-console-head"><div>
+ const header=`<div class="server-console"><div class="server-console-head"><div><span class="server-eyebrow">VPS 工作台</span>
    <h3>${escapeHtml(host.name)}</h3><p>${escapeHtml(host.username)}@${escapeHtml(host.hostname)}:${host.port}</p></div>
    <span class="chip ${host.credential_ready?(connected?'success':'warn'):'error'}">${host.credential_ready?(connected?'曾通过环境检测':'待检测'):'需补充登录凭据'}</span></div>
    <nav class="server-tabs" aria-label="服务器管理分类">${tabs.map(([name,label])=>`<button type="button" class="server-tab ${tab===name?'active':''}" data-action="host-tab" data-id="${id}" data-tab="${name}" aria-current="${tab===name?'page':'false'}">${label}</button>`).join('')}</nav>
@@ -927,7 +926,7 @@ function setupProjects(id){
   `<div class="setup-result"><span class="chip success">服务器 ${escapeHtml(host.name)} 已连接</span>
     <h3>接下来想在 VPS 上安装什么？</h3><p>${certLabel(host)}。系统会自动识别已有软件、检查环境并生成安装方案；真正安装前只需要批准一次。</p></div>
     <div class="server-project-grid">${visible.map(([key,project])=>`<button class="server-project-choice" data-action="server-install" data-id="${id}" data-project="${escapeHtml(key)}">
-      <span class="project-choice-icon">${projectIcon(key)}</span><strong>${escapeHtml(project.name)}</strong>
+      <span class="project-choice-icon">${symbol[key]||'▣'}</span><strong>${escapeHtml(project.name)}</strong>
       <small>${escapeHtml(project.subtitle)}</small><span class="project-choice-link">${project.deployment==='install'?'选择并继续':'查看方案'} →</span>
      </button>`).join('')}</div>
     <div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="${id}">完成，稍后部署</button></div>`);
@@ -1195,20 +1194,19 @@ function showJob(id){
    String(job.logs||'').includes('通过：Official installer finished; sensitive credentials kept on VPS only')&&
    /SSH_(HANDSHAKE_FAILED|CONNECT_TIMEOUT|CONNECTION_REFUSED|NETWORK_ERROR|AUTH_FAILED)/.test(String(job.error||job.logs||''));
  let html=modalHead(`${p.name} · 部署任务`)+`<div class="toolbar">${chip(job.status)}<span class="chip">${escapeHtml(host?.name||p.hostname)}</span><span class="chip">${escapeHtml(p.options?.panel_port||'')}${p.options?.panel_port?' / TCP':''}</span></div>`;
- let approvalForm='';
  if(stale)html+='<div class="modal-tip warning">此任务属于服务器重装前的系统。旧登录信息和审批计划已失效，必须重新检测并创建新的部署方案。</div>';
  if(p.issues.length&&!isExistingXuiPlan(job))html+=`<div class="modal-tip warning">${p.issues.map(escapeHtml).join('；')}</div>`;
  if(job.status==='planned'&&p.executable&&!stale&&job.needs_refresh===true){
-   html+=`<section class="server-next-action pending">
+   html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧脚本已更新</span>
      <h3>这份审批计划来自更新前的版本</h3><p>3X-UI HTTPS 命令已修复，旧计划不能直接用。点击下面按钮重新检测并生成当前版本的固定方案；不会立即改动 VPS。</p>
      <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">更新为最新 HTTPS 修复方案 →</button>
    </section>`;
  }else if(job.status==='planned'&&job.project==='dockge'&&!p.executable&&!stale){
-   html+=`<section class="server-next-action pending">
+   html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧版 Docker 前置条件</span>
      <h3>新版可自动准备 Docker 与 Compose</h3><p>这份旧计划不能直接执行。重新检测当前 VPS，若没有 Docker 且不存在旧容器数据，会自动生成先安装 Docker 环境、再部署 Dockge Apps 的完整方案。已有不完整安装仍会受到保护。</p>
      <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测并生成一键部署方案 →</button></section>`;
  }else if(job.status==='planned'&&p.executable&&!stale&&isPlanExpired(job)){
-   html+=`<section class="server-next-action pending">
+   html+=`<section class="server-next-action pending"><span class="server-next-kicker">需要更新计划</span>
      <h3>部署计划已超过 10 分钟</h3><p>为防止服务器环境发生变化，点击下方按钮重新检测并生成最新计划。此操作不会直接安装软件。</p>
      <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">更新方案并继续审批 →</button>
    </section>`;
@@ -1225,19 +1223,19 @@ function showJob(id){
    html+=`<div class="plan-overview"><h3>${job.project==='3x-ui-https'?'继续配置已安装的 3X-UI HTTPS（不重装）':job.project==='s-ui-https'?'继续配置已安装的 S-UI HTTPS（不重装）':job.project==='s-ui'&&p.options?.access_mode==='https'?'一键安装 S-UI 并申请 IP/域名证书':npmPlan?`安装 ${escapeHtml(p.name)}（无需申请证书，由 NPM 统一 HTTPS）`:xuiHttps?'一键安装 3X-UI 并配置 HTTPS':'准备部署 '+escapeHtml(p.name)}</h3>
      <p>目标：${escapeHtml(host?.hostname||p.hostname)} · ${p.steps.length} 个受控执行阶段 · 风险：${escapeHtml(p.risk)}</p>
      ${localPanel?'<p>管理面板通过 SSH 隧道访问。</p>':''}
-     ${dockerNote}${dockgePublicNote}${npmNote}${publicXuiNote}<div class="modal-tip warning">审批一次后将执行已固定的安装步骤；包括 APT 依赖处理、证书签发（如果需要）和所需的本机 UFW 端口规则。云厂商安全组仍需另行放行；建议先备份 VPS。</div></div>`;
-   approvalForm=`<form id="approve-form"><div class="modal-actions plan-primary-actions">
+     ${dockerNote}${dockgePublicNote}${npmNote}${publicXuiNote}<div class="modal-tip warning">审批一次后将执行已固定的安装步骤；包括 APT 依赖处理、证书签发（如果需要）和所需的本机 UFW 端口规则。云厂商安全组仍需另行放行；建议先备份 VPS。</div></div>
+     <form id="approve-form"><div class="modal-actions plan-primary-actions">
        <button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>
        <button type="button" class="btn ghost" data-action="close-modal">暂不部署</button>
        <button class="btn primary" type="submit">${['3x-ui-https','s-ui-https'].includes(job.project)?'确认继续 HTTPS（不重装）':publicXuiNote?'确认开启公网 HTTP（不申请证书）':dockgePublicNote?'确认公网开放并部署 Dockge Apps':dockerPrep?'确认安装依赖并部署 Dockge Apps':'确认并一键部署'}</button>
      </div></form>`;
  }else if(isExistingXuiPlan(job)&&!stale){
-   html+=`<section class="server-next-action is-ready">
+   html+=`<section class="server-next-action is-ready"><span class="server-next-kicker">已安装 · 无需审批</span>
      <h3>3X-UI 已存在，不需要重新安装</h3><p>此历史方案没有安装步骤，因此无法执行。直接通过已验证 SSH 读取现有面板信息；仅在修改配置时才需要确认。</p>
      <button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看现有 3X-UI 面板 →</button>
    </section>`;
  }else if(historicalHttpsFailure(job)&&!stale){
-   html+=`<section class="server-next-action pending">
+   html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧版执行记录 · 当前模板已修复</span>
      <h3>这条 HTTPS 失败记录来自旧版本脚本</h3>
      <p>历史任务的固定命令与当前 NetDeploy AI 代码不一致，不能据此认定新版仍然失败。3X-UI 和现有证书保持不变，点击只会重新生成当前版本的 HTTPS 配置方案，不会直接重装或执行。</p>
      <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">生成最新版 HTTPS 修复方案 →</button>
@@ -1247,7 +1245,8 @@ function showJob(id){
      <div class="modal-actions"><button class="btn subtle" data-action="installed-xui" data-id="${job.host_id}">查看已安装 3X-UI</button>
        <button class="btn subtle" data-action="close-modal">关闭</button></div>`;
  }else{
-   if(postInstallSshIssue)html+=`<section class="server-next-action pending"><h3>安装器已返回成功 · SSH 验收中断</h3><p>先检查已安装的 3X-UI，不要重复部署。</p>
+   if(postInstallSshIssue)html+=`<section class="server-next-action pending"><span class="server-next-kicker">安装器已返回成功 · SSH 验收中断</span>
+     <h3>先检查已安装的 3X-UI，不要重复部署</h3>
      <p>前四步已完成，但最终 SSH 握手异常，尚不能确定面板监听和防火墙是否验收通过。新版本会在执行远端命令前有限重连。恢复可信 SSH 后可点击下方按钮只读核查现有服务，不会执行安装器或改动密码。</p>
      <button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">只读检查现有 3X-UI（不重装） →</button></section>`;
    html+=`<h3>部署状态及日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(stateText(job.status))}</div>
@@ -1276,7 +1275,7 @@ function showJob(id){
    ${p.steps.map((step,i)=>`<div class="step"><span class="num">${i+1}</span><div><b>${escapeHtml(step.label)}</b><small>超时上限 ${step.timeout} 秒</small>
       <details><summary class="mini">查看固定脚本</summary><pre class="pre">${escapeHtml(step.script)}</pre></details></div></div>`).join('')}
    <a class="external" href="${escapeHtml(p.docs)}" target="_blank" rel="noopener noreferrer">官方安装文档</a></details>`;
- dialog(html+approvalForm);
+ dialog(html);
  const form=el('#approve-form');if(form)form.addEventListener('submit',async e=>{
    e.preventDefault();const btn=form.querySelector('button[type="submit"]');btn.disabled=true;btn.classList.add('is-loading');
    toast('正在复核服务器并执行已批准的方案…');
@@ -1343,14 +1342,61 @@ async function diagnoseJob(id){
 }
 
 let codexStatusLoading=false;
+let codexConnected=false;
+let codexChatOpener=null;
+function setCodexChatStatus(status){
+ codexConnected=Boolean(status?.connected);
+ const label=codexConnected?'已连接 ChatGPT':status?.pending?'等待授权':status?.startup_state==='starting'?'正在启动':status?.available?'请在账号设置中连接':'连接不可用';
+ const node=el('#codex-chat-status');
+ if(node.textContent!==label)node.textContent=label;
+ el('#codex-prompt').disabled=!codexConnected;
+ el('#codex-send').disabled=!codexConnected||el('#codex-command-form').dataset.sending==='true';
+}
+function codexChatVisible(){return !el('#codex-chat').classList.contains('hidden');}
+function setCodexChatOpen(open){
+ el('#codex-chat').classList.toggle('hidden',!open);
+ document.querySelectorAll('[data-action="codex-chat"]').forEach(button=>button.setAttribute('aria-expanded',String(open)));
+ el('#codex-launcher').setAttribute('aria-label',open?'收起 Codex AI 聊天':'打开 Codex AI 聊天');
+}
+function closeCodexChat(restoreFocus=true){
+ setCodexChatOpen(false);
+ if(restoreFocus)(codexChatOpener?.isConnected?codexChatOpener:el('#codex-launcher')).focus?.({preventScroll:true});
+ codexChatOpener=null;
+}
+function scrollCodexThread(){
+ const thread=el('#codex-thread');
+ thread.scrollTop=thread.scrollHeight;
+}
+async function toggleCodexChat(opener){
+ if(!state.token)return;
+ if(codexChatVisible()){closeCodexChat();return;}
+ codexChatOpener=opener;
+ setCodexChatOpen(true);
+ el('#codex-chat-title').focus?.({preventScroll:true});
+ scrollCodexThread();
+ await refreshCodexSettings();
+}
+function logout(){
+ sessionStorage.removeItem('nd_token');
+ state.token='';
+ closeCodexChat(false);
+ el('#codex-launcher').classList.add('hidden');
+ el('#codex-messages').replaceChildren();
+ el('#codex-prompt').value='';
+ delete el('#codex-command-form').dataset.sending;
+ setCodexChatStatus(null);
+ el('#login').classList.remove('hidden');
+}
 async function refreshCodexSettings(){
- const node=el('#codex-account-state');
- if(!node||codexStatusLoading)return;
+ if(!state.token||codexStatusLoading)return;
+ const token=state.token;
  codexStatusLoading=true;
  try{
    const status=await api('/codex/status');
-   if(el('#codex-account-state')!==node)return;
-   el('#codex-command-form')?.classList.toggle('hidden',!status.connected);
+   if(state.token!==token)return;
+   setCodexChatStatus(status);
+   const node=el('#codex-account-state');
+   if(!node)return;
    let content='';
    if(!status.available){
      if(status.startup_state==='starting'){
@@ -1382,30 +1428,24 @@ async function refreshCodexSettings(){
        (status.error?'<div class="modal-tip warning">'+escapeHtml(status.error)+'</div>':'')+
        '<div class="modal-actions"><button class="btn primary" data-action="codex-connect">使用 ChatGPT 账号连接 Codex</button><button class="btn subtle" data-action="codex-refresh">刷新状态</button></div>';
    }
-   node.innerHTML=content;
+   if(node.innerHTML!==content)node.innerHTML=content;
  }catch(err){
+   if(state.token!==token)return;
+   setCodexChatStatus(null);
    const target=el('#codex-account-state');
    if(target)target.innerHTML='<div class="modal-tip warning">'+escapeHtml(err.message)+'</div>';
  }finally{codexStatusLoading=false;}
 }
 async function showCodexSettings(){
- dialog(modalHead('Codex AI · 面板助手',true)+
-   '<div id="codex-account-state" role="status" aria-live="polite"><div class="scan-state">正在检查 Codex 连接状态…</div></div>'+
-   '<form id="codex-command-form" class="hidden">'+
-   '<div class="form-group"><label for="codex-prompt">想在面板里做什么？</label>'+
-   '<textarea id="codex-prompt" rows="3" maxlength="1000" required placeholder="例如：为东京 VPS 生成 S-UI 部署方案"></textarea></div>'+
-   '<p class="helptext">Codex 会收到你的指令、服务器名称、近期任务状态和项目名称。写明 VPS 完整名称和项目即可生成方案，审阅后由你确认执行。请勿输入凭据。</p>'+
-   '<div class="modal-actions"><button type="submit" class="btn primary">发送指令</button></div>'+
-   '<pre id="codex-command-result" class="pre hidden" role="status" aria-live="polite"></pre>'+
-   '<div class="modal-actions"><button id="codex-command-open" type="button" class="btn subtle hidden"></button></div></form>');
- el('#codex-command-form').addEventListener('submit',submitCodexCommand);
+ dialog(modalHead('Codex AI · 账号设置',true)+
+   '<div id="codex-account-state"><div class="scan-state" role="status">正在检查 Codex 连接状态…</div></div>');
  await refreshCodexSettings();
 }
 
 function codexPanelAction(action){
  const sections={hosts:'服务器管理',projects:'项目中心',jobs:'部署任务'};
  if(action?.type==='section'&&Object.hasOwn(sections,action.section)){
-   return {label:'打开'+sections[action.section],open:()=>{closeDialog();go(action.section);}};
+   return {label:'打开'+sections[action.section],open:()=>go(action.section)};
  }
  if(action?.type==='host'){
    const host=state.hosts.find(h=>h.id===action.id);
@@ -1426,45 +1466,76 @@ function codexPanelAction(action){
  return null;
 }
 
+function addCodexMessage(role,text){
+ const message=document.createElement('div');
+ message.className='codex-message '+(role==='你'?'from-user':'from-codex');
+ const author=document.createElement('strong');
+ author.textContent=role;
+ const body=document.createElement('p');
+ body.textContent=text;
+ message.append(author,body);
+ el('#codex-messages').append(message);
+ return {message,body};
+}
+function addCodexAction(message,label,open){
+ const button=document.createElement('button');
+ button.type='button';
+ button.className='btn subtle';
+ button.textContent=label;
+ button.addEventListener('click',()=>{
+   closeCodexChat();
+   state.activeJob=null;
+   state.hostPanel=null;
+   state.setupFlowId=null;
+   open();
+ });
+ message.append(button);
+}
 async function submitCodexCommand(event){
  event.preventDefault();
- const form=event.currentTarget,submit=form.querySelector('button[type="submit"]');
- const prompt=el('#codex-prompt').value.trim();
- if(!prompt||submit.disabled)return;
- const result=el('#codex-command-result'),open=el('#codex-command-open');
- open.classList.add('hidden');
- open.onclick=null;
- result.classList.remove('hidden');
- result.textContent='Codex 正在处理指令…';
+ const form=event.currentTarget,submit=el('#codex-send'),input=el('#codex-prompt');
+ const prompt=input.value.trim();
+ if(!prompt||submit.disabled||!state.token)return;
+ addCodexMessage('你',prompt);
+ const {message,body}=addCodexMessage('Codex','正在处理指令…');
+ form.dataset.sending='true';
  submit.disabled=true;
+ input.value='';
+ input.focus?.({preventScroll:true});
+ scrollCodexThread();
  try{
    const reply=await api('/codex/command',{method:'POST',body:JSON.stringify({prompt})});
-   if(!result.isConnected)return;
-   result.textContent=reply.message;
+   if(!message.isConnected)return;
+   body.textContent=reply.message;
    if(reply.job){
      await loadAll(true);
-     if(!result.isConnected)return;
+     if(!message.isConnected)return;
      if(!state.jobs.some(job=>job.id===reply.job.id))state.jobs.unshift(reply.job);
-     state.hostPanel=null;
-     state.setupFlowId=null;
-     showJob(reply.job.id);
+     const review=()=>showJob(reply.job.id);
+     addCodexAction(message,'查看部署方案',review);
+     if(codexChatVisible()&&el('#modal').classList.contains('hidden')){
+       state.hostPanel=null;
+       state.setupFlowId=null;
+       review();
+     }
      return;
    }
    const action=codexPanelAction(reply.action);
    if(!action)return;
-   open.textContent=action.label;
-   open.classList.remove('hidden');
-   open.onclick=()=>{
+   addCodexAction(message,action.label,()=>{
      const current=codexPanelAction(reply.action);
      if(!current){toast('目标已不可用，请重新发送指令',true);return;}
-     state.activeJob=null;
-     state.hostPanel=null;
-     state.setupFlowId=null;
      current.open();
-   };
+   });
  }catch(err){
-   result.textContent=err.message;
- }finally{submit.disabled=false;}
+   if(message.isConnected)body.textContent='指令未完成：'+err.message;
+ }finally{
+   if(message.isConnected){
+     delete form.dataset.sending;
+     submit.disabled=!codexConnected;
+     scrollCodexThread();
+   }
+ }
 }
 async function codexAction(name){
  if(name==='codex-disconnect'&&!window.confirm('确定断开当前 ChatGPT 连接？这将清除 Worker 保存的 Codex 登录状态。'))return;
@@ -1518,12 +1589,7 @@ async function xuiAccess(id){
    <div class="modal-actions"><button class="btn subtle" data-action="toggle-xui-password">显示 / 隐藏密码</button><button class="btn subtle" data-action="copy-xui-password">复制密码</button><button class="btn primary" data-action="close-modal">关闭</button></div>`);
  }catch(err){dialog(modalHead('无法安全读取登录信息')+`<div class="modal-tip warning">${escapeHtml(err.message)}</div><div class="modal-actions"><button class="btn primary" data-action="close-modal">关闭</button></div>`);}
 }
-function go(section){
- state.section=section;renderSection();
- el('#main-content').focus?.({preventScroll:true});
- const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
- window.scrollTo({top:0,behavior:reduced?'auto':'smooth'});
-}
+function go(section){state.section=section;renderSection();const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;window.scrollTo({top:0,behavior:reduced?'auto':'smooth'});}
 async function tryLocalLogin(){
  try {
    const response=await fetch('/api/local-session',{cache:'no-store',headers:{'X-NetDeploy-Local':'1'}});
@@ -1537,15 +1603,20 @@ async function tryLocalLogin(){
 }
 async function start(){
  if(state.token){
-   try{await api('/auth');el('#login').classList.add('hidden');await loadAll(true);return;}
+   try{await api('/auth');await showAuthenticatedPanel();return;}
    catch{state.token='';sessionStorage.removeItem('nd_token');}
  }
  if(await tryLocalLogin()){
-   el('#login').classList.add('hidden');await loadAll(true);return;
+   await showAuthenticatedPanel();return;
  }
  el('#login').classList.remove('hidden');
 }
-el('#login-form').addEventListener('submit',async e=>{e.preventDefault();state.token=el('#admin-token').value;try{await api('/auth');sessionStorage.setItem('nd_token',state.token);el('#login').classList.add('hidden');el('#admin-token').value='';await loadAll(true);}catch(err){toast(err.message,true);}});
+async function showAuthenticatedPanel(){
+ el('#login').classList.add('hidden');
+ el('#codex-launcher').classList.remove('hidden');
+ await loadAll(true);
+}
+el('#login-form').addEventListener('submit',async e=>{e.preventDefault();state.token=el('#admin-token').value;try{await api('/auth');sessionStorage.setItem('nd_token',state.token);el('#admin-token').value='';await showAuthenticatedPanel();}catch(err){toast(err.message,true);}});
 document.addEventListener('click',async e=>{
  const t=e.target.closest('[data-action],[data-nav]');if(!t)return;
  if(t.dataset.nav){go(t.dataset.nav);return;}
@@ -1596,6 +1667,8 @@ document.addEventListener('click',async e=>{
   else if(act==='delete-job')confirmDeleteJob(id);
   else if(act==='confirm-delete-job')await deleteJobRecord(id);
   else if(act==='diagnose')await diagnoseJob(id);
+  else if(act==='codex-chat')await toggleCodexChat(t);
+  else if(act==='codex-chat-close')closeCodexChat();
   else if(act==='codex-settings')await showCodexSettings();
   else if(act==='codex-refresh')await refreshCodexSettings();
   else if(['codex-connect','codex-cancel','codex-disconnect'].includes(act))await codexAction(act);
@@ -1639,7 +1712,7 @@ document.addEventListener('keydown',e=>{
      e.preventDefault();closeDialog();return;
    }
    if(e.key==='Tab'){
-     const nodes=Array.from(contentNode?.querySelectorAll?.('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),details > summary:first-of-type,[tabindex]:not([tabindex="-1"])')||[])
+     const nodes=Array.from(contentNode?.querySelectorAll?.('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')||[])
        .filter(node=>node.getClientRects?.().length!==0);
      if(!nodes.length){e.preventDefault();contentNode.focus?.();return;}
      const first=nodes[0],last=nodes[nodes.length-1];
@@ -1648,8 +1721,22 @@ document.addEventListener('keydown',e=>{
      return;
    }
  }
+ const card=e.target.closest?.('[data-action="host-console"]');
+ if(card&&e.target===card&&(e.key==='Enter'||e.key===' ')){
+   e.preventDefault();openHostConsole(Number(card.dataset.id));
+ }
+ if(e.key==='Escape'&&codexChatVisible()&&el('#codex-chat').contains(e.target)){
+   e.preventDefault();closeCodexChat();
+ }
 });
 el('#refresh').addEventListener('click',async e=>{const button=e.currentTarget;button.classList.add('is-loading');button.disabled=true;try{await loadAll();}finally{button.classList.remove('is-loading');button.disabled=false;}});
-el('#logout').addEventListener('click',()=>{sessionStorage.removeItem('nd_token');state.token='';el('#login').classList.remove('hidden');});
-setInterval(()=>{if(state.token){loadAll(true);if(el('#codex-account-state'))refreshCodexSettings();}},5000);
+el('#logout').addEventListener('click',logout);
+el('#codex-command-form').addEventListener('submit',submitCodexCommand);
+el('#codex-prompt').addEventListener('keydown',e=>{
+ if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&e.keyCode!==229){
+   e.preventDefault();
+   if(!el('#codex-send').disabled)el('#codex-command-form').requestSubmit();
+ }
+});
+setInterval(()=>{if(state.token){loadAll(true);if(codexChatVisible()||el('#codex-account-state'))refreshCodexSettings();}},5000);
 start();
