@@ -13,10 +13,31 @@
 <link rel="stylesheet" href="/static/ui-refinement.css"/>
 </head>
 <body>
+<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" focusable="false" class="icon-library">
+  <symbol id="nd-network" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M12 9v3m-6 3v-3h12v3"/></symbol>
+  <symbol id="nd-overview" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18m-11 0v12"/></symbol>
+  <symbol id="nd-package" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Zm0 9 8-4.5M4 7.5l8 4.5v9M8 5.25l8 4.5"/></symbol>
+  <symbol id="nd-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01m4-9h6m-6 9h6"/></symbol>
+  <symbol id="nd-tasks" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h.01M8 12h.01M8 16h.01M11 8h5m-5 4h5m-5 4h5"/></symbol>
+  <symbol id="nd-codex" viewBox="0 0 24 24"><path d="m12 3 2.2 6.8L21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2L12 3Z"/></symbol>
+  <symbol id="nd-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5m-4.6-3a8 8 0 0 1 13.1-3L20 9m-16 6 2.5 3a8 8 0 0 0 13.1-3"/></symbol>
+  <symbol id="nd-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v16M12 5a7 7 0 0 1 0 14" fill="currentColor"/></symbol>
+  <symbol id="nd-book" viewBox="0 0 24 24"><path d="M12 6c-2.5-2-5.5-2-9-1v13c3.5-1 6.5-1 9 1 2.5-2 5.5-2 9-1V5c-3.5-1-6.5-1-9 1Zm0 0v13"/></symbol>
+  <symbol id="nd-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="nd-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  <symbol id="nd-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01m.5 9 2-2 2 2 4-3"/></symbol>
+  <symbol id="nd-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m6 0h4"/></symbol>
+  <symbol id="nd-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v5c0 4-3 7-8 10-5-3-8-6-8-10V6l8-3Zm-3 9 2 2 4-4"/></symbol>
+  <symbol id="nd-bolt" viewBox="0 0 24 24"><path d="m13 3-8 11h6l-1 7 9-11h-6l1-7Z"/></symbol>
+  <symbol id="nd-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 4v2"/></symbol>
+</svg>
+<a class="skip-link" href="#main-content">跳到主要内容</a>
 <div id="login" class="login-overlay hidden">
   <div class="login-box">
-    <div class="brand-logo large">◇</div>
-    <h1>欢迎使用 NetDeploy AI</h1>
+    <div class="login-heading">
+      <div class="brand-logo large"><svg class="nd-icon" aria-hidden="true"><use href="#nd-network"/></svg></div>
+      <h1>登录 NetDeploy AI</h1>
+    </div>
     <p>输入部署服务启动时配置的管理员令牌</p>
     <form id="login-form">
       <label for="admin-token">管理员令牌</label>
@@ -28,34 +49,34 @@
 </div>
 <div class="layout">
   <aside class="sidebar">
-    <div class="brand"><div class="brand-logo">◇</div><div><strong>NetDeploy <span>AI</span></strong><small>智能网络部署平台</small></div></div>
+    <div class="brand"><div class="brand-logo"><svg class="nd-icon" aria-hidden="true"><use href="#nd-network"/></svg></div><div><strong>NetDeploy AI</strong><small>VPS 部署控制台</small></div></div>
     <div class="sidebar-caption">工作空间</div>
     <nav class="nav" aria-label="主导航">
-      <button class="nav-item active" data-nav="dashboard" aria-label="总览面板" aria-current="page" title="总览面板"><span class="nav-symbol" aria-hidden="true">▦</span> 总览面板</button>
-      <button class="nav-item" data-nav="projects" aria-label="项目中心" title="项目中心"><span class="nav-symbol" aria-hidden="true">⬡</span> 项目中心 <span class="nav-count" id="project-nav-count" aria-label="项目总数" aria-live="polite">…</span></button>
-      <button class="nav-item" data-nav="hosts" aria-label="服务器管理" title="服务器管理"><span class="nav-symbol" aria-hidden="true">▤</span> 服务器管理</button>
-      <button class="nav-item" data-nav="jobs" aria-label="部署任务" title="部署任务"><span class="nav-symbol" aria-hidden="true">≡</span> 部署任务</button>
-      <button class="nav-item" data-action="codex-settings" aria-label="Codex AI 连接设置" title="Codex AI 连接设置"><span class="nav-symbol" aria-hidden="true">✦</span> Codex AI</button>
+      <button class="nav-item active" data-nav="dashboard" aria-label="总览面板" aria-current="page" title="总览面板"><svg class="nd-icon nav-symbol" aria-hidden="true"><use href="#nd-overview"/></svg> 总览</button>
+      <button class="nav-item" data-nav="projects" aria-label="项目中心" title="项目中心"><svg class="nd-icon nav-symbol" aria-hidden="true"><use href="#nd-package"/></svg> 项目中心 <span class="nav-count" id="project-nav-count" aria-label="项目总数" aria-live="polite">…</span></button>
+      <button class="nav-item" data-nav="hosts" aria-label="服务器管理" title="服务器管理"><svg class="nd-icon nav-symbol" aria-hidden="true"><use href="#nd-server"/></svg> 服务器</button>
+      <button class="nav-item" data-nav="jobs" aria-label="部署任务" title="部署任务"><svg class="nd-icon nav-symbol" aria-hidden="true"><use href="#nd-tasks"/></svg> 任务</button>
+      <button class="nav-item" data-action="codex-settings" aria-label="Codex AI 连接设置" title="Codex AI 连接设置"><svg class="nd-icon nav-symbol" aria-hidden="true"><use href="#nd-codex"/></svg> Codex AI</button>
     </nav>
     <div class="sidebar-bottom">
-      <div class="agent-info"><span class="pulse"></span><div><b>安全执行模式</b><small>经审核的固定部署步骤</small></div></div>
+      <div class="agent-info"><svg class="nd-icon" aria-hidden="true"><use href="#nd-shield"/></svg><div><b>人工审批</b><small>审核部署方案后执行</small></div></div>
       <button class="logout" id="logout">退出登录 ↗</button>
     </div>
   </aside>
   <div class="main">
     <header class="topbar">
       <div class="crumb">工作空间 <span>/</span> <b id="crumb-current">总览面板</b></div>
-      <div class="top-actions"><a class="topbar-doc-link" href="https://slobys.github.io/netdeploy-ai/" target="_blank" rel="noopener noreferrer" aria-label="打开 NetDeploy AI 在线使用文档">？ 使用文档 ↗</a><div class="theme-control" id="theme-control">
+      <div class="top-actions"><a class="topbar-doc-link" href="https://slobys.github.io/netdeploy-ai/" target="_blank" rel="noopener noreferrer" aria-label="打开 NetDeploy AI 在线使用文档"><svg class="nd-icon" aria-hidden="true"><use href="#nd-book"/></svg><span class="topbar-doc-text">使用文档</span></a><div class="theme-control" id="theme-control">
   <button type="button" id="theme-menu-button" class="topbar-theme-button" aria-expanded="false" aria-controls="theme-menu" aria-label="外观主题设置">
-    <span class="topbar-theme-icon" aria-hidden="true">◐</span><span class="topbar-theme-text">主题</span>
+    <svg class="nd-icon topbar-theme-icon" aria-hidden="true"><use href="#nd-theme"/></svg><span class="topbar-theme-text">主题</span>
   </button>
   <section id="theme-menu" class="theme-menu" aria-label="外观主题设置" hidden>
-    <div class="theme-menu-head"><div><strong>外观与主题</strong><small>即时预览，自动保存至当前浏览器</small></div><span aria-hidden="true">✦</span></div>
+    <div class="theme-menu-head"><div><strong>外观与主题</strong><small>即时预览，自动保存至当前浏览器</small></div></div>
     <p class="theme-caption" id="appearance-label">外观模式</p>
     <div class="theme-mode-options" role="group" aria-labelledby="appearance-label">
-      <button type="button" class="theme-choice" data-theme-mode="light" aria-pressed="false">☀ 明亮</button>
-      <button type="button" class="theme-choice" data-theme-mode="dark" aria-pressed="true">☾ 暗黑</button>
-      <button type="button" class="theme-choice" data-theme-mode="system" aria-pressed="false">◐ 跟随系统</button>
+      <button type="button" class="theme-choice" data-theme-mode="light" aria-pressed="false">明亮</button>
+      <button type="button" class="theme-choice" data-theme-mode="dark" aria-pressed="true">暗黑</button>
+      <button type="button" class="theme-choice" data-theme-mode="system" aria-pressed="false">跟随系统</button>
     </div>
     <p class="theme-caption" id="palette-label">主题配色</p>
     <div class="theme-swatches" role="group" aria-labelledby="palette-label">
@@ -75,23 +96,27 @@
     <p class="theme-font-note">推荐「舒适」：标题醒目，正文清晰，表单更好阅读。</p>
     <div class="theme-menu-foot">当前：<span id="theme-status" role="status" aria-live="polite">暗黑 · 经典蓝</span></div>
   </section>
-</div><button class="btn primary topbar-add" data-action="add-host"><span aria-hidden="true">＋</span> 添加 VPS</button><span class="tag alpha">ALPHA v0.3.31</span><button id="refresh" class="icon-button" aria-label="刷新服务器与任务数据" title="刷新服务器与任务数据">⟳</button><div class="avatar">ND</div></div>
+</div><button id="refresh" class="icon-button" aria-label="刷新服务器与任务数据" title="刷新服务器与任务数据"><svg class="nd-icon" aria-hidden="true"><use href="#nd-refresh"/></svg></button><button class="btn subtle topbar-add" data-action="add-host"><svg class="nd-icon" aria-hidden="true"><use href="#nd-plus"/></svg> 添加 VPS</button><span class="tag alpha">ALPHA v0.3.31</span></div>
     </header>
-    <main class="content">
-      <section class="hero" id="hero">
-        <div class="hero-glow"></div>
-        <div class="hero-content"><div class="eyebrow"><span class="live-dot"></span> NETDEPLOY AI CONTROL CENTER</div>
-          <h1>服务器管理 <em>更简单、更直观。</em></h1>
-          <p>添加或编辑 VPS、核对 SSH 指纹、验证连接与部署项目，都能在首页直接完成。</p>
-          <div class="hero-actions"><button class="btn primary" data-action="add-host">＋ 添加 VPS 服务器</button><button class="btn ghost" data-nav="projects">探索项目 →</button></div>
-        </div>
-        <div class="hero-art"><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="center-cube">⌘</div><div class="orbit-node node-1">⌁</div><div class="orbit-node node-2">▣</div><div class="orbit-node node-3">◈</div></div>
+    <main class="content" id="main-content" tabindex="-1">
+      <div class="page-heading">
+        <div><h1 id="section-title">部署工作台</h1><p id="section-subtitle">选择项目与目标 VPS，审阅部署方案后执行。</p></div>
+        <button id="codex-shortcut" class="btn subtle" data-action="codex-settings"><svg class="nd-icon" aria-hidden="true"><use href="#nd-codex"/></svg> 使用 Codex</button>
+        <button class="btn primary hidden" data-action="add-host" id="main-cta">添加服务器</button>
+      </div>
+      <section class="section" id="projects-section" aria-labelledby="projects-heading">
+        <div class="section-heading smaller"><h2 id="projects-heading">可用项目</h2><button class="text-action" data-nav="projects">打开项目中心 →</button></div>
+        <div class="project-grid" id="project-grid"></div>
       </section>
-      <section class="section" id="hosts-section"><div class="section-heading smaller"><div><h2>我的 VPS 服务器</h2><p>连接、编辑、重装后重新核对指纹、环境检测，均可在此操作</p></div><button class="text-action" data-action="add-host">＋ 添加 VPS</button></div><div class="host-list" id="host-list"></div></section>
-      <div class="section-heading"><div><h2 id="section-title">运行概览</h2><p id="section-subtitle">集中管理服务器与自动化部署任务</p></div><button class="btn subtle" data-action="add-host" id="main-cta">＋ 添加服务器</button></div>
-      <div class="stats" id="stats"></div>
-      <section class="section" id="projects-section"><div class="section-heading smaller"><div><h2>精选部署项目</h2><p>选择经过审核的安装模板，AI 仅提供只读诊断建议</p></div><button class="text-action" data-nav="projects">查看全部项目 →</button></div><div class="project-grid" id="project-grid"></div></section>
-      <section class="section" id="jobs-section"><div class="section-heading smaller"><div><h2>最近部署任务</h2><p>审批、状态和日志都清楚可见</p></div><button class="text-action" data-nav="jobs">查看任务 →</button></div><div class="job-list" id="job-list"></div></section>
+      <div class="stats" id="stats" role="group" aria-label="运行概况"></div>
+      <section class="section" id="hosts-section" aria-labelledby="hosts-heading">
+        <div class="section-heading smaller"><div><h2 id="hosts-heading">VPS 服务器</h2><p>连接状态、SSH 指纹、环境检测与端口管理</p></div><button class="text-action" data-action="add-host">＋ 添加 VPS</button></div>
+        <div class="host-list" id="host-list"></div>
+      </section>
+      <section class="section" id="jobs-section" aria-labelledby="jobs-heading">
+        <div class="section-heading smaller"><div><h2 id="jobs-heading">最近部署任务</h2><p>查看审批状态、执行进度与日志</p></div><button class="text-action" data-nav="jobs">查看任务 →</button></div>
+        <div class="job-list" id="job-list"></div>
+      </section>
       <footer>NetDeploy AI v0.3.31 · Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
     </main>
   </div>

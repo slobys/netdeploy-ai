@@ -111,13 +111,13 @@ button:disabled{opacity:.7;cursor:wait}
   transition:transform .32s var(--ease),box-shadow .32s var(--ease),border-color .32s var(--ease),background .32s var(--ease);
   transform:perspective(1100px) translateZ(0);
 }
-.project:hover{transform:perspective(1100px) translateY(-5px) rotateX(1deg);border-color:#6698db;box-shadow:0 16px 38px #020b20a8,0 0 0 1px #518ce928}
+.project:hover{transform:perspective(1100px) translateY(-5px) rotateX(1deg);border-color:#6698db;box-shadow:0 16px 38px #000000a8,0 0 0 1px #518ce928}
 .project-icon{transition:transform .32s var(--ease),box-shadow .32s var(--ease)}
-.project:hover .project-icon{transform:translateY(-3px) rotate(-6deg);box-shadow:0 8px 28px #407bfa3d}
+.project:hover .project-icon{transform:translateY(-3px) rotate(-6deg)}
 .project .btn{transition:transform .22s var(--ease),box-shadow .22s var(--ease)}
 .job-item{transition:transform .26s var(--ease),border-color .26s var(--ease),box-shadow .26s var(--ease)}
-.job-item:hover{transform:translateY(-2px);border-color:#4774ad;box-shadow:0 8px 26px #020a1b60}
-.stat:hover{transform:translateY(-2px);border-color:#456b9a;box-shadow:0 10px 24px #06102066}
+.job-item:hover{transform:translateY(-2px);border-color:#4774ad;box-shadow:0 8px 26px #00000060}
+.stat:hover{transform:translateY(-2px);border-color:#456b9a;box-shadow:0 10px 24px #00000066}
 .modal-wrap:not(.hidden) .modal{animation:nd-enter .28s var(--ease) both}
 .modal-backdrop{background:#020817dd}
 .modal{border-color:#42638e;box-shadow:0 32px 100px #000b,inset 0 1px 0 #ffffff12}
@@ -217,7 +217,7 @@ details>summary:hover{color:#d2e6ff}
 .server-history-item:hover{border-color:#5178ae;background:#192b45}
 .server-project-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}
 .server-project-choice{border:1px solid #304a69;border-radius:14px;padding:19px;display:flex;flex-direction:column;align-items:flex-start;gap:8px;background:#13223a;color:#edf4ff;text-align:left;cursor:pointer;transition:transform .24s,border-color .24s,box-shadow .24s}
-.server-project-choice:hover{transform:translateY(-3px);border-color:#6c9bea;box-shadow:0 12px 24px #02091850}
+.server-project-choice:hover{transform:translateY(-3px);border-color:#6c9bea;box-shadow:0 12px 24px #00000050}
 .server-project-choice strong{font-size:14px}
 .server-project-choice small{font-size:11px;color:#9cb1ce}
 .project-choice-icon{font-size:23px}
@@ -299,7 +299,7 @@ details>summary:hover{color:#d2e6ff}
 
 /* Dashboard: next action and task navigation come before technical options. */
 .server-next-action{border-radius:15px;border:1px solid #36577c;padding:19px 21px;background:linear-gradient(135deg,#162e4e,#12223b);margin:0 0 18px}
-.server-next-action.pending{border-color:#5c83ce;background:linear-gradient(125deg,#213b67,#142b4d);box-shadow:0 8px 28px #071a3880}
+.server-next-action.pending{border-color:#5c83ce;background:linear-gradient(125deg,#213b67,#142b4d);box-shadow:0 8px 28px #00000080}
 .server-next-action.is-ready{border-color:#2c6f68;background:linear-gradient(135deg,#17383b,#132d38)}
 .server-next-kicker{display:block;font-size:11px;font-weight:750;color:#9dc9ff;letter-spacing:.4px}
 .server-next-action.is-ready .server-next-kicker{color:#8be1c7}

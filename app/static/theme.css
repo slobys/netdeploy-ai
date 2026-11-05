@@ -2,22 +2,23 @@
    Loaded last so the same semantic palette reaches all existing flows.
    Modern Chrome color-mix supports flexible color palettes without per-card themes. */
 :root {
-  --theme-page: #080e1c;
-  --theme-panel: #101c30;
-  --theme-panel-2: #14243b;
-  --theme-panel-3: #1b2f4a;
-  --theme-input: #0a1628;
-  --theme-topbar: #0c1528f5;
-  --theme-sidebar-top: #0b1629;
-  --theme-sidebar-bottom: #090f20;
-  --theme-line: #293d58;
-  --theme-line-strong: #3b587d;
-  --theme-title: #e6eefc;
-  --theme-secondary: #acbed9;
-  --theme-subtle: #879bb9;
-  --theme-code: #071325;
+  --theme-page: #101720;
+  --theme-panel: #18222e;
+  --theme-panel-2: #212e3d;
+  --theme-panel-3: #29394b;
+  --theme-input: #131c27;
+  --theme-topbar: #18222e;
+  --theme-sidebar-top: #141e2b;
+  --theme-sidebar-bottom: #141e2b;
+  --theme-line: #344254;
+  --theme-line-strong: #566b82;
+  --theme-control-line: #70859b;
+  --theme-title: #eef3f9;
+  --theme-secondary: #bac8d8;
+  --theme-subtle: #a5b6ca;
+  --theme-code: #111923;
   --theme-overlay: #020817dd;
-  --theme-shadow: 0 12px 34px #020b2070;
+  --theme-shadow: 0 12px 34px #0006;
   --theme-danger: #ffb5c8;
   --theme-danger-bg: #382432;
   --theme-danger-line: #86536a;
@@ -44,16 +45,17 @@
   color-scheme: dark;
 }
 :root[data-appearance="light"] {
-  --theme-page: #f4f7fc;
+  --theme-page: #eef3f8;
   --theme-panel: #ffffff;
   --theme-panel-2: #f1f5fb;
   --theme-panel-3: #e6eef9;
   --theme-input: #ffffff;
   --theme-topbar: #ffffffef;
-  --theme-sidebar-top: #ffffff;
-  --theme-sidebar-bottom: #f2f6fc;
+  --theme-sidebar-top: #e6eef7;
+  --theme-sidebar-bottom: #e6eef7;
   --theme-line: #d9e3f0;
   --theme-line-strong: #b9cce3;
+  --theme-control-line: #71869d;
   --theme-title: #1a2a42;
   --theme-secondary: #455b77;
   --theme-subtle: #506b88; /* readable supporting copy on pale panels */
@@ -80,7 +82,7 @@
 :root[data-accent="amber"] { --theme-accent:#f9c67f;--theme-action:#985713;--theme-action-deep:#7d460b; }
 :root[data-appearance="light"][data-accent="blue"] { --theme-accent:#2557bd; }
 :root[data-appearance="light"][data-accent="violet"] { --theme-accent:#6745bc; }
-:root[data-appearance="light"][data-accent="teal"] { --theme-accent:#067b8c; }
+:root[data-appearance="light"][data-accent="teal"] { --theme-accent:#066d7c; }
 :root[data-appearance="light"][data-accent="emerald"] { --theme-accent:#087657; }
 :root[data-appearance="light"][data-accent="rose"] { --theme-accent:#a62968; }
 :root[data-appearance="light"][data-accent="amber"] { --theme-accent:#89510e; }
@@ -114,7 +116,6 @@ a{color:var(--theme-accent)}
 }
 .sidebar .brand-logo,.brand-logo.large{
   background:linear-gradient(140deg,var(--theme-action),var(--theme-action-deep));
-  box-shadow:0 7px 24px color-mix(in srgb,var(--theme-action) 28%,transparent);
 }
 .brand strong span,.nav-item.active .nav-symbol{color:var(--theme-accent)}
 .nav-item{color:var(--theme-secondary)}
@@ -149,26 +150,6 @@ a{color:var(--theme-accent)}
   border-color:var(--theme-line-strong);
 }
 .avatar{background:linear-gradient(135deg,var(--theme-action),var(--theme-action-deep));color:#fff}
-.hero{
-  background:linear-gradient(118deg,
-    color-mix(in srgb,var(--theme-action) 19%,var(--theme-panel)),
-    color-mix(in srgb,var(--theme-action) 26%,var(--theme-panel-2)) 60%,
-    color-mix(in srgb,var(--theme-action) 12%,var(--theme-panel)));
-  border-color:color-mix(in srgb,var(--theme-action) 35%,var(--theme-line));
-  box-shadow:var(--theme-shadow);
-}
-.hero-glow{background:color-mix(in srgb,var(--theme-accent) 17%,transparent)}
-.hero h1{color:var(--theme-title)}
-.hero p{color:var(--theme-secondary)}
-.hero em{
-  color:var(--theme-accent);
-  background:linear-gradient(90deg,var(--theme-accent),color-mix(in srgb,var(--theme-accent) 65%,var(--theme-title)));
-  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
-}
-.eyebrow,.orbit-node,.center-cube{color:var(--theme-accent)}
-.center-cube{background:linear-gradient(140deg,var(--theme-action),var(--theme-action-deep));border-color:var(--theme-line-strong)}
-.orbit,.orbit-b{border-color:color-mix(in srgb,var(--theme-accent) 26%,transparent)}
-.orbit-node{background:var(--theme-panel-3);border-color:var(--theme-line-strong)}
 .btn.primary,.server-tab.active{
   color:var(--theme-on-action);
   background:linear-gradient(120deg,var(--theme-action),var(--theme-action-deep));
@@ -437,7 +418,6 @@ details>summary:hover{color:var(--theme-accent)}
   .topbar .avatar{display:none}
   .top-actions{margin-left:auto}
   .topbar-doc-link{font-size:0;min-width:32px;min-height:34px;padding:0;justify-content:center}
-  .topbar-doc-link::before{content:"?";font-size:16px;font-weight:850}
   .theme-menu{position:fixed;top:62px;right:12px;width:min(326px,calc(100vw - 24px))}
   .theme-menu::before{display:none}
 }

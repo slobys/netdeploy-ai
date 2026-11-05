@@ -330,8 +330,6 @@ function fingerprintFor(label) {
     'Compact layout must not remove any deployment or guide action');
   assert(made.get('#projects-section').classList.contains('is-featured'),
     'Dashboard should activate the compact featured presentation');
-  assert(typographyCss.includes('repeat(auto-fit,minmax(min(100%,246px),1fr))'),
-    'Five cards should flow into one row on wide screens and wrap naturally');
   assert(typographyCss.includes('#projects-section:is(.is-featured,.is-catalog) .project')&&
     typographyCss.includes('min-height:0'),
     'Both project surfaces must override the old 240/267px minimum heights');
@@ -355,9 +353,10 @@ function fingerprintFor(label) {
     'Dashboard heading/link must be visible again after leaving Project Center');
   evaluate(`state.catalog={...fixtures.featuredCatalog,dockge:{name:'Dockge',subtitle:'Compose stacks',category:'容器',deployment:'install'}};render();`);
   assert.equal((made.get('#project-grid').innerHTML.match(/class="project"/g)||[]).length,6,
-    'All six projects are available in the complete catalog');
-  assert(typographyCss.includes('#projects-section.is-featured .project[data-project="dockge"]{display:none}'),
-    'New Dockge card stays in Project Center so home still shows five curated cards');
+    'All six projects are available from the deployment workspace');
+  assert(made.get('#project-grid').innerHTML.includes('data-project="dockge"'));
+  assert(html.indexOf('id="projects-section"')<html.indexOf('id="hosts-section"'),
+    'The overview prioritizes deployment before server operations');
   evaluate('state.section="projects";renderSection();');
   assert(made.get('#section-subtitle').textContent.includes('共 6 个项目'));
   assert(made.get('#project-grid').innerHTML.includes('data-project="dockge"'));

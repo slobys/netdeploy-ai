@@ -214,7 +214,7 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
   }
   for(const selector of ['.sidebar','.topbar','.stat','.project','.modal','.form-group input',
      '.server-tabs','.server-kpi','.xui-info-row','.fingerprint-verdict','.setup-port-row',
-     '.cloud-provider-links a','.login-box','.hero']){
+     '.cloud-provider-links a','.login-box']){
     assert(css.includes(selector),'Missing themed component: '+selector);
   }
 
@@ -245,17 +245,15 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
   const desktopThemeButton=refinement.match(/\.topbar-theme-button\s*\{([^}]+)\}/);
   assert(desktopThemeButton && /width:\s*auto/.test(desktopThemeButton[1]) &&
     /min-width:\s*88px/.test(desktopThemeButton[1]), 'Desktop theme label needs room');
-  assert(refinement.includes('@media (max-width: 840px)') &&
+  assert(refinement.includes('@media (max-width: 850px)') &&
     refinement.includes('.topbar-theme-text { display: none; }'),
     'Only compact layouts should hide the theme button label');
   // Regression: hovering a light-mode VPS must not apply an old navy gradient
   // while the host name, address and details remain dark theme-aware text.
-  const hoverRule=refinement.match(/\.host-item:is\(:hover, :focus-visible\)\s*\{([^}]+)\}/);
-  assert(hoverRule && /background:\s*linear-gradient\(/.test(hoverRule[1]) &&
-    hoverRule[1].includes('var(--theme-panel)') &&
-    hoverRule[1].includes('var(--theme-panel-2)'),
+  const hoverRule=refinement.match(/\.host-item:is\(:hover, :focus-within\), \.job-item:hover\s*\{([^}]+)\}/);
+  assert(hoverRule && /background:\s*var\(--theme-panel\)/.test(hoverRule[1]),
     'Host hover must use the current theme panel colors');
-  const hoverLink=refinement.match(/\.host-item:is\(:hover, :focus-visible\) \.host-card-open\s*\{([^}]+)\}/);
+  const hoverLink=refinement.match(/\.host-item:is\(:hover, :focus-within\) \.host-card-open\s*\{([^}]+)\}/);
   assert(hoverLink && hoverLink[1].includes('color: var(--theme-accent)'),
     'Host action must remain legible over the hover background');
   const cleaned=refinement.replace(/\/\*[\s\S]*?\*\//g,'');
