@@ -117,6 +117,7 @@ let dockgeStatus={installed:false,managed:false,service:'absent',access_mode:'un
 let dockgeAccessReads=0;
 let dockgeStatusReads=0;
 let codexAccount={available:true,connected:false,pending:false};
+let codexApprovalRequests=0;
 const context = vm.createContext({
   console,
   document,
@@ -131,7 +132,13 @@ const context = vm.createContext({
     if(url==='/api/codex/status')return {ok:true,status:200,json:async()=>codexAccount};
     if(url==='/api/codex/command'){
       assert.equal(opts.method,'POST');
-      assert.equal(JSON.parse(opts.body).prompt,'准备部署 S-UI 到 Test VPS');
+      const {prompt}=JSON.parse(opts.body);
+      if(prompt==='为 Test VPS 生成 S-UI 部署方案'){
+        const job={...freshJob,id:'c0de000000000003',project:'s-ui',
+          plan:{...freshJob.plan,name:'S-UI',options:{access_mode:'local',panel_port:2095}}};
+        return {ok:true,status:200,json:async()=>({message:'已生成部署方案',action:{type:'job',id:job.id},job})};
+      }
+      assert.equal(prompt,'打开 Test VPS 的 S-UI 部署向导');
       return {ok:true,status:200,json:async()=>({
         message:'<b>请查看部署选项</b>',
         action:{type:'deployment',project:'s-ui',host_id:1},
@@ -275,6 +282,7 @@ const context = vm.createContext({
       's-ui':{name:'S-UI',subtitle:'sing-box 管理面板',deployment:'install',category:'面板'}
     })};
     if(url==='/api/capabilities')return {ok:true,status:200,json:async()=>({secure_password_storage:false})};
+    if(url==='/api/jobs/c0de000000000003/approve')codexApprovalRequests++;
     if(url==='/api/jobs'&&returnedJobs)
       return {ok:true,status:200,json:async()=>returnedJobs};
     if (url==='/api/jobs') planCreations++;
@@ -895,7 +903,7 @@ function fingerprintFor(label) {
   await evaluate('refreshCodexSettings()');
   assert(!made.get('#codex-command-form').classList.contains('hidden'));
   evaluate(`state.hosts=[fixtures.host];state.catalog['s-ui']={name:'S-UI',deployment:'install'};`);
-  document.querySelector('#codex-prompt').value='准备部署 S-UI 到 Test VPS';
+  document.querySelector('#codex-prompt').value='打开 Test VPS 的 S-UI 部署向导';
   const beforeAssistantPlan=planCreations;
   const codexForm=made.get('#codex-command-form');
   await codexForm.dispatch('submit',{currentTarget:codexForm,preventDefault(){}});
@@ -908,6 +916,13 @@ function fingerprintFor(label) {
   assert(modal.innerHTML.includes('<option value="1" selected>Test VPS'));
   assert.equal(planCreations,beforeAssistantPlan,'Opening a wizard must not create a plan');
   assert.equal(evaluate("codexPanelAction({type:'approve',id:'anything'})"),null);
+  await evaluate('showCodexSettings()');
+  document.querySelector('#codex-prompt').value='为 Test VPS 生成 S-UI 部署方案';
+  await codexForm.dispatch('submit',{currentTarget:codexForm,preventDefault(){}});
+  assert(modal.innerHTML.includes('S-UI · 部署任务'));
+  assert(modal.innerHTML.includes('id="approve-form"'),'Show the generated draft for review immediately');
+  assert(modal.innerHTML.includes('管理面板通过 SSH 隧道访问'));
+  assert.equal(codexApprovalRequests,0,'Opening an AI draft must never submit approval');
   await evaluate('showCodexSettings()');
   assert(made.get('#codex-account-state').innerHTML.includes('已连接 ChatGPT 账号'));
   await evaluate("codexAction('codex-disconnect')");

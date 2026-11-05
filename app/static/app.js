@@ -1211,15 +1211,18 @@ function showJob(id){
      <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">更新方案并继续审批 →</button>
    </section>`;
  }else if(job.status==='planned'&&p.executable&&!stale){
-   const isXui=job.project==='3x-ui'||job.project==='3x-ui-https';
+   const xuiHttps=job.project==='3x-ui'&&p.options?.access_mode==='https';
+   const localPanel=['3x-ui','s-ui','dockge'].includes(job.project)&&
+     (p.options?.access_mode==='local'||(job.project==='3x-ui'&&!p.options?.access_mode));
    const dockerPrep=job.project==='dockge'&&p.steps.length>4;
    const npmPlan=['3x-ui','s-ui'].includes(job.project)&&p.options?.access_mode==='npm';
    const publicXuiNote=job.project==='3x-ui-http'?`<div class="modal-tip warning"><b>高风险：将已安装 3X-UI 改为公网明文 HTTP。</b>开放的是 TCP ${escapeHtml(p.options.panel_port)}，不是 80。管理员用户名和密码通过 HTTP 发送，可能被窃听；必须先限制云安全组来源为自己的管理 IP。确认后不重装软件，失败会恢复本机监听。</div>`:'';
    const dockerNote=dockerPrep?'<div class="modal-tip warning"><b>将自动先安装缺少的 Docker / Compose / Git。</b>仅在通过安全检查且你审批后执行。Docker Engine 可能修改 iptables 及容器转发规则；部分容器端口可能绕过 UFW。已有 Docker 或数据冲突不会被强制覆盖，随后继续 Dockge Apps 安装。</div>':'';
    const dockgePublicNote=job.project==='dockge'&&p.options?.access_mode==='public'?'<div class="modal-tip warning"><b>本次部署将把 Dockge Apps 管理端口直接绑定至服务器公网 IP。</b>目标端口 '+escapeHtml(p.options.panel_port)+'/TCP；访问地址将是 http://'+escapeHtml(host?.hostname||p.hostname)+':'+escapeHtml(p.options.panel_port)+'/ 。该地址是未加密 HTTP，且 Dockge 通过 Docker Socket 可管理整台 VPS。<b>首次管理员创建前，任何能访问端口的人都可能抢先注册。</b>请确保云防火墙仅允许可信管理 IP，或先使用 SSH-only 模式完成初始化。只有点击下方的明确审批按钮才会执行公网部署。</div>':'';
    const npmNote=npmPlan?`<div class="modal-tip warning"><b>交给 NPM 统一 HTTPS · 本面板不申请证书</b><p>3X-UI 将开启 VPS 公网 HTTP ${escapeHtml(host?.hostname||p.hostname)}:${escapeHtml(p.npm_proxy.port)}，这是明文管理登录，请先在云安全组仅允许自己的管理 IP。NPM 仍可通过宿主机 127.0.0.1:${escapeHtml(p.npm_proxy.port)} 反代，并为独立域名申请 SSL。S-UI 则仍然只在本机监听。NPM Docker 容器应使用 host 网络模式。不会使用 Certbot 或 ACME TCP 80。</p></div>`:'';
-   html+=`<div class="plan-overview"><h3>${job.project==='3x-ui-https'?'继续配置已安装的 3X-UI HTTPS（不重装）':job.project==='s-ui-https'?'继续配置已安装的 S-UI HTTPS（不重装）':job.project==='s-ui'&&p.options?.access_mode==='https'?'一键安装 S-UI 并申请 IP/域名证书':npmPlan?`安装 ${escapeHtml(p.name)}（无需申请证书，由 NPM 统一 HTTPS）`:isXui?'一键安装 3X-UI 并配置 HTTPS':'准备部署 '+escapeHtml(p.name)}</h3>
+   html+=`<div class="plan-overview"><h3>${job.project==='3x-ui-https'?'继续配置已安装的 3X-UI HTTPS（不重装）':job.project==='s-ui-https'?'继续配置已安装的 S-UI HTTPS（不重装）':job.project==='s-ui'&&p.options?.access_mode==='https'?'一键安装 S-UI 并申请 IP/域名证书':npmPlan?`安装 ${escapeHtml(p.name)}（无需申请证书，由 NPM 统一 HTTPS）`:xuiHttps?'一键安装 3X-UI 并配置 HTTPS':'准备部署 '+escapeHtml(p.name)}</h3>
      <p>目标：${escapeHtml(host?.hostname||p.hostname)} · ${p.steps.length} 个受控执行阶段 · 风险：${escapeHtml(p.risk)}</p>
+     ${localPanel?'<p>管理面板通过 SSH 隧道访问。</p>':''}
      ${dockerNote}${dockgePublicNote}${npmNote}${publicXuiNote}<div class="modal-tip warning">审批一次后将执行已固定的安装步骤；包括 APT 依赖处理、证书签发（如果需要）和所需的本机 UFW 端口规则。云厂商安全组仍需另行放行；建议先备份 VPS。</div></div>
      <form id="approve-form"><div class="modal-actions plan-primary-actions">
        <button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>
@@ -1389,8 +1392,8 @@ async function showCodexSettings(){
    '<div id="codex-account-state" role="status" aria-live="polite"><div class="scan-state">正在检查 Codex 连接状态…</div></div>'+
    '<form id="codex-command-form" class="hidden">'+
    '<div class="form-group"><label for="codex-prompt">想在面板里做什么？</label>'+
-   '<textarea id="codex-prompt" rows="3" maxlength="1000" required placeholder="例如：在东京 VPS 上准备部署 S-UI"></textarea></div>'+
-   '<p class="helptext">Codex 会收到你的指令、服务器名称、近期任务状态和项目名称。请勿输入凭据。打开向导后，由你生成并审批方案。</p>'+
+   '<textarea id="codex-prompt" rows="3" maxlength="1000" required placeholder="例如：为东京 VPS 生成 S-UI 部署方案"></textarea></div>'+
+   '<p class="helptext">Codex 会收到你的指令、服务器名称、近期任务状态和项目名称。写明 VPS 完整名称和项目即可生成方案，审阅后由你确认执行。请勿输入凭据。</p>'+
    '<div class="modal-actions"><button type="submit" class="btn primary">发送指令</button></div>'+
    '<pre id="codex-command-result" class="pre hidden" role="status" aria-live="polite"></pre>'+
    '<div class="modal-actions"><button id="codex-command-open" type="button" class="btn subtle hidden"></button></div></form>');
@@ -1431,12 +1434,21 @@ async function submitCodexCommand(event){
  open.classList.add('hidden');
  open.onclick=null;
  result.classList.remove('hidden');
- result.textContent='Codex 正在理解指令…';
+ result.textContent='Codex 正在处理指令…';
  submit.disabled=true;
  try{
    const reply=await api('/codex/command',{method:'POST',body:JSON.stringify({prompt})});
    if(!result.isConnected)return;
    result.textContent=reply.message;
+   if(reply.job){
+     await loadAll(true);
+     if(!result.isConnected)return;
+     if(!state.jobs.some(job=>job.id===reply.job.id))state.jobs.unshift(reply.job);
+     state.hostPanel=null;
+     state.setupFlowId=null;
+     showJob(reply.job.id);
+     return;
+   }
    const action=codexPanelAction(reply.action);
    if(!action)return;
    open.textContent=action.label;

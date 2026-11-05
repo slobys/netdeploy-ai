@@ -737,7 +737,19 @@ def approval_baseline(facts: dict) -> dict:
 
 @app.post("/api/jobs", dependencies=[Depends(authorized)])
 def new_job(body: NewJob):
+    return create_deployment_plan(body)
+
+
+def check_plan_target(host: dict, expected: dict):
+    fields = ("name", "hostname", "port", "username", "auth_mode", "tls_domain", "trust_epoch")
+    if any(host.get(key) != expected.get(key) for key in fields):
+        raise HTTPException(409, detail="目标 VPS 配置已变化，请重新发起方案生成")
+
+
+def create_deployment_plan(body: NewJob, *, expected_host: dict | None = None):
     host = find_host(body.host_id)
+    if expected_host is not None:
+        check_plan_target(host, expected_host)
     if body.project not in CATALOG:
         raise HTTPException(status_code=404, detail="不支持的项目")
     if not executor.credential_ready(host):
@@ -748,7 +760,10 @@ def new_job(body: NewJob):
         facts = executor.preflight(host)
     except (ValueError, SSHError) as exc:
         raise HTTPException(status_code=422, detail=f"自动环境检测失败：{exc}") from exc
-    host = store.save_facts(host["id"], facts)
+    with store.lock:
+        if expected_host is not None:
+            check_plan_target(find_host(body.host_id), expected_host)
+        host = store.save_facts(host["id"], facts)
     options = None
     if body.project == "3x-ui":
         if body.source_job_id:
@@ -884,7 +899,10 @@ def new_job(body: NewJob):
     plan["host_id"] = host["id"]
     plan["trust_epoch"] = host.get("trust_epoch", 0)
     plan["preflight_baseline"] = approval_baseline(host["facts"])
-    return store.new_job(host["id"], body.project, plan)
+    with store.lock:
+        if expected_host is not None:
+            check_plan_target(find_host(body.host_id), expected_host)
+        return store.new_job(host["id"], body.project, plan)
 
 
 @app.get("/api/jobs/{id}", dependencies=[Depends(authorized)])
@@ -1081,7 +1099,8 @@ def codex_command(body: CodexCommand):
 
     # Construct choices from the current panel records. Hostnames, credentials,
     # remote facts, logs and deployment scripts are deliberately excluded.
-    hosts = {h["id"]: str(h["name"])[:120] for h in store.hosts()[:100]}
+    all_hosts = store.hosts()
+    hosts = {h["id"]: str(h["name"])[:120] for h in all_hosts[:100]}
     jobs = [
         {key: job[key] for key in ("id", "host_id", "project", "status")}
         for job in store.jobs() if job["host_id"] in hosts
@@ -1095,6 +1114,7 @@ def codex_command(body: CodexCommand):
         **{f"host:{host_id}": {"type": "host", "id": host_id} for host_id in hosts},
         **{f"job:{job['id']}": {"type": "job", "id": job["id"]} for job in jobs},
         **{f"deploy:{key}": {"type": "deployment", "project": key} for key in projects},
+        **{f"plan:{key}": {"type": "plan", "project": key} for key in projects},
     }
     try:
         decision = interpret_panel_command({
@@ -1111,13 +1131,38 @@ def codex_command(body: CodexCommand):
     if not isinstance(choice, str) or choice not in actions or not isinstance(message, str) or not message.strip():
         raise HTTPException(502, detail="Codex 返回了无效的面板操作，请重新描述")
     action = actions[choice]
-    if action and action["type"] == "deployment":
+    if action and action["type"] in {"deployment", "plan"}:
         if type(host_id) is not int or host_id not in hosts:
             raise HTTPException(502, detail="Codex 未选中明确的目标服务器，请指定服务器名称")
         action = {**action, "host_id": host_id}
     elif host_id is not None:
         raise HTTPException(502, detail="Codex 返回了无效的操作目标，请重试")
-    return {"message": message[:3000], "action": action}
+    if not action or action["type"] != "plan":
+        return {"message": message[:3000], "action": action}
+
+    def mentioned(name: str) -> bool:
+        # Match ASCII token boundaries without requiring spaces around Chinese names.
+        pattern = r"(?<![a-z0-9_-])" + re.escape(name.casefold()) + r"(?![a-z0-9_-])"
+        return bool(name and re.search(pattern, prompt.casefold()))
+
+    named_hosts = [host for host in all_hosts if mentioned(host["name"])]
+    if len(named_hosts) != 1 or named_hosts[0]["id"] != host_id:
+        raise HTTPException(422, detail="请在指令中写明一个唯一的 VPS 完整名称")
+    project = action["project"]
+    named_projects = [key for key, name in projects.items() if mentioned(key) or mentioned(name)]
+    if named_projects != [project]:
+        raise HTTPException(422, detail="请在指令中写明一个明确的部署项目名称")
+
+    access_mode = "local" if project in {"3x-ui", "s-ui", "dockge"} else None
+    job = create_deployment_plan(
+        NewJob(host_id=host_id, project=project, access_mode=access_mode),
+        expected_host=named_hosts[0],
+    )
+    return {
+        "message": "已生成部署方案，请审阅后确认执行" if job["plan"]["executable"] else "请查看方案中的前置条件与阻断原因",
+        "action": {"type": "job", "id": job["id"]},
+        "job": job,
+    }
 
 
 @app.post("/api/jobs/{id}/diagnose", dependencies=[Depends(authorized)])

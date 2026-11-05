@@ -181,7 +181,7 @@ def test_panel_command_shares_only_summary_and_maps_an_allowed_target(monkeypatc
     ])
 
     def interpret(data):
-        assert data["prompt"] == "在东京部署 S-UI"
+        assert data["prompt"] == "打开东京的 S-UI 部署向导"
         assert data["hosts"] == [{"id": 7, "name": "东京"}]
         assert data["jobs"] == [
             {"id": "test-job", "host_id": 7, "project": "s-ui", "status": "failed"}
@@ -192,7 +192,7 @@ def test_panel_command_shares_only_summary_and_maps_an_allowed_target(monkeypatc
     monkeypatch.setattr(main, "interpret_panel_command", interpret)
     client = TestClient(main.app)
     response = client.post("/api/codex/command", headers=ADMIN,
-                           json={"prompt": " 在东京部署 S-UI "})
+                           json={"prompt": " 打开东京的 S-UI 部署向导 "})
     assert response.status_code == 200
     assert response.json() == {
         "message": "请先检查部署选项",
@@ -204,6 +204,7 @@ def test_panel_command_shares_only_summary_and_maps_an_allowed_target(monkeypatc
 
 @pytest.mark.parametrize(("action", "host_id"), [
     ("approve", None), ("job:missing", None), ("deploy:s-ui-https", 1),
+    ("plan:s-ui-https", 1),
     ("deploy:s-ui", 99), ("deploy:s-ui", None), ("deploy:s-ui", True),
     ("hosts", 1),
 ])
@@ -216,6 +217,89 @@ def test_panel_command_rejects_unauthorized_or_invalid_actions(monkeypatch, acti
     response = TestClient(main.app).post("/api/codex/command", headers=ADMIN,
                                          json={"prompt": "打开面板"})
     assert response.status_code == 502
+
+
+def test_codex_creates_a_real_draft_then_requires_separate_approval(monkeypatch, tmp_path):
+    store = main.Store(str(tmp_path / "plans.db"))
+    host = store.add_host({"name": "东京 VPS", "hostname": "192.0.2.80", "port": 22, "username": "root"})
+    facts = {
+        "OS_ID": "ubuntu", "OS_VERSION": "24.04", "ARCH": "x86_64", "UID": "0",
+        "FREE_KB": "49943920", "SYSTEMD": "yes", "XUI_PRESENT": "no", "SS_AVAILABLE": "yes",
+    }
+    checked = []
+    started = []
+
+    def preflight(target):
+        checked.append(target["id"])
+        return facts.copy()
+
+    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(main.executor, "credential_ready", lambda target: True)
+    monkeypatch.setattr(main.executor, "preflight", preflight)
+    monkeypatch.setattr(main.runner, "enqueue", lambda *args: started.append(args))
+    monkeypatch.setattr(main, "interpret_panel_command", lambda _: {
+        "action": "plan:3x-ui", "host_id": host["id"], "message": "准备方案",
+    })
+    client = TestClient(main.app)
+    response = client.post("/api/codex/command", headers=ADMIN,
+                           json={"prompt": "为东京 VPS 生成 3X-UI 部署方案"})
+    assert response.status_code == 200, response.text
+    job = response.json()["job"]
+    assert response.json()["action"] == {"type": "job", "id": job["id"]}
+    assert store.job(job["id"]) == job
+    assert job["status"] == "planned"
+    assert job["approved_at"] is None
+    assert job["plan"]["executable"]
+    assert job["plan"]["options"] == {"panel_port": 24443}
+    assert job["plan"]["preflight_baseline"]["XUI_PRESENT"] == "no"
+    assert checked == [host["id"]]
+    assert started == []
+
+    path = f"/api/jobs/{job['id']}/approve"
+    assert client.post(path, headers=ADMIN, json={}).status_code == 409
+    assert started == []
+    assert client.post(path, headers=ADMIN, json={"confirmed_risk": True}).json()["status"] == "queued"
+    assert len(started) == 1
+
+
+@pytest.mark.parametrize(("prompt", "duplicate"), [
+    ("为大阪 VPS 生成 S-UI 部署方案", False),
+    ("为东京 VPS 生成 3X-UI 部署方案", False),
+    ("为东京 VPS 生成 S-UI 部署方案", True),
+])
+def test_codex_draft_requires_a_unique_named_target_and_matching_project(monkeypatch, prompt, duplicate):
+    hosts = [{"id": 7, "name": "东京 VPS"}]
+    if duplicate:
+        hosts.append({"id": 8, "name": "东京 VPS"})
+    monkeypatch.setattr(main.store, "hosts", lambda: hosts)
+    monkeypatch.setattr(main.store, "jobs", lambda: [])
+    monkeypatch.setattr(main, "interpret_panel_command", lambda _: {
+        "action": "plan:s-ui", "host_id": 7, "message": "准备方案",
+    })
+    monkeypatch.setattr(main, "create_deployment_plan", lambda *_args, **_kwargs: pytest.fail("Unexpected plan"))
+    response = TestClient(main.app).post("/api/codex/command", headers=ADMIN, json={"prompt": prompt})
+    assert response.status_code == 422
+
+
+def test_codex_discards_preflight_if_host_changed_during_plan_generation(monkeypatch, tmp_path):
+    store = main.Store(str(tmp_path / "plans.db"))
+    host = store.add_host({"name": "东京 VPS", "hostname": "192.0.2.80", "port": 22, "username": "root"})
+
+    def preflight(target):
+        store.update_host(target["id"], target["name"], "192.0.2.81", 22, "root")
+        return {"XUI_PRESENT": "no"}
+
+    monkeypatch.setattr(main, "store", store)
+    monkeypatch.setattr(main.executor, "credential_ready", lambda target: True)
+    monkeypatch.setattr(main.executor, "preflight", preflight)
+    monkeypatch.setattr(main, "interpret_panel_command", lambda _: {
+        "action": "plan:3x-ui", "host_id": host["id"], "message": "准备方案",
+    })
+    response = TestClient(main.app).post("/api/codex/command", headers=ADMIN,
+                                         json={"prompt": "为东京 VPS 生成 3X-UI 部署方案"})
+    assert response.status_code == 409
+    assert store.jobs() == []
+    assert store.host(host["id"])["facts"] is None
 
 
 def test_panel_worker_requires_login_and_uses_structured_ephemeral_turn(monkeypatch):
