@@ -746,6 +746,12 @@ def check_plan_target(host: dict, expected: dict):
         raise HTTPException(409, detail="目标 VPS 配置已变化，请重新发起方案生成")
 
 
+def deployment_preflight(host: dict, project: str) -> dict:
+    if project == "hiddify":
+        return executor.preflight(host, include_hiddify=True)
+    return executor.preflight(host)
+
+
 def create_deployment_plan(body: NewJob, *, expected_host: dict | None = None):
     host = find_host(body.host_id)
     if expected_host is not None:
@@ -757,7 +763,7 @@ def create_deployment_plan(body: NewJob, *, expected_host: dict | None = None):
     # Always refresh read-only facts when creating a new plan; cached results
     # from older app versions and program restarts cannot be silently reused.
     try:
-        facts = executor.preflight(host)
+        facts = deployment_preflight(host, body.project)
     except (ValueError, SSHError) as exc:
         raise HTTPException(status_code=422, detail=f"自动环境检测失败：{exc}") from exc
     with store.lock:
@@ -935,7 +941,7 @@ def approve_job(id: str, body: Approval):
         raise HTTPException(status_code=409, detail="缺少环境预检结果")
     # Recheck preflight before approving: changing host may invalidate the plan.
     try:
-        current = executor.preflight(host)
+        current = deployment_preflight(host, job["project"])
     except (ValueError, SSHError) as exc:
         raise HTTPException(status_code=409, detail=f"二次预检失败：{exc}") from exc
     # A deployment's original safety snapshot must survive any later refresh
@@ -977,6 +983,8 @@ def approve_job(id: str, body: Approval):
         raise HTTPException(status_code=409, detail="公网明文 HTTP 存在管理员凭据泄露风险，必须在审批时明确确认")
     if job["project"] in {"dockge", "dockge-access"} and job["plan"].get("options", {}).get("access_mode") == "public" and not body.confirmed_risk:
         raise HTTPException(status_code=409, detail="公网 Dockge Apps 部署必须在审阅安全提示后明确点击风险确认，不接受旧版文本代替")
+    if job["project"] == "hiddify" and not body.confirmed_risk:
+        raise HTTPException(status_code=409, detail="请明确确认目标为已备份的专用 VPS，并接受 Hiddify 修改系统与防火墙的风险")
     if not body.confirmed_risk and body.confirmation != runner.approval_text(job, host):
         raise HTTPException(status_code=409, detail="请确认已阅读固定部署方案与高权限风险")
     try:

@@ -20,6 +20,7 @@ from pathlib import Path
 
 from .os_keyring import WindowsCredentialVault, VaultUnavailable
 from .docker_runtime import ENV_CHECK
+from .hiddify import PRECHECK as HIDDIFY_PRECHECK
 
 SAFE_HOST = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$")
 SAFE_USER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$", re.IGNORECASE)
@@ -327,7 +328,7 @@ class SSHExecutor:
             if client is not None:
                 client.close()
 
-    def preflight(self, host: dict) -> dict[str, str]:
+    def preflight(self, host: dict, *, include_hiddify: bool = False) -> dict[str, str]:
         script = """set -eu
 . /etc/os-release
 printf 'OS_ID=%s\\n' "${ID:-unknown}"
@@ -346,11 +347,20 @@ if [ -e /opt/dockge ] || [ -L /opt/dockge ] || [ -e /opt/dockge-apps ] || [ -L /
 if ! command -v ss >/dev/null 2>&1; then echo DOCKGE_TCP_5001=unknown; elif ss -Hltn 'sport = :5001' | grep -q . || (command -v docker >/dev/null 2>&1 && test -n "$(docker ps -q --filter 'publish=5001/tcp' 2>/dev/null)"); then echo DOCKGE_TCP_5001=busy; else echo DOCKGE_TCP_5001=free; fi
 if ! command -v ss >/dev/null 2>&1; then echo UDP_51820=unknown; elif ss -Hlun | grep -Eq '(^|[[:space:]])[^[:space:]]*:51820([[:space:]]|$)'; then echo UDP_51820=busy; else echo UDP_51820=free; fi
 """ + ENV_CHECK
+        if include_hiddify:
+            if host["port"] == 22:
+                script += HIDDIFY_PRECHECK + """
+printf 'HIDDIFY_STATE=%s\\n' "$(hiddify_precheck)"
+"""
+            else:
+                script += "\necho HIDDIFY_STATE=ssh\n"
         result = {}
         for line in self.run(host, script, 35).splitlines():
             if "=" in line:
                 k, v = line.split("=", 1)
                 if k in {"OS_ID", "OS_VERSION", "ARCH", "UID", "FREE_KB", "DOCKER", "COMPOSE", "SYSTEMD", "UDP_51820", "SS_AVAILABLE", "GIT_AVAILABLE", "DOCKER_SETUP", "XUI_PRESENT", "SUI_PRESENT", "DOCKGE_PRESENT", "DOCKGE_TCP_5001"}:
+                    result[k] = v.strip()[:80]
+                elif include_hiddify and k == "HIDDIFY_STATE":
                     result[k] = v.strip()[:80]
         if not {"OS_ID", "ARCH", "UID"} <= result.keys():
             raise SSHError("设备预检信息不完整")

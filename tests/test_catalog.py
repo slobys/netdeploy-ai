@@ -5,8 +5,8 @@ import pytest
 GOOD = {"OS_ID":"debian", "ARCH":"x86_64", "UID":"0", "FREE_KB":"3000000", "DOCKER":"yes", "COMPOSE":"yes", "UDP_51820":"free", "SYSTEMD":"yes", "XUI_PRESENT":"no", "SS_AVAILABLE":"yes", "GIT_AVAILABLE":"yes", "SUI_PRESENT":"no", "DOCKGE_PRESENT":"no", "DOCKGE_TCP_5001":"free"}
 
 
-def test_catalog_has_four_known_projects():
-    assert set(CATALOG) == {"3x-ui", "3x-ui-https", "sing-box", "hysteria2", "wg-easy", "s-ui", "s-ui-https", "dockge", "dockge-access", "3x-ui-http"}
+def test_catalog_has_known_projects():
+    assert set(CATALOG) == {"3x-ui", "3x-ui-https", "sing-box", "hysteria2", "wg-easy", "s-ui", "s-ui-https", "dockge", "dockge-access", "3x-ui-http", "hiddify"}
 
 
 def test_supported_recipes_executable():

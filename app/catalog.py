@@ -17,6 +17,7 @@ from .s_ui import VERSION as SUI_VERSION, steps as sui_steps
 from .sui_https import https_steps as sui_https_steps
 from .dockge import VERSION as DOCKGE_VERSION, steps as dockge_steps, reconfigure_steps as dockge_reconfigure_steps, validate_port as dockge_validate_port
 from .docker_runtime import setup_mode as docker_setup_mode, extra_steps as docker_extra_steps
+from .hiddify import BLOCKERS as HIDDIFY_BLOCKERS, VERSION as HIDDIFY_VERSION, steps as hiddify_steps
 
 CATALOG = {
     "3x-ui": {
@@ -91,6 +92,14 @@ CATALOG = {
         "docs": "https://wg-easy.github.io/wg-easy/v15.4/examples/tutorials/basic-installation/",
         "summary": "使用 Docker Compose 部署 wg-easy v15，管理 Web 仅绑定 127.0.0.1，首次设置通过 SSH 隧道完成。",
         "requires": ["Linux amd64/arm64", "Docker Compose", "UDP 51820 未占用", "公网 IP/域名"],
+    },
+    "hiddify": {
+        "name": "Hiddify Manager", "subtitle": "多协议代理与用户管理面板", "category": "面板",
+        "icon": "shield", "deployment": "install", "risk": "高",
+        "docs": "https://hiddify.com/manager/installation-and-setup/guide/",
+        "summary": f"在专用 Ubuntu VPS 上安装固定版 {HIDDIFY_VERSION}，由 Hiddify 管理域名、端口和证书。",
+        "requires": ["全新独立 Ubuntu 22.04 / 24.04 / 26.04 VPS", "root SSH 使用 TCP 22",
+                     "x86_64 或 arm64，systemd", "80/443 无冲突", "约 1 GB 内存，根分区至少 5 GB 可用空间"],
     },
 }
 
@@ -279,14 +288,21 @@ def compatibility(project: str, facts: dict[str, Any], options: dict | None = No
                 issues.append("默认端口 5001/TCP 已占用，请使用自定义或随机端口")
     if project == "hysteria2" and facts.get("SYSTEMD") != "yes":
         issues.append("Hysteria2 官方安装脚本需要 systemd")
-    minimum_kb = (100_000 if project == "dockge-access" else
+    if project == "hiddify":
+        if os_id != "ubuntu" or facts.get("OS_VERSION") not in {"22.04", "24.04", "26.04"}:
+            issues.append(HIDDIFY_BLOCKERS["ubuntu"])
+        elif facts.get("HIDDIFY_STATE") != "ready":
+            issues.append(HIDDIFY_BLOCKERS.get(facts.get("HIDDIFY_STATE"), "缺少 Hiddify 专用 VPS 预检结果"))
+    minimum_kb = (5_000_000 if project == "hiddify" else
+                  100_000 if project == "dockge-access" else
                   (4_000_000 if docker_setup_mode(facts) == "fresh" else 3_000_000)
                   if project == "dockge" else
                   600_000 if project in {"3x-ui", "s-ui"} else 400_000)
     if not str(facts.get("FREE_KB", "")).isdigit():
         issues.append("无法确认根分区可用空间")
     elif int(facts["FREE_KB"]) < minimum_kb:
-        minimum_text = ("100 MB" if project == "dockge-access" else
+        minimum_text = ("5 GB" if project == "hiddify" else
+                        "100 MB" if project == "dockge-access" else
                         ("4 GB" if minimum_kb == 4_000_000 else "3 GB") if project == "dockge" else
                         ("600 MB" if minimum_kb == 600_000 else "400 MB"))
         issues.append(f"根分区可用空间不足（至少需要 {minimum_text}）")
@@ -440,6 +456,8 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
         steps = SINGBOX_STEPS
     elif runnable and project == "wg-easy":
         steps = WGEASY_STEPS
+    elif runnable and project == "hiddify":
+        steps = hiddify_steps()
     elif runnable and project == "dockge":
         steps = docker_extra_steps(facts) + dockge_steps(options.get("panel_port", 5001), options.get("access_mode", "local"))
     elif runnable and project == "dockge-access":
@@ -494,6 +512,11 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             ],
             "3x-ui-https": ["公网 TCP 80 必须允许 Let’s Encrypt HTTP-01 验证（本机空闲不代表云安全组开放）；域名证书要求 DNS A 正确，公网 IP 证书使用 shortlived", "IP 证书有效期约 160 小时，必须保持 netdeploy-certbot-renew.timer 活跃（独立续期）；域名证书使用系统 certbot.timer；失败不开放公网面板",  "公网 HTTPS 管理面板属于高敏感服务，请启用强密码、双因素认证和云防火墙 IP 白名单"],
             "hysteria2": ["需要单独实现 TLS 证书、身份认证和服务器配置"],
+            "hiddify": [
+                f"固定执行 Hiddify Manager v{HIDDIFY_VERSION} 官方安装入口，校验安装脚本和辅助脚本；上游会下载软件及其依赖",
+                "仅在已备份的独立 VPS 上审批。安装会改动系统与防火墙并使用 80/443，NetDeploy 不会替你修改云安全组",
+                "管理链接含访问凭据。安装后通过可信 SSH 运行 hiddify admin 查看，再到 Hiddify 配置域名与证书",
+            ],
         }[project],
     }
     if (project in {"3x-ui", "3x-ui-https", "s-ui", "s-ui-https"}

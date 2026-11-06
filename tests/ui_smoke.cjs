@@ -532,6 +532,16 @@ function fingerprintFor(label) {
   assert(modal.innerHTML.includes('确认安装依赖并部署 Dockge Apps'));
   assert(modal.innerHTML.includes('id="approve-form"'),
     'Install scripts must not run before the user approves the entire plan');
+  const hiddifyJob={...freshJob,project:'hiddify',plan:{...freshJob.plan,
+    project:'hiddify',name:'Hiddify Manager',options:{}}};
+  fill(hiddifyJob);
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('已备份的专用 VPS')&&modal.innerHTML.includes('80/443'));
+  assert(modal.innerHTML.includes('确认在专用 VPS 安装'));
+  fill({...hiddifyJob,status:'completed'});
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('<code>hiddify admin</code>'));
+  assert(!modal.innerHTML.includes('id="approve-form"'));
   fill();
 
   // An existing 3X-UI must open read-only information without a new plan.

@@ -84,7 +84,7 @@ async function loadAll(silent=false){
 }
 function stateText(status){return ({planned:'等待审批',queued:'已排队',running:'正在执行',completed:'执行完成',failed:'执行失败',interrupted:'执行中断',partial:'部分完成 · 等待验收',invalidated:'服务器已重装，计划失效'})[status]||status;}
 function chip(status){const cls=status==='completed'?'success':status==='failed'||status==='interrupted'||status==='invalidated'?'error':'warn';return `<span class="chip ${cls}">${escapeHtml(stateText(status))}</span>`;}
-const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡","s-ui-https":"🔒","dockge":"▣"};
+const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡","s-ui-https":"🔒","dockge":"▣","hiddify":"▣"};
 // Single source of truth: public projects, excluding internal upgrade recipes.
 function catalogProjects(catalog){return Object.entries(catalog||{}).filter(([,project])=>project&&!project.internal);}
 function render(){
@@ -1124,6 +1124,7 @@ function chooseHost(project,selectedHostId=null){
  if(!state.hosts.length){addHost();return;}
  dialog(modalHead(`${p.deployment==='install'?'部署':'部署规划'} ${p.name}`)+`<form id="plan-form"><p class="helptext">选择目标 VPS，点击生成方案时会自动进行最新的只读环境检测，无需提前手动扫描。</p>
  <div class="form-group"><label>目标服务器</label><select name="host_id" id="plan-host-id" required>${state.hosts.map(h=>`<option value="${h.id}"${h.id===selectedHostId?' selected':''}>${escapeHtml(h.name)} (${escapeHtml(h.hostname)})</option>`).join('')}</select></div>
+ ${project==='hiddify'?'<div class="modal-tip warning">仅选择独立的 Ubuntu VPS。Hiddify 会修改系统与防火墙，并使用 80 和 443 端口。</div>':''}
  ${project==='3x-ui'||project==='s-ui'?`${project==='3x-ui'?'<details><summary class="mini">高级设置（可选）：面板端口，默认 24443</summary><div class="form-group"><label>3X-UI 管理端口</label><input name="panel_port" type="number" min="1024" max="65535" value="24443" required/></div></details>':'<div class="modal-tip">S-UI 管理端口固定 2095/TCP；订阅 2096/TCP 始终仅本机监听，不直接开放公网。</div>'}
  <div class="form-group"><label>面板 HTTPS 处理方式</label><select id="tls-strategy" name="tls_strategy"><option value="https">自动申请 SSL 证书（公网 IPv4 / IPv6）</option><option value="npm">不申请证书，交给 NPM 反向代理提供 HTTPS</option><option value="local">不申请证书，仅通过本机 SSH 隧道访问</option></select></div><div class="modal-tip" id="cert-strategy-note"><b id="cert-type-preview">证书类型自动识别中</b><p class="helptext" id="cert-strategy-help">自动申请证书需要 TCP 80 完成 ACME HTTP-01 验证。</p></div>`:''}
  ${project==='dockge'?`<div class="form-group"><label>Dockge Apps 宿主机端口（可选）</label>
@@ -1216,6 +1217,7 @@ function showJob(id){
      (p.options?.access_mode==='local'||(job.project==='3x-ui'&&!p.options?.access_mode));
    const dockerPrep=job.project==='dockge'&&p.steps.length>4;
    const npmPlan=['3x-ui','s-ui'].includes(job.project)&&p.options?.access_mode==='npm';
+   const dedicatedHiddify=job.project==='hiddify';
    const publicXuiNote=job.project==='3x-ui-http'?`<div class="modal-tip warning"><b>高风险：将已安装 3X-UI 改为公网明文 HTTP。</b>开放的是 TCP ${escapeHtml(p.options.panel_port)}，不是 80。管理员用户名和密码通过 HTTP 发送，可能被窃听；必须先限制云安全组来源为自己的管理 IP。确认后不重装软件，失败会恢复本机监听。</div>`:'';
    const dockerNote=dockerPrep?'<div class="modal-tip warning"><b>将自动先安装缺少的 Docker / Compose / Git。</b>仅在通过安全检查且你审批后执行。Docker Engine 可能修改 iptables 及容器转发规则；部分容器端口可能绕过 UFW。已有 Docker 或数据冲突不会被强制覆盖，随后继续 Dockge Apps 安装。</div>':'';
    const dockgePublicNote=job.project==='dockge'&&p.options?.access_mode==='public'?'<div class="modal-tip warning"><b>本次部署将把 Dockge Apps 管理端口直接绑定至服务器公网 IP。</b>目标端口 '+escapeHtml(p.options.panel_port)+'/TCP；访问地址将是 http://'+escapeHtml(host?.hostname||p.hostname)+':'+escapeHtml(p.options.panel_port)+'/ 。该地址是未加密 HTTP，且 Dockge 通过 Docker Socket 可管理整台 VPS。<b>首次管理员创建前，任何能访问端口的人都可能抢先注册。</b>请确保云防火墙仅允许可信管理 IP，或先使用 SSH-only 模式完成初始化。只有点击下方的明确审批按钮才会执行公网部署。</div>':'';
@@ -1223,11 +1225,11 @@ function showJob(id){
    html+=`<div class="plan-overview"><h3>${job.project==='3x-ui-https'?'继续配置已安装的 3X-UI HTTPS（不重装）':job.project==='s-ui-https'?'继续配置已安装的 S-UI HTTPS（不重装）':job.project==='s-ui'&&p.options?.access_mode==='https'?'一键安装 S-UI 并申请 IP/域名证书':npmPlan?`安装 ${escapeHtml(p.name)}（无需申请证书，由 NPM 统一 HTTPS）`:xuiHttps?'一键安装 3X-UI 并配置 HTTPS':'准备部署 '+escapeHtml(p.name)}</h3>
      <p>目标：${escapeHtml(host?.hostname||p.hostname)} · ${p.steps.length} 个受控执行阶段 · 风险：${escapeHtml(p.risk)}</p>
      ${localPanel?'<p>管理面板通过 SSH 隧道访问。</p>':''}
-     ${dockerNote}${dockgePublicNote}${npmNote}${publicXuiNote}<div class="modal-tip warning">审批一次后将执行已固定的安装步骤；包括 APT 依赖处理、证书签发（如果需要）和所需的本机 UFW 端口规则。云厂商安全组仍需另行放行；建议先备份 VPS。</div></div>
+     ${dockerNote}${dockgePublicNote}${npmNote}${publicXuiNote}<div class="modal-tip warning">${dedicatedHiddify?'请确认这是已备份的专用 VPS。Hiddify 会修改系统和本机防火墙，使用 80/443；域名与证书在安装后由 Hiddify 配置。':'审批一次后将执行已固定的安装步骤；包括 APT 依赖处理、证书签发（如果需要）和所需的本机 UFW 端口规则。云厂商安全组仍需另行放行；建议先备份 VPS。'}</div></div>
      <form id="approve-form"><div class="modal-actions plan-primary-actions">
        <button type="button" class="btn subtle" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>
        <button type="button" class="btn ghost" data-action="close-modal">暂不部署</button>
-       <button class="btn primary" type="submit">${['3x-ui-https','s-ui-https'].includes(job.project)?'确认继续 HTTPS（不重装）':publicXuiNote?'确认开启公网 HTTP（不申请证书）':dockgePublicNote?'确认公网开放并部署 Dockge Apps':dockerPrep?'确认安装依赖并部署 Dockge Apps':'确认并一键部署'}</button>
+       <button class="btn primary" type="submit">${dedicatedHiddify?'确认在专用 VPS 安装':['3x-ui-https','s-ui-https'].includes(job.project)?'确认继续 HTTPS（不重装）':publicXuiNote?'确认开启公网 HTTP（不申请证书）':dockgePublicNote?'确认公网开放并部署 Dockge Apps':dockerPrep?'确认安装依赖并部署 Dockge Apps':'确认并一键部署'}</button>
      </div></form>`;
  }else if(isExistingXuiPlan(job)&&!stale){
    html+=`<section class="server-next-action is-ready"><span class="server-next-kicker">已安装 · 无需审批</span>
@@ -1250,6 +1252,7 @@ function showJob(id){
      <p>前四步已完成，但最终 SSH 握手异常，尚不能确定面板监听和防火墙是否验收通过。新版本会在执行远端命令前有限重连。恢复可信 SSH 后可点击下方按钮只读核查现有服务，不会执行安装器或改动密码。</p>
      <button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">只读检查现有 3X-UI（不重装） →</button></section>`;
    html+=`<h3>部署状态及日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(stateText(job.status))}</div>
+      ${job.project==='hiddify'&&job.status==='completed'&&!stale?'<div class="modal-tip">通过可信 SSH 运行 <code>hiddify admin</code> 查看管理员链接，再进入 Hiddify 配置域名。请妥善保管该链接。</div>':''}
       <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
       <div class="modal-actions modal-action-wrap">
        ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)&&!postInstallSshIssue?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看面板信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||p.options?.access_mode==='npm'||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}

@@ -101,6 +101,9 @@ class JobRunner:
                     "不要再次执行安装器或直接放行未经验证的面板端口。",
                 )
                 self.store.set_status(job_id, "partial", msg)
+            elif last is not None and last["project"] == "hiddify" and completed_steps == 1:
+                self.store.log(job_id, "Hiddify 安装器已返回，验收未完成。请先通过可信 SSH 核查现有服务：" + msg)
+                self.store.set_status(job_id, "partial", msg)
             elif installed_locally:
                 self.store.log(job_id, f"HTTPS 未完成：{msg}；{last['project']} 原安装步骤已完成，需核查本机监听状态")
                 self.store.set_status(job_id, "partial", msg)

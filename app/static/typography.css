@@ -251,6 +251,7 @@ footer{font-size:var(--ui-fs-caption);line-height:1.6}
 
 /* Dockge joins the full Project Center; the curated home page remains five cards. */
 #projects-section.is-featured .project[data-project="dockge"]{display:none}
+#projects-section.is-featured .project[data-project="hiddify"]{display:none}
 
 /* Shared compact deployment cards for the dashboard and Project Center.
    Remove the previous 240–267px minimum height and four-column ceiling. */
