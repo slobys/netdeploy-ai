@@ -89,6 +89,7 @@ const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"�
 function catalogProjects(catalog){return Object.entries(catalog||{}).filter(([,project])=>project&&!project.internal);}
 const projectGrid=el('#project-grid');
 const PROJECT_ORDER_KEY='nd_project_order';
+const FEATURED_PROJECT_LIMIT=5;
 let projectOrder=readProjectOrder();
 let projectDrag=null;
 let projectMarkup='';
@@ -103,8 +104,14 @@ function applyProjectOrder(){
  const cards=Array.from(projectGrid.children);
  const byId=new Map(cards.map(card=>[card.dataset.project,card]));
  const defaults=catalogProjects(state.catalog).map(([id])=>id);
- const ids=state.section==='projects'?[...new Set([...projectOrder,...defaults])]:defaults;
+ const customized=projectOrder.some(id=>byId.has(id));
+ const ids=customized?[...new Set([...projectOrder,...defaults])]:defaults;
  const ordered=ids.map(id=>byId.get(id)).filter(Boolean);
+ const featured=ordered.filter(card=>customized||!['dockge','hiddify'].includes(card.dataset.project))
+   .slice(0,FEATURED_PROJECT_LIMIT);
+ for(const card of cards){
+   card.classList.toggle('hidden',state.section==='dashboard'&&!featured.includes(card));
+ }
  if(ordered.some((card,index)=>card!==cards[index]))projectGrid.append(...ordered);
 }
 function moveProject(card,target){
@@ -240,7 +247,7 @@ function renderSection(){
  const visibleProjects=catalogProjects(state.catalog).length;
  const navBadge=el('#project-nav-count');
  if(navBadge){navBadge.textContent=String(visibleProjects);navBadge.setAttribute('aria-label',`共 ${visibleProjects} 个项目`);}
- const navName={dashboard:['总览面板','运行概览','集中管理服务器与自动化部署任务'],projects:['项目中心','项目中心',`共 ${visibleProjects} 个项目 · 拖动卡片右上角可调整顺序`],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','所有任务状态、审批和执行日志']};
+ const navName={dashboard:['总览面板','运行概览','集中管理服务器与自动化部署任务'],projects:['项目中心','项目中心',`共 ${visibleProjects} 个项目 · 拖动卡片右上角排序，首页显示排序后的前 ${FEATURED_PROJECT_LIMIT} 个`],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','所有任务状态、审批和执行日志']};
  const [title,heading,sub]=navName[state.section];el('#crumb-current').textContent=title;el('#section-title').textContent=heading;el('#section-subtitle').textContent=sub;
  document.querySelectorAll('[data-nav]').forEach(b=>{
    const navItem=b.classList.contains('nav-item');

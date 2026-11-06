@@ -363,8 +363,6 @@ function fingerprintFor(label) {
   evaluate(`state.catalog={...fixtures.featuredCatalog,dockge:{name:'Dockge',subtitle:'Compose stacks',category:'容器',deployment:'install'}};render();`);
   assert.equal((made.get('#project-grid').innerHTML.match(/class="project"/g)||[]).length,6,
     'All six projects are available in the complete catalog');
-  assert(typographyCss.includes('#projects-section.is-featured .project[data-project="dockge"]{display:none}'),
-    'New Dockge card stays in Project Center so home still shows five curated cards');
   evaluate('state.section="projects";renderSection();');
   assert(made.get('#section-subtitle').textContent.includes('共 6 个项目'));
   assert(made.get('#project-grid').innerHTML.includes('data-project="dockge"'));
@@ -973,26 +971,30 @@ function fingerprintFor(label) {
   evaluate('logout()');
   assert.equal(messages.children.length,0,'Remove conversation messages on panel logout');
 
-  // Preferences survive catalog changes, and only apply to Project Center.
+  // Keep the default selection until the user sorts. Then feature the top five.
   const grid=made.get('#project-grid');
-  const cards=['3x-ui','s-ui','hiddify'].map(project=>({dataset:{project}}));
-  grid.children=cards;
+  const defaults=['3x-ui','s-ui','sing-box','hysteria2','dockge','wg-easy','hiddify'];
+  grid.children=defaults.map(project=>({...makeElement(),dataset:{project}}));
   grid.append=function(...ordered){this.children=ordered;};
-  let saved=JSON.stringify(['removed','hiddify','hiddify',42]);
+  let saved='[]';
   context.window.localStorage={
     getItem:()=>saved,
     setItem:(key,value)=>{assert.equal(key,'nd_project_order');saved=value;},
   };
-  evaluate(`state.catalog={'3x-ui':{name:'3X-UI'},'s-ui':{name:'S-UI'},hiddify:{name:'Hiddify Manager'}};
-    state.section='projects';projectOrder=readProjectOrder();applyProjectOrder();`);
-  const cardIds=()=>grid.children.map(card=>card.dataset.project);
-  assert.deepEqual(cardIds(),['hiddify','3x-ui','s-ui']);
-  evaluate('moveProject(projectGrid.children[0],projectGrid.children[2])');
-  assert.deepEqual(JSON.parse(saved),['3x-ui','s-ui','hiddify']);
-  evaluate("state.section='dashboard';applyProjectOrder();state.section='projects';moveProject(projectGrid.children[2],projectGrid.children[0]);");
-  assert.deepEqual(cardIds(),['hiddify','3x-ui','s-ui']);
+  evaluate(`state.catalog=Object.fromEntries(${JSON.stringify(defaults)}.map(id=>[id,{name:id}]));
+    state.section='dashboard';projectOrder=readProjectOrder();applyProjectOrder();`);
+  const visibleCards=()=>grid.children.filter(card=>!card.classList.contains('hidden')).map(card=>card.dataset.project);
+  assert.deepEqual(visibleCards(),['3x-ui','s-ui','sing-box','hysteria2','wg-easy']);
+
+  saved=JSON.stringify(['removed','3x-ui','s-ui','hiddify','hiddify',42]);
+  evaluate('projectOrder=readProjectOrder();applyProjectOrder()');
+  assert.deepEqual(visibleCards(),['3x-ui','s-ui','hiddify','sing-box','hysteria2']);
+  evaluate("state.section='projects';applyProjectOrder();");
+  assert.deepEqual(visibleCards(),['3x-ui','s-ui','hiddify','sing-box','hysteria2','dockge','wg-easy']);
+  evaluate('moveProject(projectGrid.children[0],projectGrid.children[6])');
+  assert.deepEqual(JSON.parse(saved),['s-ui','hiddify','sing-box','hysteria2','dockge','wg-easy','3x-ui']);
   evaluate("state.section='dashboard';applyProjectOrder();");
-  assert.deepEqual(cardIds(),['3x-ui','s-ui','hiddify']);
+  assert.deepEqual(visibleCards(),['s-ui','hiddify','sing-box','hysteria2','dockge']);
 
   console.log('UI smoke: pending approval, plan expiry, duplicate prevention, fingerprint states and responsive CSS OK');
 })().catch(err=>{console.error(err);process.exitCode=1;});
