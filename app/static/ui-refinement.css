@@ -77,6 +77,46 @@
 #projects-section:is(.is-featured,.is-catalog) .project-footer .btn {
   min-height: 40px;
 }
+.project-sort-handle {
+  display: none;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--theme-line);
+  border-radius: var(--nd-control-radius);
+  background: var(--theme-panel-2);
+  color: var(--theme-secondary);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+#projects-section.is-catalog .project-sort-handle { display: grid; }
+#projects-section.is-catalog .project-kind { margin-inline-start: auto; }
+.project-sort-handle svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.project-sort-handle:hover { color: var(--theme-accent); border-color: var(--theme-line-strong); }
+.project-sort-handle:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: 2px; }
+#project-grid.is-reordering .project-sort-handle { cursor: grabbing; }
+#project-grid .is-drag-source { opacity: .55; }
+#project-grid .is-drop-target { outline: 2px dashed var(--theme-accent); outline-offset: -2px; }
+#project-order-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+@media (pointer: coarse) {
+  .project-sort-handle { width: 44px; height: 44px; }
+}
 .host-list { align-items: stretch; }
 .host-add-card {
   display: grid;

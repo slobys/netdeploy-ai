@@ -87,6 +87,116 @@ function chip(status){const cls=status==='completed'?'success':status==='failed'
 const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡","s-ui-https":"🔒","dockge":"▣","hiddify":"▣"};
 // Single source of truth: public projects, excluding internal upgrade recipes.
 function catalogProjects(catalog){return Object.entries(catalog||{}).filter(([,project])=>project&&!project.internal);}
+const projectGrid=el('#project-grid');
+const PROJECT_ORDER_KEY='nd_project_order';
+let projectOrder=readProjectOrder();
+let projectDrag=null;
+let projectMarkup='';
+
+function readProjectOrder(){
+ try{
+   const saved=JSON.parse(window.localStorage.getItem(PROJECT_ORDER_KEY));
+   return Array.isArray(saved)?saved.filter(id=>typeof id==='string'):[];
+ }catch{return [];}
+}
+function applyProjectOrder(){
+ const cards=Array.from(projectGrid.children);
+ const byId=new Map(cards.map(card=>[card.dataset.project,card]));
+ const defaults=catalogProjects(state.catalog).map(([id])=>id);
+ const ids=state.section==='projects'?[...new Set([...projectOrder,...defaults])]:defaults;
+ const ordered=ids.map(id=>byId.get(id)).filter(Boolean);
+ if(ordered.some((card,index)=>card!==cards[index]))projectGrid.append(...ordered);
+}
+function moveProject(card,target){
+ const cards=Array.from(projectGrid.children);
+ const from=cards.indexOf(card),to=cards.indexOf(target);
+ if(from<0||to<0||from===to)return;
+ const [moved]=cards.splice(from,1);
+ cards.splice(to,0,moved);
+ projectOrder=cards.map(item=>item.dataset.project);
+ try{window.localStorage.setItem(PROJECT_ORDER_KEY,JSON.stringify(projectOrder));}catch{}
+ applyProjectOrder();
+ el('#project-order-status').textContent=`${state.catalog[card.dataset.project].name} 已移动到第 ${to+1} 位`;
+}
+function highlightProjectTarget(drag){
+ const card=document.elementFromPoint(drag.x,drag.y)?.closest('#project-grid > .project');
+ const target=card&&card!==drag.card?card:null;
+ if(target===drag.target)return;
+ drag.target?.classList.remove('is-drop-target');
+ target?.classList.add('is-drop-target');
+ drag.target=target;
+}
+function scrollProjectDrag(){
+ const drag=projectDrag;
+ if(!drag?.active)return;
+ const {left,right}=projectGrid.getBoundingClientRect();
+ if(drag.x>=left&&drag.x<=right&&drag.y>=0&&drag.y<window.innerHeight){
+   const delta=drag.y<48?-12:drag.y>window.innerHeight-48?12:0;
+   if(delta){
+     window.scrollBy({top:delta,behavior:'instant'});
+     highlightProjectTarget(drag);
+   }
+ }
+ drag.frame=window.requestAnimationFrame(scrollProjectDrag);
+}
+function cancelProjectDrag(){
+ const drag=projectDrag;
+ if(!drag)return;
+ projectDrag=null;
+ if(drag.frame)window.cancelAnimationFrame(drag.frame);
+ drag.card.classList.remove('is-drag-source');
+ drag.target?.classList.remove('is-drop-target');
+ projectGrid.classList.remove('is-reordering');
+ if(projectGrid.hasPointerCapture(drag.id))projectGrid.releasePointerCapture(drag.id);
+}
+projectGrid.addEventListener('pointerdown',event=>{
+ const handle=event.target.closest('.project-sort-handle');
+ if(state.section!=='projects'||!handle||event.button!==0||!event.isPrimary||projectDrag)return;
+ projectGrid.setPointerCapture(event.pointerId);
+ projectDrag={id:event.pointerId,card:handle.closest('.project'),x:event.clientX,y:event.clientY,
+   startX:event.clientX,startY:event.clientY,target:null,active:false,frame:0};
+});
+projectGrid.addEventListener('pointermove',event=>{
+ const drag=projectDrag;
+ if(!drag||drag.id!==event.pointerId)return;
+ drag.x=event.clientX;
+ drag.y=event.clientY;
+ if(!drag.active){
+   if(Math.hypot(drag.x-drag.startX,drag.y-drag.startY)<5)return;
+   drag.active=true;
+   drag.card.classList.add('is-drag-source');
+   projectGrid.classList.add('is-reordering');
+   drag.frame=window.requestAnimationFrame(scrollProjectDrag);
+ }
+ highlightProjectTarget(drag);
+});
+projectGrid.addEventListener('pointerup',event=>{
+ const drag=projectDrag;
+ if(!drag||drag.id!==event.pointerId)return;
+ if(drag.active){
+   drag.x=event.clientX;
+   drag.y=event.clientY;
+   highlightProjectTarget(drag);
+ }
+ cancelProjectDrag();
+ if(drag.target)moveProject(drag.card,drag.target);
+});
+for(const type of ['pointercancel','lostpointercapture']){
+ projectGrid.addEventListener(type,event=>{
+   if(projectDrag?.id===event.pointerId)cancelProjectDrag();
+ });
+}
+projectGrid.addEventListener('keydown',event=>{
+ const handle=event.target.closest('.project-sort-handle');
+ const delta={ArrowLeft:-1,ArrowUp:-1,ArrowRight:1,ArrowDown:1}[event.key];
+ if(state.section!=='projects'||!handle||!delta||event.ctrlKey||event.altKey||event.metaKey||projectDrag)return;
+ event.preventDefault();
+ const cards=Array.from(projectGrid.children),card=handle.closest('.project');
+ const target=cards[cards.indexOf(card)+delta];
+ if(!target)return;
+ moveProject(card,target);
+ handle.focus();
+});
 function render(){
  const {hosts,jobs,catalog}=state;
  const projects=catalogProjects(catalog);
@@ -99,11 +209,17 @@ function render(){
   ['完成任务',jobs.filter(j=>j.status==='completed').length,'✓','安装完成仍需业务配置'],
   ['待处理任务',jobs.filter(j=>['failed','interrupted','partial'].includes(j.status)||(j.status==='planned'&&j.plan?.executable)).length,'⌁','需确认或排障的任务']
  ].map(([label,val,ico,desc])=>`<div class="stat"><div class="top"><span>${label}</span><span class="icon">${ico}</span></div><strong>${val}</strong><small>${desc}</small></div>`).join('');
- el('#project-grid').innerHTML = projects.map(([key,p])=>`
- <div class="project" data-project="${escapeHtml(key)}"><div class="project-head"><div class="project-icon">${symbol[key]}</div><span class="project-kind">${escapeHtml(p.category)}</span></div>
+ const markup=projects.map(([key,p])=>`
+ <div class="project" data-project="${escapeHtml(key)}"><div class="project-head"><div class="project-icon">${symbol[key]}</div><span class="project-kind">${escapeHtml(p.category)}</span>
+ <button type="button" class="project-sort-handle" title="拖动或用方向键调整顺序" aria-label="调整 ${escapeHtml(p.name)} 的顺序" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01"/></svg></button></div>
  <h3>${escapeHtml(p.name)}</h3><p>${escapeHtml(p.subtitle)}</p><div class="project-footer">
  <span class="status ${p.deployment==='install'?'':'muted'}">${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'已安装 · 无需审批':p.deployment==='install'?'自动安装 Beta':'方案引导'}</span>
  <button class="btn subtle" data-action="${key==='3x-ui'&&loneInstalledXui?'installed-xui':key==='s-ui'&&loneInstalledSui?'installed-sui':key==='dockge'&&loneInstalledDockge?'installed-dockge':'plan'}" ${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'data-id="'+hosts[0].id+'"':'data-project="'+escapeHtml(key)+'"'}>${(key==='3x-ui'&&loneInstalledXui)||(key==='s-ui'&&loneInstalledSui)||(key==='dockge'&&loneInstalledDockge)?'查看已安装面板':p.deployment==='install'?'部署项目':'查看方案'} →</button></div></div>`).join('');
+ if(markup!==projectMarkup){
+   cancelProjectDrag();
+   projectGrid.innerHTML=markup;
+   projectMarkup=markup;
+ }
  el('#host-list').innerHTML=hosts.length?hosts.map(h=>{
    const duplicate=hosts.filter(x=>x.hostname.toLowerCase()===h.hostname.toLowerCase()&&x.port===h.port).length;
    const status=!h.credential_ready?'需要登录凭据':h.facts?'最近检测成功':'待连接检测';
@@ -124,7 +240,7 @@ function renderSection(){
  const visibleProjects=catalogProjects(state.catalog).length;
  const navBadge=el('#project-nav-count');
  if(navBadge){navBadge.textContent=String(visibleProjects);navBadge.setAttribute('aria-label',`共 ${visibleProjects} 个项目`);}
- const navName={dashboard:['总览面板','运行概览','集中管理服务器与自动化部署任务'],projects:['项目中心','项目中心',`共 ${visibleProjects} 个项目 · 选择经过审核的部署模板或查看方案`],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','所有任务状态、审批和执行日志']};
+ const navName={dashboard:['总览面板','运行概览','集中管理服务器与自动化部署任务'],projects:['项目中心','项目中心',`共 ${visibleProjects} 个项目 · 拖动卡片右上角可调整顺序`],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','所有任务状态、审批和执行日志']};
  const [title,heading,sub]=navName[state.section];el('#crumb-current').textContent=title;el('#section-title').textContent=heading;el('#section-subtitle').textContent=sub;
  document.querySelectorAll('[data-nav]').forEach(b=>{
    const navItem=b.classList.contains('nav-item');
@@ -138,6 +254,8 @@ function renderSection(){
  // hides its redundant second heading; dashboard keeps the curated heading/link.
  el('#projects-section').classList.toggle('is-featured',state.section==='dashboard');
  el('#projects-section').classList.toggle('is-catalog',state.section==='projects');
+ if(state.section!=='projects')cancelProjectDrag();
+ applyProjectOrder();
  el('#hosts-section').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
  el('#jobs-section').classList.toggle('hidden',!['dashboard','jobs'].includes(state.section));
 }
@@ -1709,6 +1827,9 @@ if(window.matchMedia('(hover: hover) and (prefers-reduced-motion: no-preference)
  },{passive:true});
 }
 document.addEventListener('keydown',e=>{
+ if(e.key==='Escape'&&projectDrag){
+   e.preventDefault();cancelProjectDrag();return;
+ }
  const layer=el('#modal'),contentNode=el('#modal-content');
  if(layer&&!layer.classList.contains('hidden')){
    if(e.key==='Escape'){

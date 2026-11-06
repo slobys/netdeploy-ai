@@ -973,5 +973,26 @@ function fingerprintFor(label) {
   evaluate('logout()');
   assert.equal(messages.children.length,0,'Remove conversation messages on panel logout');
 
+  // Preferences survive catalog changes, and only apply to Project Center.
+  const grid=made.get('#project-grid');
+  const cards=['3x-ui','s-ui','hiddify'].map(project=>({dataset:{project}}));
+  grid.children=cards;
+  grid.append=function(...ordered){this.children=ordered;};
+  let saved=JSON.stringify(['removed','hiddify','hiddify',42]);
+  context.window.localStorage={
+    getItem:()=>saved,
+    setItem:(key,value)=>{assert.equal(key,'nd_project_order');saved=value;},
+  };
+  evaluate(`state.catalog={'3x-ui':{name:'3X-UI'},'s-ui':{name:'S-UI'},hiddify:{name:'Hiddify Manager'}};
+    state.section='projects';projectOrder=readProjectOrder();applyProjectOrder();`);
+  const cardIds=()=>grid.children.map(card=>card.dataset.project);
+  assert.deepEqual(cardIds(),['hiddify','3x-ui','s-ui']);
+  evaluate('moveProject(projectGrid.children[0],projectGrid.children[2])');
+  assert.deepEqual(JSON.parse(saved),['3x-ui','s-ui','hiddify']);
+  evaluate("state.section='dashboard';applyProjectOrder();state.section='projects';moveProject(projectGrid.children[2],projectGrid.children[0]);");
+  assert.deepEqual(cardIds(),['hiddify','3x-ui','s-ui']);
+  evaluate("state.section='dashboard';applyProjectOrder();");
+  assert.deepEqual(cardIds(),['3x-ui','s-ui','hiddify']);
+
   console.log('UI smoke: pending approval, plan expiry, duplicate prevention, fingerprint states and responsive CSS OK');
 })().catch(err=>{console.error(err);process.exitCode=1;});
