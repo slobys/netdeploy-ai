@@ -75,7 +75,7 @@ async function loadAll(silent=false){
           toast(active.status==='completed'?'任务已完成，可以直接查看面板信息':'任务状态已更新，请查看错误或后续操作',active.status==='failed');
         }else{
           logbox.textContent=active.logs||'还没有执行日志';
-          statusNode.textContent=stateText(active.status);
+          statusNode.textContent=jobStatusText(active);
           statusNode.dataset.currentStatus=active.status;
         }
       }
@@ -83,7 +83,9 @@ async function loadAll(silent=false){
   } catch(err){if(!silent)toast(err.message,true);} finally{state.loading=false;}
 }
 function stateText(status){return ({planned:'等待审批',queued:'已排队',running:'正在执行',completed:'执行完成',failed:'执行失败',interrupted:'执行中断',partial:'部分完成 · 等待验收',invalidated:'服务器已重装，计划失效'})[status]||status;}
-function chip(status){const cls=status==='completed'?'success':status==='failed'||status==='interrupted'||status==='invalidated'?'error':'warn';return `<span class="chip ${cls}">${escapeHtml(stateText(status))}</span>`;}
+function hiddifyPlanBlocked(job){return job.project==='hiddify'&&job.status==='planned'&&job.plan?.executable===false;}
+function jobStatusText(job){return hiddifyPlanBlocked(job)?'预检未通过':stateText(job.status);}
+function chip(job){const {status}=job;const cls=status==='completed'?'success':status==='failed'||status==='interrupted'||status==='invalidated'?'error':'warn';return `<span class="chip ${cls}">${escapeHtml(jobStatusText(job))}</span>`;}
 const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡","s-ui-https":"🔒","dockge":"▣","hiddify":"▣"};
 // Single source of truth: public projects, excluding internal upgrade recipes.
 function catalogProjects(catalog){return Object.entries(catalog||{}).filter(([,project])=>project&&!project.internal);}
@@ -240,7 +242,7 @@ function render(){
     </article>`;
  }).join('')+`<button class="host-add-card" type="button" data-action="add-host" aria-label="添加 VPS 服务器" title="添加 VPS 服务器">＋</button>`:
  `<div class="empty"><span class="empty-icon">▤</span><span>还没有 VPS。添加后点击卡片，即可在同一个控制台管理连接、部署与端口。</span><button class="btn primary" data-action="add-host">＋ 添加第一台 VPS</button></div>`;
- el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${isExistingXuiPlan(j)?'<span class="chip success">已安装 · 无需审批</span>':chip(j.status)}<button class="btn ${j.status==='planned'?'primary':'subtle'}" data-action="${isExistingXuiPlan(j)?'installed-xui':historicalHttpsFailure(j)?'regenerate-plan':planNeedsUpdate(j)&&j.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(isExistingXuiPlan(j)?j.host_id:j.id)}">${escapeHtml(jobNextAction(j))} →</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
+ el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${isExistingXuiPlan(j)?'<span class="chip success">已安装 · 无需审批</span>':chip(j)}<button class="btn ${j.status==='planned'?'primary':'subtle'}" data-action="${isExistingXuiPlan(j)?'installed-xui':historicalHttpsFailure(j)?'regenerate-plan':planNeedsUpdate(j)&&j.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(isExistingXuiPlan(j)?j.host_id:j.id)}">${escapeHtml(jobNextAction(j))} →</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
  renderSection();
 }
 function renderSection(){
@@ -282,6 +284,7 @@ function isExistingXuiPlan(job){
 }
 function jobLabel(job){
  if(isExistingXuiPlan(job))return '已安装 · 无需审批';
+ if(hiddifyPlanBlocked(job))return jobStatusText(job);
  if(job.status==='planned'&&!job.plan?.executable)return '当前不能自动部署';
  return stateText(job.status);
 }
@@ -1317,12 +1320,14 @@ function showJob(id){
  state.activeJob=id;
  const p=job.plan,host=state.hosts.find(h=>h.id===job.host_id);
  const stale=(p.trust_epoch||0)!==(host?.trust_epoch||0);
+ const recheckHiddify=hiddifyPlanBlocked(job)&&!stale&&host&&host.hostname===p.hostname;
  const postInstallSshIssue=job.project==='3x-ui'&&!stale&&['failed','partial'].includes(job.status)&&
    String(job.logs||'').includes('通过：Official installer finished; sensitive credentials kept on VPS only')&&
    /SSH_(HANDSHAKE_FAILED|CONNECT_TIMEOUT|CONNECTION_REFUSED|NETWORK_ERROR|AUTH_FAILED)/.test(String(job.error||job.logs||''));
- let html=modalHead(`${p.name} · 部署任务`)+`<div class="toolbar">${chip(job.status)}<span class="chip">${escapeHtml(host?.name||p.hostname)}</span><span class="chip">${escapeHtml(p.options?.panel_port||'')}${p.options?.panel_port?' / TCP':''}</span></div>`;
+ let html=modalHead(`${p.name} · 部署任务`)+`<div class="toolbar">${chip(job)}<span class="chip">${escapeHtml(host?.name||p.hostname)}</span><span class="chip">${escapeHtml(p.options?.panel_port||'')}${p.options?.panel_port?' / TCP':''}</span></div>`;
  if(stale)html+='<div class="modal-tip warning">此任务属于服务器重装前的系统。旧登录信息和审批计划已失效，必须重新检测并创建新的部署方案。</div>';
  if(p.issues.length&&!isExistingXuiPlan(job))html+=`<div class="modal-tip warning">${p.issues.map(escapeHtml).join('；')}</div>`;
+ if(recheckHiddify)html+='<p class="helptext">上面是这份方案生成时的检查结果。重新检测会生成新方案，安装前仍需你审批。</p>';
  if(job.status==='planned'&&p.executable&&!stale&&job.needs_refresh===true){
    html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧脚本已更新</span>
      <h3>这份审批计划来自更新前的版本</h3><p>3X-UI HTTPS 命令已修复，旧计划不能直接用。点击下面按钮重新检测并生成当前版本的固定方案；不会立即改动 VPS。</p>
@@ -1377,10 +1382,11 @@ function showJob(id){
      <h3>先检查已安装的 3X-UI，不要重复部署</h3>
      <p>前四步已完成，但最终 SSH 握手异常，尚不能确定面板监听和防火墙是否验收通过。新版本会在执行远端命令前有限重连。恢复可信 SSH 后可点击下方按钮只读核查现有服务，不会执行安装器或改动密码。</p>
      <button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">只读检查现有 3X-UI（不重装） →</button></section>`;
-   html+=`<h3>部署状态及日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(stateText(job.status))}</div>
+   html+=`<h3>部署状态及日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(jobStatusText(job))}</div>
       ${job.project==='hiddify'&&job.status==='completed'&&!stale?'<div class="modal-tip">通过可信 SSH 运行 <code>hiddify admin</code> 查看管理员链接，再进入 Hiddify 配置域名。请妥善保管该链接。</div>':''}
       <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
       <div class="modal-actions modal-action-wrap">
+       ${recheckHiddify?`<button type="button" class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>`:''}
        ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)&&!postInstallSshIssue?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看面板信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||p.options?.access_mode==='npm'||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
        ${job.project==='s-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI 面板信息</button>${job.status==='partial'||(!['https','npm'].includes(p.options?.access_mode))?`<button class="btn subtle" data-action="sui-upgrade" data-id="${job.host_id}">继续完成 HTTPS</button>`:''}`:''}
        ${job.project==='s-ui-https'&&!stale&&job.status==='completed'?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI HTTPS 面板</button>`:''}
@@ -1459,7 +1465,8 @@ async function regeneratePlan(id){
    await loadAll(true);
    if(!state.jobs.some(j=>j.id===newJob.id))state.jobs.unshift(newJob);
    showJob(newJob.id);
-   toast('已重新检测并生成新部署计划；请检查步骤并再次审批');
+   if(hiddifyPlanBlocked(newJob))toast('已重新检测，预检仍未通过。请查看任务里的原因。',true);
+   else toast('已重新检测并生成新部署计划；请检查步骤并再次审批');
  }catch(err){toast(err.message,true);}
  finally{if(button?.isConnected)button.disabled=false;}
 }

@@ -531,11 +531,21 @@ function fingerprintFor(label) {
   assert(modal.innerHTML.includes('id="approve-form"'),
     'Install scripts must not run before the user approves the entire plan');
   const hiddifyJob={...freshJob,project:'hiddify',plan:{...freshJob.plan,
-    project:'hiddify',name:'Hiddify Manager',options:{}}};
+    project:'hiddify',name:'Hiddify Manager',hostname:host.hostname,options:{}}};
   fill(hiddifyJob);
   evaluate("showJob('a1b2c3d4e5f6a7b8')");
   assert(modal.innerHTML.includes('已备份的专用 VPS')&&modal.innerHTML.includes('80/443'));
   assert(modal.innerHTML.includes('确认在专用 VPS 安装'));
+  const blockedHiddify={...hiddifyJob,plan:{...hiddifyJob.plan,executable:false,
+    steps:[],issues:['缺少 ss、curl、flock 或其他基础检查工具']}};
+  fill(blockedHiddify);
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('预检未通过')&&!modal.innerHTML.includes('等待审批'));
+  assert(modal.innerHTML.includes('data-action="regenerate-plan"')&&modal.innerHTML.includes('重新检测方案'));
+  assert(!modal.innerHTML.includes('id="approve-form"'),'A blocked preflight cannot be approved');
+  fill({...blockedHiddify,plan:{...blockedHiddify.plan,trust_epoch:99}});
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(!modal.innerHTML.includes('data-action="regenerate-plan"'),'A plan from a prior SSH identity cannot be refreshed in place');
   fill({...hiddifyJob,status:'completed'});
   evaluate("showJob('a1b2c3d4e5f6a7b8')");
   assert(modal.innerHTML.includes('<code>hiddify admin</code>'));
