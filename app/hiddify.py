@@ -113,7 +113,9 @@ curl --proto '=https' --proto-redir '=https' -fsSL --connect-timeout 15 --max-ti
 printf '%s  %s\n' '{INSTALLER_SHA256}' hiddify_installer.sh '{UTILS_SHA256}' utils.sh | sha256sum --check --status
 check_host
 log=$(mktemp /var/log/netdeploy-hiddify.XXXXXX.log)
-if timeout -k 20s 35m bash ./hiddify_installer.sh 'v{VERSION}' --no-gui --no-log </dev/null >"$log" 2>&1; then
+# The upstream installer creates runtimes for unprivileged systemd services.
+# Keep NetDeploy's staging and log private without passing that mask to Hiddify.
+if (umask 022 && timeout -k 20s 35m bash ./hiddify_installer.sh 'v{VERSION}' --no-gui --no-log) </dev/null >"$log" 2>&1; then
   printf '安装器已返回；受保护的原始日志在 VPS 的 %s\n' "$log"
 else
   printf '安装未完成。请在 VPS 检查受保护的日志 %s 和现有服务，避免直接重装。\n' "$log" >&2

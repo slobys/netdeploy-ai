@@ -8,7 +8,7 @@ import pytest
 
 from app import main
 from app.catalog import build_plan
-from app.hiddify import COMMIT, INSTALLER_SHA256, PRECHECK, UTILS_SHA256, VERSION
+from app.hiddify import COMMIT, INSTALLER_SHA256, PRECHECK, UTILS_SHA256, VERSION, steps
 from app.store import Store
 
 
@@ -46,7 +46,7 @@ def test_hiddify_plan_blocks_incompatible_targets(change):
 
 
 @pytest.fixture
-def run_hiddify_precheck(tmp_path):
+def bash_path():
     if os.name == "nt":
         git = shutil.which("git")
         bash = Path(git).resolve().parent.parent / "bin" / "bash.exe" if git else None
@@ -56,7 +56,11 @@ def run_hiddify_precheck(tmp_path):
         bash = shutil.which("bash")
     if not bash:
         pytest.skip("Bash is required to exercise the VPS precheck")
+    return str(bash)
 
+
+@pytest.fixture
+def run_hiddify_precheck(tmp_path, bash_path):
     (tmp_path / "os-release").write_bytes(b'ID=ubuntu\nVERSION_ID="24.04"\n')
     (tmp_path / "meminfo").write_bytes(b"MemTotal: 2000000 kB\n")
     precheck = PRECHECK.replace("/etc/os-release", "./os-release")
@@ -101,7 +105,7 @@ systemctl() {
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(f"0::{group}\n".encode("ascii"))
         result = subprocess.run(
-            [str(bash), "--noprofile", "--norc", "-se"],
+            [bash_path, "--noprofile", "--norc", "-se"],
             input=(fake_vps + precheck + "\nhiddify_precheck\n").encode("ascii"),
             cwd=tmp_path, capture_output=True, timeout=10, check=True,
             env={**os.environ, "SSH_CONNECTION": "192.0.2.10 54321 192.0.2.20 22",
@@ -143,6 +147,37 @@ def test_hiddify_precheck_exempts_only_verified_ops_agent_listeners(
     run_hiddify_precheck, listeners, process_override, expected,
 ):
     assert run_hiddify_precheck(listeners="\n".join(listeners), **process_override) == expected
+
+
+def test_hiddify_installer_keeps_staging_private_and_uses_service_compatible_umask(tmp_path, bash_path):
+    install = steps()[0]["script"].replace(PRECHECK, "\nhiddify_precheck() { echo ready; }\n")
+    install = install.replace("/run/lock/netdeploy-hiddify.lock", "./install.lock")
+    install = install.replace("/var/log/netdeploy-hiddify.XXXXXX.log", "../netdeploy-hiddify.XXXXXX.log")
+    install = install.replace("""trap 'rm -rf -- "$work"' EXIT""", "")
+    fake_vps = r"""
+export TMPDIR="$PWD"
+id() { echo 0; }
+uname() { echo x86_64; }
+df() { printf 'header\nfs 0 0 8000000 0 /\n'; }
+flock() { :; }
+curl() { :; }
+sha256sum() { cat >/dev/null; }
+mktemp() {
+  printf 'staging_mask=%s\n' "$(umask)" >&2
+  command mktemp "$@"
+}
+timeout() { printf 'installer_mask=%s\n' "$(umask)"; }
+"""
+    result = subprocess.run(
+        [bash_path, "--noprofile", "--norc", "-se"],
+        input=(fake_vps + install).encode("utf-8"),
+        cwd=tmp_path, capture_output=True, timeout=10, check=True,
+    )
+    assert result.stderr.splitlines() == [b"staging_mask=0077", b"staging_mask=0077"]
+    log, = tmp_path.glob("netdeploy-hiddify.*.log")
+    assert log.read_bytes() == b"installer_mask=0022\n"
+    if os.name != "nt":
+        assert log.stat().st_mode & 0o777 == 0o600
 
 
 def test_hiddify_approval_rechecks_the_dedicated_host(tmp_path, monkeypatch):
