@@ -28,6 +28,7 @@ from .ai import (diagnose, codex_status, codex_connect, codex_cancel, codex_logo
                  interpret_panel_command)
 from .os_keyring import VaultUnavailable
 from .https_upgrade import identify, https_access_script, https_url
+from .hiddify import STATUS as HIDDIFY_STATUS_SCRIPT
 from .firewall import (PortRule, FirewallBatch, STATUS_SCRIPT, allow_port_script,
                        allow_ports_script, parse_firewall_batch_output,
                        FirewallToggle, firewall_toggle_script)
@@ -914,6 +915,33 @@ def create_deployment_plan(body: NewJob, *, expected_host: dict | None = None):
 @app.get("/api/jobs/{id}", dependencies=[Depends(authorized)])
 def get_job(id: str):
     return public_job(find_job(id))
+
+
+@app.get("/api/jobs/{id}/hiddify-status", dependencies=[Depends(authorized)])
+def hiddify_job_status(id: str):
+    job = find_job(id)
+    if job["project"] != "hiddify":
+        raise HTTPException(status_code=404, detail="此任务不属于 Hiddify")
+    host = find_host(job["host_id"])
+    plan = job["plan"]
+    if plan.get("hostname") != host["hostname"] or plan.get("trust_epoch", 0) != host.get("trust_epoch", 0):
+        raise HTTPException(status_code=409, detail="服务器已更换或重装，请从当前服务器发起检查")
+    if not executor.credential_ready(host):
+        raise HTTPException(status_code=409, detail="SSH 登录凭据不可用，请在服务器管理中检查登录方式")
+    try:
+        raw = executor.run(host, HIDDIFY_STATUS_SCRIPT, timeout=25)
+    except (SSHError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="无法通过可信 SSH 检查 Hiddify，请核对服务器连接") from exc
+    current = find_host(host["id"])
+    identity = ("hostname", "port", "username", "auth_mode", "trust_epoch")
+    if any(current.get(key) != host.get(key) for key in identity):
+        raise HTTPException(status_code=409, detail="检查期间服务器连接配置已变化，请重试")
+    markers = [line for line in raw.splitlines() if line.startswith("HIDDIFY_STATUS=")]
+    if markers == ["HIDDIFY_STATUS=running"]:
+        return {"status": "running"}
+    if markers == ["HIDDIFY_STATUS=incomplete"]:
+        return {"status": "incomplete"}
+    raise HTTPException(status_code=422, detail="Hiddify 状态检查返回了无法识别的结果")
 
 
 @app.delete("/api/jobs/{id}", dependencies=[Depends(authorized)])

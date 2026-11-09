@@ -137,6 +137,10 @@ const context = vm.createContext({
   setTimeout(){return 1;},
   fetch:async (url,opts={})=>{
     if(url==='/api/codex/status')return {ok:true,status:200,json:async()=>codexAccount};
+    if(url==='/api/jobs/a1b2c3d4e5f6a7b8/hiddify-status'){
+      assert.equal(opts.method,undefined);
+      return {ok:true,status:200,json:async()=>({status:'running'})};
+    }
     if(url==='/api/codex/command'){
       assert.equal(opts.method,'POST');
       const {prompt}=JSON.parse(opts.body);
@@ -546,6 +550,16 @@ function fingerprintFor(label) {
   fill({...blockedHiddify,plan:{...blockedHiddify.plan,trust_epoch:99}});
   evaluate("showJob('a1b2c3d4e5f6a7b8')");
   assert(!modal.innerHTML.includes('data-action="regenerate-plan"'),'A plan from a prior SSH identity cannot be refreshed in place');
+  const existingHiddify={...blockedHiddify,plan:{...blockedHiddify.plan,
+    preflight_baseline:{HIDDIFY_STATE:'existing'}}};
+  fill(existingHiddify);
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('检测到已有安装')&&!modal.innerHTML.includes('预检未通过'));
+  assert(modal.innerHTML.includes('data-action="hiddify-job-status"'));
+  assert(!modal.innerHTML.includes('data-action="regenerate-plan"'));
+  await evaluate("inspectHiddifyJob('a1b2c3d4e5f6a7b8')");
+  assert(made.get('#hiddify-live-status').innerHTML.includes('Hiddify 已安装并运行'));
+  assert(!modal.innerHTML.includes('id="approve-form"'));
   fill({...hiddifyJob,status:'completed'});
   evaluate("showJob('a1b2c3d4e5f6a7b8')");
   assert(modal.innerHTML.includes('<code>hiddify admin</code>'));

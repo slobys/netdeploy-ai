@@ -6,6 +6,18 @@ UPSTREAM = f"https://raw.githubusercontent.com/hiddify/Hiddify-Manager/{COMMIT}/
 INSTALLER_SHA256 = "03a60aaa97608bd42b4952eaedcc17ab5a3c4e4c6ff4a49f22a617323983d6c0"
 UTILS_SHA256 = "0c3ea9b8f883faa3eb9498eaf819d642e5fd20fa19df080c081e0f36340e534b"
 
+STATUS = r"""set -eu
+if command -v hiddify >/dev/null && systemctl is-active --quiet hiddify-panel.service; then
+  http=$(ss -Hltn 'sport = :80')
+  https=$(ss -Hltn 'sport = :443')
+  if [ -n "$http" ] && [ -n "$https" ]; then
+    echo HIDDIFY_STATUS=running
+    exit 0
+  fi
+fi
+echo HIDDIFY_STATUS=incomplete
+"""
+
 BLOCKERS = {
     "ubuntu": "仅支持 Ubuntu 22.04、24.04 或 26.04",
     "systemd": "Hiddify 需要运行 systemd 的独立虚拟机或物理服务器",

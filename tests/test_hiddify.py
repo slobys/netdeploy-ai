@@ -8,7 +8,7 @@ import pytest
 
 from app import main
 from app.catalog import build_plan
-from app.hiddify import COMMIT, INSTALLER_SHA256, PRECHECK, UTILS_SHA256, VERSION, steps
+from app.hiddify import COMMIT, INSTALLER_SHA256, PRECHECK, STATUS, UTILS_SHA256, VERSION, steps
 from app.store import Store
 
 
@@ -178,6 +178,37 @@ timeout() { printf 'installer_mask=%s\n' "$(umask)"; }
     assert log.read_bytes() == b"installer_mask=0022\n"
     if os.name != "nt":
         assert log.stat().st_mode & 0o777 == 0o600
+
+
+def test_existing_hiddify_status_is_read_only_and_bound_to_the_saved_host(tmp_path, monkeypatch):
+    db = Store(str(tmp_path / "netdeploy.sqlite"))
+    monkeypatch.setattr(main, "store", db)
+    host = db.add_host({"name": "Test VPS", "hostname": "192.0.2.10", "port": 22, "username": "root"})
+    plan = build_plan("hiddify", {**FACTS, "HIDDIFY_STATE": "existing"})
+    plan.update(hostname=host["hostname"], trust_epoch=host["trust_epoch"])
+    job = db.new_job(host["id"], "hiddify", plan)
+    stale = db.new_job(host["id"], "hiddify", {**plan, "trust_epoch": 99})
+    state = "running"
+    calls = []
+
+    def read(target, script, timeout):
+        assert target["id"] == host["id"]
+        assert script == STATUS
+        calls.append(target["id"])
+        return f"HIDDIFY_STATUS={state}\n"
+
+    monkeypatch.setattr(main.executor, "credential_ready", lambda host: True)
+    monkeypatch.setattr(main.executor, "run", read)
+    client = TestClient(main.app)
+    headers = {"X-Admin-Token": main.ADMIN_TOKEN}
+    path = f'/api/jobs/{job["id"]}/hiddify-status'
+    assert client.get(path, headers=headers).json() == {"status": "running"}
+    state = "incomplete"
+    assert client.get(path, headers=headers).json() == {"status": "incomplete"}
+    assert client.get(f'/api/jobs/{stale["id"]}/hiddify-status', headers=headers).status_code == 409
+    assert len(calls) == 2
+    assert db.job(job["id"]) == job
+    assert len(db.jobs()) == 2
 
 
 def test_hiddify_approval_rechecks_the_dedicated_host(tmp_path, monkeypatch):

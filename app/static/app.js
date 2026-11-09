@@ -84,7 +84,11 @@ async function loadAll(silent=false){
 }
 function stateText(status){return ({planned:'等待审批',queued:'已排队',running:'正在执行',completed:'执行完成',failed:'执行失败',interrupted:'执行中断',partial:'部分完成 · 等待验收',invalidated:'服务器已重装，计划失效'})[status]||status;}
 function hiddifyPlanBlocked(job){return job.project==='hiddify'&&job.status==='planned'&&job.plan?.executable===false;}
-function jobStatusText(job){return hiddifyPlanBlocked(job)?'预检未通过':stateText(job.status);}
+function isExistingHiddifyPlan(job){return hiddifyPlanBlocked(job)&&job.plan.preflight_baseline?.HIDDIFY_STATE==='existing';}
+function jobStatusText(job){
+ if(isExistingHiddifyPlan(job))return '检测到已有安装';
+ return hiddifyPlanBlocked(job)?'预检未通过':stateText(job.status);
+}
 function chip(job){const {status}=job;const cls=status==='completed'?'success':status==='failed'||status==='interrupted'||status==='invalidated'?'error':'warn';return `<span class="chip ${cls}">${escapeHtml(jobStatusText(job))}</span>`;}
 const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡","s-ui-https":"🔒","dockge":"▣","hiddify":"▣"};
 // Single source of truth: public projects, excluding internal upgrade recipes.
@@ -293,6 +297,7 @@ function historicalHttpsFailure(job){
 }
 function jobNextAction(job){
  if(isExistingXuiPlan(job))return '查看已安装面板';
+ if(isExistingHiddifyPlan(job))return '查看安装状态';
  if(historicalHttpsFailure(job))return '生成最新版 HTTPS 修复方案';
  if(job.status==='planned'&&!job.plan?.executable)return '查看原因';
  if(job.status==='planned'&&job.needs_refresh===true)return '更新为最新安全部署方案';
@@ -1320,13 +1325,18 @@ function showJob(id){
  state.activeJob=id;
  const p=job.plan,host=state.hosts.find(h=>h.id===job.host_id);
  const stale=(p.trust_epoch||0)!==(host?.trust_epoch||0);
- const recheckHiddify=hiddifyPlanBlocked(job)&&!stale&&host&&host.hostname===p.hostname;
+ const existingHiddify=isExistingHiddifyPlan(job);
+ const sameHiddifyHost=job.project==='hiddify'&&!stale&&host&&host.hostname===p.hostname;
+ const recheckHiddify=sameHiddifyHost&&hiddifyPlanBlocked(job)&&!existingHiddify;
+ const inspectHiddify=sameHiddifyHost&&(existingHiddify||['completed','partial'].includes(job.status));
  const postInstallSshIssue=job.project==='3x-ui'&&!stale&&['failed','partial'].includes(job.status)&&
    String(job.logs||'').includes('通过：Official installer finished; sensitive credentials kept on VPS only')&&
    /SSH_(HANDSHAKE_FAILED|CONNECT_TIMEOUT|CONNECTION_REFUSED|NETWORK_ERROR|AUTH_FAILED)/.test(String(job.error||job.logs||''));
  let html=modalHead(`${p.name} · 部署任务`)+`<div class="toolbar">${chip(job)}<span class="chip">${escapeHtml(host?.name||p.hostname)}</span><span class="chip">${escapeHtml(p.options?.panel_port||'')}${p.options?.panel_port?' / TCP':''}</span></div>`;
  if(stale)html+='<div class="modal-tip warning">此任务属于服务器重装前的系统。旧登录信息和审批计划已失效，必须重新检测并创建新的部署方案。</div>';
- if(p.issues.length&&!isExistingXuiPlan(job))html+=`<div class="modal-tip warning">${p.issues.map(escapeHtml).join('；')}</div>`;
+ if(p.issues.length&&!isExistingXuiPlan(job)&&!existingHiddify)html+=`<div class="modal-tip warning">${p.issues.map(escapeHtml).join('；')}</div>`;
+ if(existingHiddify&&inspectHiddify)html+='<div class="modal-tip">检测到 Hiddify 安装文件。请检查服务的当前运行状态。</div>';
+ if(inspectHiddify)html+='<div id="hiddify-live-status" role="status"></div>';
  if(recheckHiddify)html+='<p class="helptext">上面是这份方案生成时的检查结果。重新检测会生成新方案，安装前仍需你审批。</p>';
  if(job.status==='planned'&&p.executable&&!stale&&job.needs_refresh===true){
    html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧脚本已更新</span>
@@ -1386,6 +1396,7 @@ function showJob(id){
       ${job.project==='hiddify'&&job.status==='completed'&&!stale?'<div class="modal-tip">通过可信 SSH 运行 <code>hiddify admin</code> 查看管理员链接，再进入 Hiddify 配置域名。请妥善保管该链接。</div>':''}
       <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
       <div class="modal-actions modal-action-wrap">
+       ${inspectHiddify?`<button type="button" class="btn primary" data-action="hiddify-job-status" data-id="${escapeHtml(job.id)}">检查 Hiddify 运行状态</button>`:''}
        ${recheckHiddify?`<button type="button" class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>`:''}
        ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)&&!postInstallSshIssue?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看面板信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||p.options?.access_mode==='npm'||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
        ${job.project==='s-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI 面板信息</button>${job.status==='partial'||(!['https','npm'].includes(p.options?.access_mode))?`<button class="btn subtle" data-action="sui-upgrade" data-id="${job.host_id}">继续完成 HTTPS</button>`:''}`:''}
@@ -1465,10 +1476,23 @@ async function regeneratePlan(id){
    await loadAll(true);
    if(!state.jobs.some(j=>j.id===newJob.id))state.jobs.unshift(newJob);
    showJob(newJob.id);
-   if(hiddifyPlanBlocked(newJob))toast('已重新检测，预检仍未通过。请查看任务里的原因。',true);
+   if(isExistingHiddifyPlan(newJob))toast('检测到已有 Hiddify，请检查当前运行状态');
+   else if(hiddifyPlanBlocked(newJob))toast('已重新检测，预检仍未通过。请查看任务里的原因。',true);
    else toast('已重新检测并生成新部署计划；请检查步骤并再次审批');
  }catch(err){toast(err.message,true);}
  finally{if(button?.isConnected)button.disabled=false;}
+}
+async function inspectHiddifyJob(id){
+ const target=el('#hiddify-live-status');
+ if(!target)return;
+ target.textContent='正在通过 SSH 检查 Hiddify…';
+ try{
+   const result=await api('/jobs/'+encodeURIComponent(id)+'/hiddify-status');
+   if(!target.isConnected)return;
+   target.innerHTML=result.status==='running'
+     ? '<div class="modal-tip success-note"><strong>Hiddify 已安装并运行</strong><p>面板服务正常，VPS 的 TCP 80 和 443 已监听。通过可信 SSH 运行 <code>sudo hiddify admin</code> 查看管理链接。</p></div>'
+     : '<div class="modal-tip warning">当前未通过运行检查。请通过可信 SSH 核查 Hiddify 服务和 80、443 端口。</div>';
+ }catch(err){if(target.isConnected)target.textContent=err.message;}
 }
 async function diagnoseJob(id){
  const target=el('#ai-response');if(!target)return;
@@ -1757,7 +1781,7 @@ document.addEventListener('click',async e=>{
  const t=e.target.closest('[data-action],[data-nav]');if(!t)return;
  if(t.dataset.nav){go(t.dataset.nav);return;}
  const id=t.dataset.id,act=t.dataset.action;
- const asyncActions=new Set(['installed-xui','installed-sui','sui-upgrade','existing-xui-https','xui-public-http','install-new-xui','fingerprint','trust','preflight','host-check','setup-firewall','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel','codex-settings','codex-connect','codex-cancel','codex-disconnect','codex-refresh']);
+ const asyncActions=new Set(['installed-xui','installed-sui','hiddify-job-status','sui-upgrade','existing-xui-https','xui-public-http','install-new-xui','fingerprint','trust','preflight','host-check','setup-firewall','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel','codex-settings','codex-connect','codex-cancel','codex-disconnect','codex-refresh']);
  if(t.dataset.busy==='1')return;
  const busy=asyncActions.has(act)||act==='apply-ufw-toggle';
  if(busy){t.dataset.busy='1';t.disabled=true;t.classList.add('is-loading');t.setAttribute('aria-busy','true');}
@@ -1776,6 +1800,7 @@ document.addEventListener('click',async e=>{
   else if(act==='apply-ufw-toggle')await applyUfwToggle(Number(id),t.dataset.mode);
   else if(act==='host-check')await checkHostInConsole(Number(id));
   else if(act==='installed-sui')await showExistingSui(Number(id));
+  else if(act==='hiddify-job-status')await inspectHiddifyJob(id);
   else if(act==='installed-dockge')await showExistingDockge(Number(id));
   else if(act==='dockge-config')await configureDockgeAccess(Number(id));
   else if(act==='copy-dockge-url')await copyXuiField('dockge-url','Dockge Apps 管理地址');
