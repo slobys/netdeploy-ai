@@ -1398,7 +1398,7 @@ function showJob(id){
       ${openInstalledHiddify?'<div class="modal-tip">首次打开时，Hiddify 会引导你完成官方快速设置。</div>':''}
       <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
       <div class="modal-actions modal-action-wrap">
-       ${openInstalledHiddify?`<button type="button" class="btn primary" data-action="open-hiddify-admin" data-id="${escapeHtml(job.id)}">打开管理面板 ↗</button>`:''}
+       ${openInstalledHiddify?`<button type="button" class="btn primary" data-action="open-hiddify-admin" data-id="${escapeHtml(job.id)}">打开管理面板 →</button>`:''}
        ${inspectHiddify?`<button type="button" class="btn ${openInstalledHiddify?'subtle':'primary'}" data-action="hiddify-job-status" data-id="${escapeHtml(job.id)}">检查 Hiddify 运行状态</button>`:''}
        ${recheckHiddify?`<button type="button" class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>`:''}
        ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)&&!postInstallSshIssue?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看面板信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||p.options?.access_mode==='npm'||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
@@ -1493,26 +1493,20 @@ async function inspectHiddifyJob(id){
    const result=await api('/jobs/'+encodeURIComponent(id)+'/hiddify-status');
    if(!target.isConnected)return;
    target.innerHTML=result.status==='running'
-     ? `<div class="modal-tip success-note"><strong>Hiddify 已安装并运行</strong><p>面板服务正常，VPS 的 TCP 80 和 443 已监听。</p><button class="btn primary" type="button" data-action="open-hiddify-admin" data-id="${escapeHtml(id)}">打开管理面板 ↗</button></div>`
+     ? `<div class="modal-tip success-note"><strong>Hiddify 已安装并运行</strong><p>面板服务正常，VPS 的 TCP 80 和 443 已监听。</p><button class="btn primary" type="button" data-action="open-hiddify-admin" data-id="${escapeHtml(id)}">打开管理面板 →</button></div>`
      : '<div class="modal-tip warning">当前未通过运行检查。请通过可信 SSH 核查 Hiddify 服务和 80、443 端口。</div>';
  }catch(err){if(target.isConnected)target.textContent=err.message;}
 }
 async function openHiddifyAdmin(id){
- const tab=window.open('about:blank','_blank');
- if(!tab){toast('浏览器阻止了新标签页，请允许弹窗后重试',true);return;}
+ toast('正在读取 Hiddify 管理链接…');
  try{
-   tab.opener=null;
-   tab.document.title='正在打开 Hiddify';
-   tab.document.body.textContent='正在读取 Hiddify 管理链接…';
    const result=await api('/jobs/'+encodeURIComponent(id)+'/hiddify-admin');
+   if(state.activeJob!==id)return;
    const url=new URL(result.url);
    if(url.protocol!=='https:'||url.username||url.password)throw new Error('Hiddify 管理链接格式无效');
-   if(!tab.closed){
-     if(result.tls_verified===false)toast('未找到证书通过验证的 Hiddify 链接。浏览器可能提示证书风险。',true);
-     tab.location.replace(url.href);
-   }
+   if(result.tls_verified===false)toast('未找到证书通过验证的 Hiddify 链接。浏览器可能提示证书风险。',true);
+   window.location.assign(url.href);
  }catch(err){
-   if(!tab.closed)tab.close();
    toast(err.message,true);
  }
 }

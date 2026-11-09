@@ -126,8 +126,8 @@ let dockgeStatusReads=0;
 let codexAccount={available:true,connected:false,pending:false};
 let codexApprovalRequests=0;
 const hiddifyAdminUrl='https://45.32.35.195/panel-path/12345678-1234-1234-1234-123456789abc/';
-let hiddifyAdminTab=null;
 let hiddifyTlsVerified=true;
+let hiddifyAdminError=false;
 const context = vm.createContext({
   console,
   URL,
@@ -147,7 +147,7 @@ const context = vm.createContext({
     }
     if(url==='/api/jobs/a1b2c3d4e5f6a7b8/hiddify-admin'){
       assert.equal(opts.method,undefined);
-      assert.equal(hiddifyAdminTab.opener,null);
+      if(hiddifyAdminError)return {ok:false,status:422,json:async()=>({detail:'无法读取 Hiddify 管理链接'})};
       return {ok:true,status:200,json:async()=>({url:hiddifyAdminUrl,tls_verified:hiddifyTlsVerified})};
     }
     if(url==='/api/codex/command'){
@@ -570,12 +570,8 @@ function fingerprintFor(label) {
   assert(made.get('#hiddify-live-status').innerHTML.includes('Hiddify 已安装并运行'));
   assert(made.get('#hiddify-live-status').innerHTML.includes('data-action="open-hiddify-admin"'));
   let openedHiddifyUrl;
-  context.window.open=(url,target)=>{
-    assert.equal(url,'about:blank');
-    assert.equal(target,'_blank');
-    hiddifyAdminTab={opener:{},document:{body:{}},location:{replace:url=>{openedHiddifyUrl=url;}}};
-    return hiddifyAdminTab;
-  };
+  context.window.open=()=>assert.fail('Opening Hiddify should use the current tab');
+  context.window.location={assign:url=>{openedHiddifyUrl=url;}};
   await evaluate("openHiddifyAdmin('a1b2c3d4e5f6a7b8')");
   assert.equal(openedHiddifyUrl,hiddifyAdminUrl);
   assert(!made.get('#hiddify-live-status').innerHTML.includes(hiddifyAdminUrl));
@@ -589,6 +585,16 @@ function fingerprintFor(label) {
   await evaluate("openHiddifyAdmin('a1b2c3d4e5f6a7b8')");
   assert.equal(openedHiddifyUrl,hiddifyAdminUrl);
   assert(made.get('#toast').textContent.includes('证书风险'));
+  openedHiddifyUrl=null;
+  hiddifyAdminError=true;
+  await evaluate("openHiddifyAdmin('a1b2c3d4e5f6a7b8')");
+  assert.equal(openedHiddifyUrl,null);
+  assert(made.get('#toast').textContent.includes('无法读取 Hiddify 管理链接'));
+  hiddifyAdminError=false;
+  const pendingHiddifyOpen=evaluate("openHiddifyAdmin('a1b2c3d4e5f6a7b8')");
+  evaluate('state.activeJob=null');
+  await pendingHiddifyOpen;
+  assert.equal(openedHiddifyUrl,null,'Closing the task should cancel same-tab navigation');
   fill({...hiddifyJob,needs_refresh:true});
   evaluate("showJob('a1b2c3d4e5f6a7b8')");
   assert(modal.innerHTML.includes('Hiddify 官网一键入口')&&!modal.innerHTML.includes('id="approve-form"'));
