@@ -1328,6 +1328,7 @@ function showJob(id){
  const existingHiddify=isExistingHiddifyPlan(job);
  const sameHiddifyHost=job.project==='hiddify'&&!stale&&host&&host.hostname===p.hostname;
  const recheckHiddify=sameHiddifyHost&&hiddifyPlanBlocked(job)&&!existingHiddify;
+ const openInstalledHiddify=sameHiddifyHost&&job.status==='completed';
  const inspectHiddify=sameHiddifyHost&&(existingHiddify||['completed','partial'].includes(job.status));
  const postInstallSshIssue=job.project==='3x-ui'&&!stale&&['failed','partial'].includes(job.status)&&
    String(job.logs||'').includes('通过：Official installer finished; sensitive credentials kept on VPS only')&&
@@ -1339,9 +1340,10 @@ function showJob(id){
  if(inspectHiddify)html+='<div id="hiddify-live-status" role="status"></div>';
  if(recheckHiddify)html+='<p class="helptext">上面是这份方案生成时的检查结果。重新检测会生成新方案，安装前仍需你审批。</p>';
  if(job.status==='planned'&&p.executable&&!stale&&job.needs_refresh===true){
+   const hiddify=job.project==='hiddify';
    html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧脚本已更新</span>
-     <h3>这份审批计划来自更新前的版本</h3><p>3X-UI HTTPS 命令已修复，旧计划不能直接用。点击下面按钮重新检测并生成当前版本的固定方案；不会立即改动 VPS。</p>
-     <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">更新为最新 HTTPS 修复方案 →</button>
+     <h3>这份审批计划来自更新前的版本</h3><p>${hiddify?'新版使用 Hiddify 官网一键入口。请重新检测并审阅新方案。':'3X-UI HTTPS 命令已修复，旧计划不能直接用。点击下面按钮重新检测并生成当前版本的固定方案；不会立即改动 VPS。'}</p>
+     <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">${hiddify?'重新检测并生成方案 →':'更新为最新 HTTPS 修复方案 →'}</button>
    </section>`;
  }else if(job.status==='planned'&&job.project==='dockge'&&!p.executable&&!stale){
    html+=`<section class="server-next-action pending"><span class="server-next-kicker">旧版 Docker 前置条件</span>
@@ -1393,10 +1395,11 @@ function showJob(id){
      <p>前四步已完成，但最终 SSH 握手异常，尚不能确定面板监听和防火墙是否验收通过。新版本会在执行远端命令前有限重连。恢复可信 SSH 后可点击下方按钮只读核查现有服务，不会执行安装器或改动密码。</p>
      <button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">只读检查现有 3X-UI（不重装） →</button></section>`;
    html+=`<h3>部署状态及日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(jobStatusText(job))}</div>
-      ${job.project==='hiddify'&&job.status==='completed'&&!stale?'<div class="modal-tip">通过可信 SSH 运行 <code>hiddify admin</code> 查看管理员链接，再进入 Hiddify 配置域名。请妥善保管该链接。</div>':''}
+      ${openInstalledHiddify?'<div class="modal-tip">首次打开时，Hiddify 会引导你完成官方快速设置。</div>':''}
       <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
       <div class="modal-actions modal-action-wrap">
-       ${inspectHiddify?`<button type="button" class="btn primary" data-action="hiddify-job-status" data-id="${escapeHtml(job.id)}">检查 Hiddify 运行状态</button>`:''}
+       ${openInstalledHiddify?`<button type="button" class="btn primary" data-action="open-hiddify-admin" data-id="${escapeHtml(job.id)}">打开管理面板 ↗</button>`:''}
+       ${inspectHiddify?`<button type="button" class="btn ${openInstalledHiddify?'subtle':'primary'}" data-action="hiddify-job-status" data-id="${escapeHtml(job.id)}">检查 Hiddify 运行状态</button>`:''}
        ${recheckHiddify?`<button type="button" class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">重新检测方案</button>`:''}
        ${job.project==='3x-ui'&&!stale&&['completed','partial'].includes(job.status)&&!postInstallSshIssue?`<button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">查看面板信息</button>${(p.options?.access_mode==='https'&&job.status==='completed')||p.options?.access_mode==='npm'||state.jobs.some(x=>x.project==='3x-ui-https'&&x.plan.options?.source_job_id===job.id&&['completed','queued','running'].includes(x.status))?'':`<button class="btn subtle" data-action="xui-upgrade" data-id="${escapeHtml(job.id)}">继续完成 HTTPS</button>`}`:''}
        ${job.project==='s-ui'&&!stale&&['completed','partial'].includes(job.status)?`<button class="btn primary" data-action="installed-sui" data-id="${job.host_id}">查看 S-UI 面板信息</button>${job.status==='partial'||(!['https','npm'].includes(p.options?.access_mode))?`<button class="btn subtle" data-action="sui-upgrade" data-id="${job.host_id}">继续完成 HTTPS</button>`:''}`:''}
@@ -1504,7 +1507,10 @@ async function openHiddifyAdmin(id){
    const result=await api('/jobs/'+encodeURIComponent(id)+'/hiddify-admin');
    const url=new URL(result.url);
    if(url.protocol!=='https:'||url.username||url.password)throw new Error('Hiddify 管理链接格式无效');
-   if(!tab.closed)tab.location.replace(url.href);
+   if(!tab.closed){
+     if(result.tls_verified===false)toast('未找到证书通过验证的 Hiddify 链接。浏览器可能提示证书风险。',true);
+     tab.location.replace(url.href);
+   }
  }catch(err){
    if(!tab.closed)tab.close();
    toast(err.message,true);

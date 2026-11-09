@@ -17,7 +17,7 @@ from .s_ui import VERSION as SUI_VERSION, steps as sui_steps
 from .sui_https import https_steps as sui_https_steps
 from .dockge import VERSION as DOCKGE_VERSION, steps as dockge_steps, reconfigure_steps as dockge_reconfigure_steps, validate_port as dockge_validate_port
 from .docker_runtime import setup_mode as docker_setup_mode, extra_steps as docker_extra_steps
-from .hiddify import BLOCKERS as HIDDIFY_BLOCKERS, VERSION as HIDDIFY_VERSION, steps as hiddify_steps
+from .hiddify import BLOCKERS as HIDDIFY_BLOCKERS, steps as hiddify_steps
 
 CATALOG = {
     "3x-ui": {
@@ -97,7 +97,7 @@ CATALOG = {
         "name": "Hiddify Manager", "subtitle": "多协议代理与用户管理面板", "category": "面板",
         "icon": "shield", "deployment": "install", "risk": "高",
         "docs": "https://hiddify.com/manager/installation-and-setup/guide/",
-        "summary": f"在专用 Ubuntu VPS 上安装固定版 {HIDDIFY_VERSION}，由 Hiddify 管理域名、端口和证书。",
+        "summary": "在专用 Ubuntu VPS 上使用 Hiddify 官网一键安装，由 Hiddify 管理域名、端口和证书。",
         "requires": ["全新独立 Ubuntu 22.04 / 24.04 / 26.04 VPS", "root SSH 使用 TCP 22",
                      "x86_64 或 arm64，systemd", "80/443 无冲突", "约 1 GB 内存，根分区至少 5 GB 可用空间"],
     },
@@ -513,9 +513,9 @@ def build_plan(project: str, facts: dict[str, Any], options: dict | None = None)
             "3x-ui-https": ["公网 TCP 80 必须允许 Let’s Encrypt HTTP-01 验证（本机空闲不代表云安全组开放）；域名证书要求 DNS A 正确，公网 IP 证书使用 shortlived", "IP 证书有效期约 160 小时，必须保持 netdeploy-certbot-renew.timer 活跃（独立续期）；域名证书使用系统 certbot.timer；失败不开放公网面板",  "公网 HTTPS 管理面板属于高敏感服务，请启用强密码、双因素认证和云防火墙 IP 白名单"],
             "hysteria2": ["需要单独实现 TLS 证书、身份认证和服务器配置"],
             "hiddify": [
-                f"固定执行 Hiddify Manager v{HIDDIFY_VERSION} 官方安装入口，校验安装脚本和辅助脚本；上游会下载软件及其依赖",
+                "执行 Hiddify 官网一键安装入口（release），安装版本由官方发布渠道决定",
                 "仅在已备份的独立 VPS 上审批。安装会改动系统与防火墙并使用 80/443，NetDeploy 不会替你修改云安全组",
-                "管理链接含访问凭据。安装后通过可信 SSH 运行 hiddify admin 查看，再到 Hiddify 配置域名与证书",
+                "管理链接含访问凭据。安装完成后可在任务中打开管理面板，首次进入时由 Hiddify 启动快速设置",
             ],
         }[project],
     }

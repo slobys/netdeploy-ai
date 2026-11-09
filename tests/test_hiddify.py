@@ -7,10 +7,10 @@ import subprocess
 from fastapi.testclient import TestClient
 import pytest
 
-from app import main
+from app import hiddify, main
 from app.catalog import build_plan
 from app.hiddify import (
-    ADMIN_LINKS, COMMIT, INSTALLER_SHA256, PRECHECK, STATUS, UTILS_SHA256, VERSION, parse_admin_url, steps,
+    ADMIN_LINKS, PRECHECK, STATUS, select_admin_link, steps,
 )
 from app.store import Store
 
@@ -21,13 +21,13 @@ FACTS = {
 }
 
 
-def test_hiddify_plan_pins_official_install_and_keeps_output_private():
+def test_hiddify_plan_uses_official_release_entrypoint_and_keeps_output_private():
     plan = build_plan("hiddify", FACTS)
     assert plan["executable"]
     install, verify = [step["script"] for step in plan["steps"]]
-    for value in (VERSION, COMMIT, INSTALLER_SHA256, UTILS_SHA256):
-        assert value in install
-    assert 'sha256sum --check --status' in install
+    assert "https://i.hiddify.com/release" in install
+    assert 'test -s release.sh' in install
+    assert 'NO_UI=true timeout -k 20s 35m bash ./release.sh' in install
     assert 'flock -n 9' in install
     assert '</dev/null >"$log" 2>&1' in install
     assert 'systemctl is-active --quiet hiddify-panel.service' in verify
@@ -163,13 +163,20 @@ id() { echo 0; }
 uname() { echo x86_64; }
 df() { printf 'header\nfs 0 0 8000000 0 /\n'; }
 flock() { :; }
-curl() { :; }
-sha256sum() { cat >/dev/null; }
+curl() {
+  case "$*" in *' https://i.hiddify.com/release') ;; *) return 1 ;; esac
+  cat > release.sh <<'RELEASE'
+set -eu
+test "$NO_UI" = true
+test ! -t 0
+printf 'installer_mask=%s\n' "$(umask)"
+RELEASE
+}
 mktemp() {
   printf 'staging_mask=%s\n' "$(umask)" >&2
   command mktemp "$@"
 }
-timeout() { printf 'installer_mask=%s\n' "$(umask)"; }
+timeout() { shift 3; "$@"; }
 """
     result = subprocess.run(
         [bash_path, "--noprofile", "--norc", "-se"],
@@ -186,7 +193,7 @@ timeout() { printf 'installer_mask=%s\n' "$(umask)"; }
 ADMIN_PATH = "/panel-path/12345678-1234-1234-1234-123456789abc/"
 
 
-def test_hiddify_admin_url_requires_a_recognized_https_destination():
+def test_hiddify_admin_url_requires_a_recognized_https_destination(monkeypatch):
     host = {"hostname": "192.0.2.10", "tls_domain": "panel.example.com"}
     rejected = [
         "http://192.0.2.10" + ADMIN_PATH,
@@ -199,10 +206,48 @@ def test_hiddify_admin_url_requires_a_recognized_https_destination():
     ]
     direct = "https://192.0.2.10" + ADMIN_PATH
     domain = "https://panel.example.com" + ADMIN_PATH
+    probes = []
+
+    def check_tls(name, address):
+        probes.append((name, address))
+        return name == "192.0.2.10"
+
+    monkeypatch.setattr(hiddify, "_tls_verified", check_tls)
     with pytest.raises(ValueError):
-        parse_admin_url(json.dumps(rejected), host)
-    assert parse_admin_url(json.dumps([direct, domain]), host) == domain
-    assert parse_admin_url(json.dumps([domain, direct]), {"hostname": "192.0.2.10"}) == direct
+        select_admin_link(json.dumps(rejected), host)
+    assert probes == []
+    assert select_admin_link(json.dumps([direct, domain]), host) == {"url": direct, "tls_verified": True}
+    assert probes == [("panel.example.com", "panel.example.com"), ("192.0.2.10", "192.0.2.10")]
+    probes.clear()
+    assert select_admin_link(json.dumps([domain, direct]), {"hostname": "192.0.2.10"})["url"] == direct
+    assert probes == [("192.0.2.10", "192.0.2.10")]
+
+
+@pytest.mark.parametrize("addresses, expected", [
+    (["8.8.4.4"], True),
+    (["8.8.4.4", "192.0.2.5"], False),
+    (["127.0.0.1"], False),
+])
+def test_hiddify_prefers_a_trusted_domain_that_resolves_only_to_the_vps(monkeypatch, addresses, expected):
+    direct = "https://8.8.4.4" + ADMIN_PATH
+    domain = "https://panel.example.com" + ADMIN_PATH
+    probes = []
+
+    def resolve(name, port, *, type):
+        assert name == "panel.example.com"
+        assert port == 443
+        return [(None, None, None, "", (address, port)) for address in addresses]
+
+    def check_tls(name, address):
+        probes.append((name, address))
+        return name == "panel.example.com"
+
+    monkeypatch.setattr(hiddify.socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(hiddify, "_tls_verified", check_tls)
+    result = select_admin_link(json.dumps([direct, domain]), {"hostname": "8.8.4.4"})
+    assert result == {"url": domain if expected else direct, "tls_verified": expected}
+    assert probes == ([("8.8.4.4", "8.8.4.4"), ("panel.example.com", "8.8.4.4")] if expected
+                      else [("8.8.4.4", "8.8.4.4")])
 
 
 def test_existing_hiddify_status_is_read_only_and_bound_to_the_saved_host(tmp_path, monkeypatch):
@@ -226,6 +271,7 @@ def test_existing_hiddify_status_is_read_only_and_bound_to_the_saved_host(tmp_pa
 
     monkeypatch.setattr(main.executor, "credential_ready", lambda host: True)
     monkeypatch.setattr(main.executor, "run", read)
+    monkeypatch.setattr(hiddify, "_tls_verified", lambda name, address: False)
     client = TestClient(main.app)
     headers = {"X-Admin-Token": main.ADMIN_TOKEN}
     path = f'/api/jobs/{job["id"]}/hiddify-status'
@@ -237,7 +283,7 @@ def test_existing_hiddify_status_is_read_only_and_bound_to_the_saved_host(tmp_pa
     assert client.get(admin_path).status_code == 401
     assert client.get(f'/api/jobs/{stale["id"]}/hiddify-admin', headers=headers).status_code == 409
     admin = client.get(admin_path, headers=headers)
-    assert admin.json() == {"url": "https://192.0.2.10" + ADMIN_PATH}
+    assert admin.json() == {"url": "https://192.0.2.10" + ADMIN_PATH, "tls_verified": False}
     assert admin.headers["Cache-Control"] == "no-store"
     assert len(calls) == 3
     assert db.job(job["id"]) == job

@@ -127,6 +127,7 @@ let codexAccount={available:true,connected:false,pending:false};
 let codexApprovalRequests=0;
 const hiddifyAdminUrl='https://45.32.35.195/panel-path/12345678-1234-1234-1234-123456789abc/';
 let hiddifyAdminTab=null;
+let hiddifyTlsVerified=true;
 const context = vm.createContext({
   console,
   URL,
@@ -147,7 +148,7 @@ const context = vm.createContext({
     if(url==='/api/jobs/a1b2c3d4e5f6a7b8/hiddify-admin'){
       assert.equal(opts.method,undefined);
       assert.equal(hiddifyAdminTab.opener,null);
-      return {ok:true,status:200,json:async()=>({url:hiddifyAdminUrl})};
+      return {ok:true,status:200,json:async()=>({url:hiddifyAdminUrl,tls_verified:hiddifyTlsVerified})};
     }
     if(url==='/api/codex/command'){
       assert.equal(opts.method,'POST');
@@ -581,8 +582,16 @@ function fingerprintFor(label) {
   assert(!modal.innerHTML.includes('id="approve-form"'));
   fill({...hiddifyJob,status:'completed'});
   evaluate("showJob('a1b2c3d4e5f6a7b8')");
-  assert(modal.innerHTML.includes('<code>hiddify admin</code>'));
+  assert(modal.innerHTML.includes('官方快速设置'));
+  assert(modal.innerHTML.includes('data-action="open-hiddify-admin"'));
   assert(!modal.innerHTML.includes('id="approve-form"'));
+  hiddifyTlsVerified=false;
+  await evaluate("openHiddifyAdmin('a1b2c3d4e5f6a7b8')");
+  assert.equal(openedHiddifyUrl,hiddifyAdminUrl);
+  assert(made.get('#toast').textContent.includes('证书风险'));
+  fill({...hiddifyJob,needs_refresh:true});
+  evaluate("showJob('a1b2c3d4e5f6a7b8')");
+  assert(modal.innerHTML.includes('Hiddify 官网一键入口')&&!modal.innerHTML.includes('id="approve-form"'));
   fill();
 
   // An existing 3X-UI must open read-only information without a new plan.

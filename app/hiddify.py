@@ -1,15 +1,15 @@
-"""Fixed, native Hiddify Manager installation on a dedicated Ubuntu VPS."""
+"""Native Hiddify Manager installation on a dedicated Ubuntu VPS."""
 
 import ipaddress
 import json
 import re
+import socket
+import ssl
 from urllib.parse import urlsplit
 
-VERSION = "14.0.5"
-COMMIT = "331c1114d4bb0bcf62e9ac719932ae904e88cf9c"
-UPSTREAM = f"https://raw.githubusercontent.com/hiddify/Hiddify-Manager/{COMMIT}/scripts/common"
-INSTALLER_SHA256 = "03a60aaa97608bd42b4952eaedcc17ab5a3c4e4c6ff4a49f22a617323983d6c0"
-UTILS_SHA256 = "0c3ea9b8f883faa3eb9498eaf819d642e5fd20fa19df080c081e0f36340e534b"
+from .https_upgrade import identify
+
+RELEASE_INSTALLER = "https://i.hiddify.com/release"
 
 STATUS = r"""set -eu
 if command -v hiddify >/dev/null && systemctl is-active --quiet hiddify-panel.service; then
@@ -43,12 +43,35 @@ def _link_host(value: str) -> str:
         return value.lower().rstrip(".")
 
 
-def parse_admin_url(raw: str, host: dict) -> str:
-    """Select a Hiddify admin URL on this VPS or its configured HTTPS domain."""
+def _same_vps_domain(name: str, vps: str) -> bool:
+    """Allow an auto-discovered domain only when every address is the enrolled public IP."""
+    try:
+        if identify(vps)[0] != "ip" or identify(name)[0] != "domain":
+            return False
+        addresses = {ipaddress.ip_address(entry[4][0])
+                     for entry in socket.getaddrinfo(name, 443, type=socket.SOCK_STREAM)}
+        return addresses == {ipaddress.ip_address(vps)}
+    except (OSError, ValueError):
+        return False
+
+
+def _tls_verified(name: str, address: str) -> bool:
+    """Check chain and name using local trust roots. Never send the secret URL path."""
+    try:
+        with socket.create_connection((address, 443), timeout=3) as connection:
+            with ssl.create_default_context().wrap_socket(connection, server_hostname=name):
+                return True
+    except (OSError, ValueError):
+        return False
+
+
+def select_admin_link(raw: str, host: dict) -> dict:
+    """Prefer a verified official HTTPS link and retain the known host as a fallback."""
     links = json.loads(raw)
     if not isinstance(links, list):
         raise ValueError("Invalid Hiddify link list")
-    allowed_hosts = [_link_host(host["hostname"])]
+    vps = _link_host(host["hostname"])
+    allowed_hosts = [vps]
     if host.get("tls_domain"):
         allowed_hosts.insert(0, _link_host(host["tls_domain"]))
     valid = {}
@@ -62,14 +85,18 @@ def parse_admin_url(raw: str, host: dict) -> str:
         except ValueError:
             continue
         name = _link_host(url.hostname)
-        if name not in allowed_hosts:
-            continue
         if not _ADMIN_PATH.fullmatch(url.path):
             continue
         valid.setdefault(name, link)
-    for name in allowed_hosts:
-        if name in valid:
-            return valid[name]
+    approved = [name for name in allowed_hosts if name in valid]
+    for name in approved:
+        if _tls_verified(name, name):
+            return {"url": valid[name], "tls_verified": True}
+    for name in valid:
+        if name not in approved and _same_vps_domain(name, vps) and _tls_verified(name, vps):
+            return {"url": valid[name], "tls_verified": True}
+    if approved:
+        return {"url": valid[approved[0]], "tls_verified": False}
     raise ValueError("No Hiddify admin link for the approved host")
 
 
@@ -106,7 +133,7 @@ hiddify_precheck() {
     echo ubuntu; return
   fi
   case "${SSH_CONNECTION:-}" in *' 22') ;; *) echo ssh; return ;; esac
-  for tool in ss curl sha256sum flock timeout systemctl systemd-detect-virt; do
+  for tool in ss curl flock timeout systemctl systemd-detect-virt; do
     if ! command -v "$tool" >/dev/null 2>&1; then echo tools; return; fi
   done
   if [ "$(ps -p 1 -o comm=)" != systemd ] || systemd-detect-virt --container --quiet; then
@@ -155,7 +182,7 @@ hiddify_precheck() {
 def steps() -> list[dict]:
     return [
         {
-            "label": f"复核专用 VPS 并运行固定版 Hiddify Manager {VERSION} 安装器",
+            "label": "复核专用 VPS 并运行 Hiddify 官网一键安装入口（release）",
             "timeout": 2500,
             "script": """set -eu
 umask 077
@@ -175,14 +202,13 @@ check_host
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 cd "$work"
-curl --proto '=https' --proto-redir '=https' -fsSL --connect-timeout 15 --max-time 90 --retry 2 -o hiddify_installer.sh '{UPSTREAM}/hiddify_installer.sh'
-curl --proto '=https' --proto-redir '=https' -fsSL --connect-timeout 15 --max-time 90 --retry 2 -o utils.sh '{UPSTREAM}/utils.sh'
-printf '%s  %s\n' '{INSTALLER_SHA256}' hiddify_installer.sh '{UTILS_SHA256}' utils.sh | sha256sum --check --status
+curl --proto '=https' --proto-redir '=https' -fsSL --connect-timeout 15 --max-time 90 --retry 2 -o release.sh '{RELEASE_INSTALLER}'
+test -s release.sh
 check_host
 log=$(mktemp /var/log/netdeploy-hiddify.XXXXXX.log)
 # The upstream installer creates runtimes for unprivileged systemd services.
 # Keep NetDeploy's staging and log private without passing that mask to Hiddify.
-if (umask 022 && timeout -k 20s 35m bash ./hiddify_installer.sh 'v{VERSION}' --no-gui --no-log) </dev/null >"$log" 2>&1; then
+if (umask 022 && NO_UI=true timeout -k 20s 35m bash ./release.sh) </dev/null >"$log" 2>&1; then
   printf '安装器已返回；受保护的原始日志在 VPS 的 %s\n' "$log"
 else
   printf '安装未完成。请在 VPS 检查受保护的日志 %s 和现有服务，避免直接重装。\n' "$log" >&2
@@ -193,14 +219,15 @@ fi
         {
             "label": "通过可信 SSH 只读验收 Hiddify 服务",
             "timeout": 90,
-            "script": f"""set -eu
-test "$(cat /opt/hiddify-manager/VERSION)" = '{VERSION}'
+            "script": """set -eu
+version=$(cat /opt/hiddify-manager/VERSION)
+[[ "$version" =~ ^v?[0-9]+[.][0-9]+[.][0-9]+$ ]]
 command -v hiddify >/dev/null
 for attempt in $(seq 1 15); do
   if systemctl is-active --quiet hiddify-panel.service &&
      test -n "$(ss -Hltn 'sport = :80')" &&
      test -n "$(ss -Hltn 'sport = :443')"; then
-    echo 'Hiddify 服务正在运行，80/443 TCP 已监听。通过可信 SSH 执行 hiddify admin 查看管理链接。'
+    printf 'Hiddify Manager %s 正在运行，80/443 TCP 已监听。请在任务中打开管理面板。\n' "$version"
     exit 0
   fi
   sleep 3

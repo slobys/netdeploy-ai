@@ -27,7 +27,7 @@
 | **wg-easy** | Docker Compose 自动部署，需完成首次设置 |
 | **[Dockge Apps](https://github.com/slobys/dockge-apps)** | 二开应用中心（NPM、IT-Tools、MyIP）；缺 Docker 可使用官方一键脚本，管理端口随机或自定义；新安装默认公网 IP 直连，执行前需确认风险 |
 | **Hysteria2** | 提供部署引导，暂不支持一键安装 |
-| **Hiddify Manager** | 专用 Ubuntu VPS 的原生安装方案（Beta），通过预检后可审批执行，域名和证书在 Hiddify 内配置 |
+| **Hiddify Manager** | 专用 Ubuntu VPS 上审批执行官网一键安装（Beta），在任务中打开管理面板完成官方快速设置 |
 
 ## IPv6 VPS 支持（3X-UI / S-UI）
 
