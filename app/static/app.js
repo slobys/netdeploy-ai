@@ -1050,9 +1050,10 @@ function setupProjects(id){
  dialog(modalHead('第 5 步 · 选择要安装的软件')+setupProgress(5)+
   `<div class="setup-result"><span class="chip success">服务器 ${escapeHtml(host.name)} 已连接</span>
     <h3>接下来想在 VPS 上安装什么？</h3><p>${certLabel(host)}。系统会自动识别已有软件、检查环境并生成安装方案；真正安装前只需要批准一次。</p></div>
-    <div class="server-project-grid">${visible.map(([key,project])=>`<button class="server-project-choice" data-action="server-install" data-id="${id}" data-project="${escapeHtml(key)}">
-      <span class="project-choice-icon">${symbol[key]||'▣'}</span><strong>${escapeHtml(project.name)}</strong>
-      <small>${escapeHtml(project.subtitle)}</small><span class="project-choice-link">${project.deployment==='install'?'选择并继续':'查看方案'} →</span>
+    <div class="server-project-grid setup-project-grid">${visible.map(([key,project])=>`<button type="button" class="server-project-choice" data-action="server-install" data-id="${id}" data-project="${escapeHtml(key)}">
+      <span class="project-choice-icon" aria-hidden="true">${symbol[key]||'▣'}</span>
+      <strong>${escapeHtml(project.name)}</strong><small>${escapeHtml(project.subtitle)}</small>
+      <span class="project-choice-link">${project.deployment==='install'?'继续':'查看方案'} <span aria-hidden="true">→</span></span>
      </button>`).join('')}</div>
     <div class="modal-actions"><button class="btn ghost" data-action="back-host" data-id="${id}">完成，稍后部署</button></div>`);
 }
