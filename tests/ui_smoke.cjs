@@ -9,6 +9,7 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '..');
 const javascript = fs.readFileSync(path.join(root, 'app/static/app.js'), 'utf8');
+const hiddifyLauncher = fs.readFileSync(path.join(root, 'app/static/hiddify-launch.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'app/static/index.html'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'app/static/app-enhanced.css'), 'utf8');
 const typographyCss = fs.readFileSync(path.join(root, 'app/static/typography.css'), 'utf8');
@@ -126,8 +127,6 @@ let dockgeStatusReads=0;
 let codexAccount={available:true,connected:false,pending:false};
 let codexApprovalRequests=0;
 const hiddifyAdminUrl='https://45.32.35.195/panel-path/12345678-1234-1234-1234-123456789abc/';
-let hiddifyTlsVerified=true;
-let hiddifyAdminError=false;
 const context = vm.createContext({
   console,
   URL,
@@ -144,11 +143,6 @@ const context = vm.createContext({
     if(url==='/api/jobs/a1b2c3d4e5f6a7b8/hiddify-status'){
       assert.equal(opts.method,undefined);
       return {ok:true,status:200,json:async()=>({status:'running'})};
-    }
-    if(url==='/api/jobs/a1b2c3d4e5f6a7b8/hiddify-admin'){
-      assert.equal(opts.method,undefined);
-      if(hiddifyAdminError)return {ok:false,status:422,json:async()=>({detail:'无法读取 Hiddify 管理链接'})};
-      return {ok:true,status:200,json:async()=>({url:hiddifyAdminUrl,tls_verified:hiddifyTlsVerified})};
     }
     if(url==='/api/codex/command'){
       assert.equal(opts.method,'POST');
@@ -568,33 +562,45 @@ function fingerprintFor(label) {
   assert(!modal.innerHTML.includes('data-action="regenerate-plan"'));
   await evaluate("inspectHiddifyJob('a1b2c3d4e5f6a7b8')");
   assert(made.get('#hiddify-live-status').innerHTML.includes('Hiddify 已安装并运行'));
-  assert(made.get('#hiddify-live-status').innerHTML.includes('data-action="open-hiddify-admin"'));
-  let openedHiddifyUrl;
-  context.window.open=()=>assert.fail('Opening Hiddify should use the current tab');
-  context.window.location={assign:url=>{openedHiddifyUrl=url;}};
-  await evaluate("openHiddifyAdmin('a1b2c3d4e5f6a7b8')");
-  assert.equal(openedHiddifyUrl,hiddifyAdminUrl);
+  const launcherLink='href="/static/hiddify-launch.html#a1b2c3d4e5f6a7b8" target="_blank" rel="opener"';
+  assert(made.get('#hiddify-live-status').innerHTML.includes(launcherLink));
   assert(!made.get('#hiddify-live-status').innerHTML.includes(hiddifyAdminUrl));
   assert(!modal.innerHTML.includes('id="approve-form"'));
   fill({...hiddifyJob,status:'completed'});
   evaluate("showJob('a1b2c3d4e5f6a7b8')");
   assert(modal.innerHTML.includes('官方快速设置'));
-  assert(modal.innerHTML.includes('data-action="open-hiddify-admin"'));
+  assert(modal.innerHTML.includes(launcherLink));
   assert(!modal.innerHTML.includes('id="approve-form"'));
-  hiddifyTlsVerified=false;
-  await evaluate("openHiddifyAdmin('a1b2c3d4e5f6a7b8')");
-  assert.equal(openedHiddifyUrl,hiddifyAdminUrl);
-  assert(made.get('#toast').textContent.includes('证书风险'));
-  openedHiddifyUrl=null;
-  hiddifyAdminError=true;
-  await evaluate("openHiddifyAdmin('a1b2c3d4e5f6a7b8')");
-  assert.equal(openedHiddifyUrl,null);
-  assert(made.get('#toast').textContent.includes('无法读取 Hiddify 管理链接'));
-  hiddifyAdminError=false;
-  const pendingHiddifyOpen=evaluate("openHiddifyAdmin('a1b2c3d4e5f6a7b8')");
-  evaluate('state.activeJob=null');
-  await pendingHiddifyOpen;
-  assert.equal(openedHiddifyUrl,null,'Closing the task should cancel same-tab navigation');
+
+  async function launchHiddify(result,{ok=true,token='test-session',hash='#a1b2c3d4e5f6a7b8'}={}){
+    const status={textContent:''};
+    let url=null;
+    let request=null;
+    const tab={opener:{},location:{hash,replace:value=>{url=value;}}};
+    await vm.runInNewContext(hiddifyLauncher,{
+      URL,window:tab,document:{querySelector:()=>status},sessionStorage:{getItem:()=>token},
+      fetch:async (path,options)=>{
+        request={path,token:options.headers['X-Admin-Token'],opener:tab.opener};
+        return {ok,json:async()=>result};
+      },
+    });
+    return {url,request,status:status.textContent};
+  }
+  const opened=await launchHiddify({url:hiddifyAdminUrl,tls_verified:true});
+  assert.equal(opened.url,hiddifyAdminUrl);
+  assert.deepEqual(opened.request,{path:'/api/jobs/a1b2c3d4e5f6a7b8/hiddify-admin',token:'test-session',opener:null});
+  const untrusted=await launchHiddify({url:hiddifyAdminUrl,tls_verified:false});
+  assert.equal(untrusted.url,hiddifyAdminUrl);
+  assert(untrusted.status.includes('证书风险'));
+  const failed=await launchHiddify({detail:'无法读取 Hiddify 管理链接'},{ok:false});
+  assert.equal(failed.url,null);
+  assert(failed.status.includes('无法读取 Hiddify 管理链接'));
+  const badLink=await launchHiddify({url:hiddifyAdminUrl.replace('https:', 'http:')});
+  assert.equal(badLink.url,null);
+  assert(badLink.status.includes('格式无效'));
+  const signedOut=await launchHiddify({},{token:null});
+  assert.equal(signedOut.request,null);
+  assert(signedOut.status.includes('请登录 NetDeploy'));
   fill({...hiddifyJob,needs_refresh:true});
   evaluate("showJob('a1b2c3d4e5f6a7b8')");
   assert(modal.innerHTML.includes('Hiddify 官网一键入口')&&!modal.innerHTML.includes('id="approve-form"'));
