@@ -1490,9 +1490,25 @@ async function inspectHiddifyJob(id){
    const result=await api('/jobs/'+encodeURIComponent(id)+'/hiddify-status');
    if(!target.isConnected)return;
    target.innerHTML=result.status==='running'
-     ? '<div class="modal-tip success-note"><strong>Hiddify 已安装并运行</strong><p>面板服务正常，VPS 的 TCP 80 和 443 已监听。通过可信 SSH 运行 <code>sudo hiddify admin</code> 查看管理链接。</p></div>'
+     ? `<div class="modal-tip success-note"><strong>Hiddify 已安装并运行</strong><p>面板服务正常，VPS 的 TCP 80 和 443 已监听。</p><button class="btn primary" type="button" data-action="open-hiddify-admin" data-id="${escapeHtml(id)}">打开管理面板 ↗</button></div>`
      : '<div class="modal-tip warning">当前未通过运行检查。请通过可信 SSH 核查 Hiddify 服务和 80、443 端口。</div>';
  }catch(err){if(target.isConnected)target.textContent=err.message;}
+}
+async function openHiddifyAdmin(id){
+ const tab=window.open('about:blank','_blank');
+ if(!tab){toast('浏览器阻止了新标签页，请允许弹窗后重试',true);return;}
+ try{
+   tab.opener=null;
+   tab.document.title='正在打开 Hiddify';
+   tab.document.body.textContent='正在读取 Hiddify 管理链接…';
+   const result=await api('/jobs/'+encodeURIComponent(id)+'/hiddify-admin');
+   const url=new URL(result.url);
+   if(url.protocol!=='https:'||url.username||url.password)throw new Error('Hiddify 管理链接格式无效');
+   if(!tab.closed)tab.location.replace(url.href);
+ }catch(err){
+   if(!tab.closed)tab.close();
+   toast(err.message,true);
+ }
 }
 async function diagnoseJob(id){
  const target=el('#ai-response');if(!target)return;
@@ -1781,7 +1797,7 @@ document.addEventListener('click',async e=>{
  const t=e.target.closest('[data-action],[data-nav]');if(!t)return;
  if(t.dataset.nav){go(t.dataset.nav);return;}
  const id=t.dataset.id,act=t.dataset.action;
- const asyncActions=new Set(['installed-xui','installed-sui','hiddify-job-status','sui-upgrade','existing-xui-https','xui-public-http','install-new-xui','fingerprint','trust','preflight','host-check','setup-firewall','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel','codex-settings','codex-connect','codex-cancel','codex-disconnect','codex-refresh']);
+ const asyncActions=new Set(['installed-xui','installed-sui','hiddify-job-status','open-hiddify-admin','sui-upgrade','existing-xui-https','xui-public-http','install-new-xui','fingerprint','trust','preflight','host-check','setup-firewall','server-install','confirm-delete-job','diagnose','regenerate-plan','xui-upgrade','xui-access','copy-xui-url','copy-xui-username','copy-xui-password','copy-xui-tunnel','codex-settings','codex-connect','codex-cancel','codex-disconnect','codex-refresh']);
  if(t.dataset.busy==='1')return;
  const busy=asyncActions.has(act)||act==='apply-ufw-toggle';
  if(busy){t.dataset.busy='1';t.disabled=true;t.classList.add('is-loading');t.setAttribute('aria-busy','true');}
@@ -1801,6 +1817,7 @@ document.addEventListener('click',async e=>{
   else if(act==='host-check')await checkHostInConsole(Number(id));
   else if(act==='installed-sui')await showExistingSui(Number(id));
   else if(act==='hiddify-job-status')await inspectHiddifyJob(id);
+  else if(act==='open-hiddify-admin')await openHiddifyAdmin(id);
   else if(act==='installed-dockge')await showExistingDockge(Number(id));
   else if(act==='dockge-config')await configureDockgeAccess(Number(id));
   else if(act==='copy-dockge-url')await copyXuiField('dockge-url','Dockge Apps 管理地址');

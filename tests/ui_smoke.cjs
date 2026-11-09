@@ -125,8 +125,11 @@ let dockgeAccessReads=0;
 let dockgeStatusReads=0;
 let codexAccount={available:true,connected:false,pending:false};
 let codexApprovalRequests=0;
+const hiddifyAdminUrl='https://45.32.35.195/panel-path/12345678-1234-1234-1234-123456789abc/';
+let hiddifyAdminTab=null;
 const context = vm.createContext({
   console,
+  URL,
   document,
   window:{matchMedia:()=>({matches:false}),scrollTo(){},confirm:()=>true},
   sessionStorage:{getItem:()=>null,setItem(){},removeItem(){}},
@@ -140,6 +143,11 @@ const context = vm.createContext({
     if(url==='/api/jobs/a1b2c3d4e5f6a7b8/hiddify-status'){
       assert.equal(opts.method,undefined);
       return {ok:true,status:200,json:async()=>({status:'running'})};
+    }
+    if(url==='/api/jobs/a1b2c3d4e5f6a7b8/hiddify-admin'){
+      assert.equal(opts.method,undefined);
+      assert.equal(hiddifyAdminTab.opener,null);
+      return {ok:true,status:200,json:async()=>({url:hiddifyAdminUrl})};
     }
     if(url==='/api/codex/command'){
       assert.equal(opts.method,'POST');
@@ -559,6 +567,17 @@ function fingerprintFor(label) {
   assert(!modal.innerHTML.includes('data-action="regenerate-plan"'));
   await evaluate("inspectHiddifyJob('a1b2c3d4e5f6a7b8')");
   assert(made.get('#hiddify-live-status').innerHTML.includes('Hiddify 已安装并运行'));
+  assert(made.get('#hiddify-live-status').innerHTML.includes('data-action="open-hiddify-admin"'));
+  let openedHiddifyUrl;
+  context.window.open=(url,target)=>{
+    assert.equal(url,'about:blank');
+    assert.equal(target,'_blank');
+    hiddifyAdminTab={opener:{},document:{body:{}},location:{replace:url=>{openedHiddifyUrl=url;}}};
+    return hiddifyAdminTab;
+  };
+  await evaluate("openHiddifyAdmin('a1b2c3d4e5f6a7b8')");
+  assert.equal(openedHiddifyUrl,hiddifyAdminUrl);
+  assert(!made.get('#hiddify-live-status').innerHTML.includes(hiddifyAdminUrl));
   assert(!modal.innerHTML.includes('id="approve-form"'));
   fill({...hiddifyJob,status:'completed'});
   evaluate("showJob('a1b2c3d4e5f6a7b8')");

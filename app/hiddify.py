@@ -1,5 +1,10 @@
 """Fixed, native Hiddify Manager installation on a dedicated Ubuntu VPS."""
 
+import ipaddress
+import json
+import re
+from urllib.parse import urlsplit
+
 VERSION = "14.0.5"
 COMMIT = "331c1114d4bb0bcf62e9ac719932ae904e88cf9c"
 UPSTREAM = f"https://raw.githubusercontent.com/hiddify/Hiddify-Manager/{COMMIT}/scripts/common"
@@ -17,6 +22,56 @@ if command -v hiddify >/dev/null && systemctl is-active --quiet hiddify-panel.se
 fi
 echo HIDDIFY_STATUS=incomplete
 """
+
+# Read the links produced by Hiddify's own configuration. The interactive
+# hiddify admin command refreshes configs and can install a QR-code package.
+ADMIN_LINKS = r"""set -eu
+systemctl is-active --quiet hiddify-panel.service
+test -n "$(ss -Hltn 'sport = :443')"
+jq -ce '[.panel_links[]? | strings | select(length <= 512 and startswith("https://"))][:12]' \
+  /opt/hiddify-manager/data/current.json
+"""
+
+_ADMIN_PATH = re.compile(
+    r"/[A-Za-z0-9_-]+/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?:/admin)?/?", re.I
+)
+
+def _link_host(value: str) -> str:
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        return value.lower().rstrip(".")
+
+
+def parse_admin_url(raw: str, host: dict) -> str:
+    """Select a Hiddify admin URL on this VPS or its configured HTTPS domain."""
+    links = json.loads(raw)
+    if not isinstance(links, list):
+        raise ValueError("Invalid Hiddify link list")
+    allowed_hosts = [_link_host(host["hostname"])]
+    if host.get("tls_domain"):
+        allowed_hosts.insert(0, _link_host(host["tls_domain"]))
+    valid = {}
+    for link in links:
+        if not isinstance(link, str) or not re.fullmatch(r"[!-~]{1,512}", link) or any(c in link for c in "\\?#"):
+            continue
+        try:
+            url = urlsplit(link)
+            if url.scheme != "https" or not url.hostname or url.username is not None or url.port not in {None, 443}:
+                continue
+        except ValueError:
+            continue
+        name = _link_host(url.hostname)
+        if name not in allowed_hosts:
+            continue
+        if not _ADMIN_PATH.fullmatch(url.path):
+            continue
+        valid.setdefault(name, link)
+    for name in allowed_hosts:
+        if name in valid:
+            return valid[name]
+    raise ValueError("No Hiddify admin link for the approved host")
+
 
 BLOCKERS = {
     "ubuntu": "仅支持 Ubuntu 22.04、24.04 或 26.04",

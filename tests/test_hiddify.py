@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import shutil
@@ -8,7 +9,9 @@ import pytest
 
 from app import main
 from app.catalog import build_plan
-from app.hiddify import COMMIT, INSTALLER_SHA256, PRECHECK, STATUS, UTILS_SHA256, VERSION, steps
+from app.hiddify import (
+    ADMIN_LINKS, COMMIT, INSTALLER_SHA256, PRECHECK, STATUS, UTILS_SHA256, VERSION, parse_admin_url, steps,
+)
 from app.store import Store
 
 
@@ -180,6 +183,28 @@ timeout() { printf 'installer_mask=%s\n' "$(umask)"; }
         assert log.stat().st_mode & 0o777 == 0o600
 
 
+ADMIN_PATH = "/panel-path/12345678-1234-1234-1234-123456789abc/"
+
+
+def test_hiddify_admin_url_requires_a_recognized_https_destination():
+    host = {"hostname": "192.0.2.10", "tls_domain": "panel.example.com"}
+    rejected = [
+        "http://192.0.2.10" + ADMIN_PATH,
+        "https://other.example.com" + ADMIN_PATH,
+        "https://panel.example.com.other.example.com" + ADMIN_PATH,
+        "https://other.example.com@192.0.2.10" + ADMIN_PATH,
+        "https://192.0.2.10:9000" + ADMIN_PATH,
+        "https://192.0.2.10" + ADMIN_PATH + "?next=https://other.example.com",
+        "https://192.0.2.10/other-path",
+    ]
+    direct = "https://192.0.2.10" + ADMIN_PATH
+    domain = "https://panel.example.com" + ADMIN_PATH
+    with pytest.raises(ValueError):
+        parse_admin_url(json.dumps(rejected), host)
+    assert parse_admin_url(json.dumps([direct, domain]), host) == domain
+    assert parse_admin_url(json.dumps([domain, direct]), {"hostname": "192.0.2.10"}) == direct
+
+
 def test_existing_hiddify_status_is_read_only_and_bound_to_the_saved_host(tmp_path, monkeypatch):
     db = Store(str(tmp_path / "netdeploy.sqlite"))
     monkeypatch.setattr(main, "store", db)
@@ -193,8 +218,10 @@ def test_existing_hiddify_status_is_read_only_and_bound_to_the_saved_host(tmp_pa
 
     def read(target, script, timeout):
         assert target["id"] == host["id"]
-        assert script == STATUS
         calls.append(target["id"])
+        if script == ADMIN_LINKS:
+            return json.dumps(["https://192.0.2.10" + ADMIN_PATH])
+        assert script == STATUS
         return f"HIDDIFY_STATUS={state}\n"
 
     monkeypatch.setattr(main.executor, "credential_ready", lambda host: True)
@@ -206,7 +233,13 @@ def test_existing_hiddify_status_is_read_only_and_bound_to_the_saved_host(tmp_pa
     state = "incomplete"
     assert client.get(path, headers=headers).json() == {"status": "incomplete"}
     assert client.get(f'/api/jobs/{stale["id"]}/hiddify-status', headers=headers).status_code == 409
-    assert len(calls) == 2
+    admin_path = f'/api/jobs/{job["id"]}/hiddify-admin'
+    assert client.get(admin_path).status_code == 401
+    assert client.get(f'/api/jobs/{stale["id"]}/hiddify-admin', headers=headers).status_code == 409
+    admin = client.get(admin_path, headers=headers)
+    assert admin.json() == {"url": "https://192.0.2.10" + ADMIN_PATH}
+    assert admin.headers["Cache-Control"] == "no-store"
+    assert len(calls) == 3
     assert db.job(job["id"]) == job
     assert len(db.jobs()) == 2
 
