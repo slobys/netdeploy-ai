@@ -45,14 +45,8 @@ def test_hiddify_plan_blocks_incompatible_targets(change):
     assert not plan["steps"]
 
 
-@pytest.mark.parametrize(("unit_list", "unit_status", "expected"), [
-    ("ssh.service enabled enabled", "0", "ready"),
-    ("ssh.service enabled enabled\nhiddify-panel.service disabled enabled", "0", "existing"),
-    ("", "1", "unit_files"),
-])
-def test_hiddify_precheck_distinguishes_no_matching_unit_from_systemctl_failure(
-    tmp_path, unit_list, unit_status, expected,
-):
+@pytest.fixture
+def run_hiddify_precheck(tmp_path):
     if os.name == "nt":
         git = shutil.which("git")
         bash = Path(git).resolve().parent.parent / "bin" / "bash.exe" if git else None
@@ -65,7 +59,8 @@ def test_hiddify_precheck_distinguishes_no_matching_unit_from_systemctl_failure(
 
     (tmp_path / "os-release").write_bytes(b'ID=ubuntu\nVERSION_ID="24.04"\n')
     (tmp_path / "meminfo").write_bytes(b"MemTotal: 2000000 kB\n")
-    precheck = PRECHECK.replace("/etc/os-release", "./os-release").replace("/proc/meminfo", "./meminfo")
+    precheck = PRECHECK.replace("/etc/os-release", "./os-release")
+    precheck = precheck.replace("/proc/meminfo", "./meminfo").replace("/proc/", "./proc/")
     for prefix in ("/opt/hiddify", "/usr/bin/hiddify", "/usr/local/bin/hiddify", "/var/log/netdeploy-hiddify"):
         precheck = precheck.replace(prefix, "." + prefix)
 
@@ -78,7 +73,17 @@ command() {
 }
 ps() { echo systemd; }
 systemd-detect-virt() { return 1; }
-ss() { echo 'tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:*'; }
+ss() {
+  echo 'tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:*'
+  printf '%s\n' "$ND_LISTENERS"
+}
+readlink() {
+  case "$1" in
+    ./proc/1473/exe) printf '%s\n' "$ND_METRICS_EXE" ;;
+    ./proc/1487/exe) echo /opt/google-cloud-ops-agent/subagents/fluent-bit/bin/fluent-bit ;;
+    *) return 1 ;;
+  esac
+}
 systemctl() {
   # Ubuntu 24.04 exits with 1 if the name filter finds no unit files.
   case "$*" in *'hiddify*.service'*) return 1 ;; esac
@@ -86,16 +91,58 @@ systemctl() {
   return "$ND_UNIT_STATUS"
 }
 """
-    result = subprocess.run(
-        [str(bash), "--noprofile", "--norc", "-se"],
-        input=(fake_vps + precheck + "\nhiddify_precheck\n").encode("ascii"),
-        cwd=tmp_path, capture_output=True, timeout=10, check=True,
-        env={**os.environ, "SSH_CONNECTION": "192.0.2.10 54321 192.0.2.20 22",
-             "ND_UNIT_LIST": unit_list, "ND_UNIT_STATUS": unit_status},
-    )
-    assert result.stdout.decode("ascii").strip() == expected
+    def run(
+        unit_list="ssh.service enabled enabled", unit_status="0", listeners="",
+        metrics_exe="/opt/google-cloud-ops-agent/subagents/opentelemetry-collector/otelopscol",
+        metrics_cgroup="/system.slice/google-cloud-ops-agent-opentelemetry-collector.service",
+    ):
+        for pid, group in ((1473, metrics_cgroup), (1487, "/system.slice/google-cloud-ops-agent-fluent-bit.service")):
+            path = tmp_path / "proc" / str(pid) / "cgroup"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(f"0::{group}\n".encode("ascii"))
+        result = subprocess.run(
+            [str(bash), "--noprofile", "--norc", "-se"],
+            input=(fake_vps + precheck + "\nhiddify_precheck\n").encode("ascii"),
+            cwd=tmp_path, capture_output=True, timeout=10, check=True,
+            env={**os.environ, "SSH_CONNECTION": "192.0.2.10 54321 192.0.2.20 22",
+                 "ND_UNIT_LIST": unit_list, "ND_UNIT_STATUS": unit_status,
+                 "ND_LISTENERS": listeners, "ND_METRICS_EXE": metrics_exe},
+        )
+        return result.stdout.decode("ascii").strip()
+
+    return run
+
+
+@pytest.mark.parametrize(("unit_list", "unit_status", "expected"), [
+    ("ssh.service enabled enabled", "0", "ready"),
+    ("ssh.service enabled enabled\nhiddify-panel.service disabled enabled", "0", "existing"),
+    ("", "1", "unit_files"),
+])
+def test_hiddify_precheck_distinguishes_no_matching_unit_from_systemctl_failure(
+    run_hiddify_precheck, unit_list, unit_status, expected,
+):
+    assert run_hiddify_precheck(unit_list, unit_status) == expected
     if expected != "ready":
         assert not build_plan("hiddify", {**FACTS, "HIDDIFY_STATE": expected})["executable"]
+
+
+OPS_METRICS = 'tcp LISTEN 0 128 [::]:20201 [::]:* users:(("otelopscol",pid=1473,fd=3))'
+OPS_LOGS = 'tcp LISTEN 0 128 0.0.0.0:20202 0.0.0.0:* users:(("fluent-bit",pid=1487,fd=146))'
+
+
+@pytest.mark.parametrize(("listeners", "process_override", "expected"), [
+    pytest.param([OPS_METRICS, OPS_LOGS], {}, "ready", id="packaged-ops-agent"),
+    pytest.param([OPS_METRICS], {"metrics_exe": "/usr/bin/otelopscol"}, "services", id="different-binary"),
+    pytest.param([OPS_METRICS], {"metrics_cgroup": "/system.slice/custom.service"}, "services", id="different-service"),
+    pytest.param([OPS_METRICS.split(" users:")[0]], {}, "services", id="unverified-owner"),
+    pytest.param([OPS_METRICS.replace("fd=3))", 'fd=3),("other",pid=1488,fd=4))')], {}, "services", id="shared-socket"),
+    pytest.param([OPS_METRICS, "tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:*"], {}, "services", id="extra-listener"),
+    pytest.param([OPS_LOGS, "tcp LISTEN 0 128 0.0.0.0:443 0.0.0.0:*"], {}, "ports", id="https-conflict"),
+])
+def test_hiddify_precheck_exempts_only_verified_ops_agent_listeners(
+    run_hiddify_precheck, listeners, process_override, expected,
+):
+    assert run_hiddify_precheck(listeners="\n".join(listeners), **process_override) == expected
 
 
 def test_hiddify_approval_rechecks_the_dedicated_host(tmp_path, monkeypatch):

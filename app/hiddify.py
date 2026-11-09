@@ -20,7 +20,20 @@ BLOCKERS = {
 }
 
 PRECHECK = r"""
+hiddify_is_ops_agent_owner() {
+  local owner=$1 process=$2 component=$3 program=$4 pid
+  local pattern="^users:\\(\\(\"$process\",pid=([1-9][0-9]*),fd=[0-9]+\\)\\)$"
+  [[ "$owner" =~ $pattern ]] || return 1
+  pid=${BASH_REMATCH[1]}
+  [ "$(readlink "/proc/$pid/exe" 2>/dev/null)" = "/opt/google-cloud-ops-agent/subagents/$program" ] || return 1
+  awk -F: -v group="/system.slice/google-cloud-ops-agent-$component.service" '
+    (($1 == "0" && $2 == "") || $2 == "name=systemd") && $3 == group { found=1 }
+    END { exit !found }
+  ' "/proc/$pid/cgroup" 2>/dev/null
+}
+
 hiddify_precheck() {
+  local protocol socket_state recv_queue send_queue address peer owner
   if ! (. /etc/os-release && [ "${ID:-}" = ubuntu ] &&
         case "${VERSION_ID:-}" in 22.04|24.04|26.04) true ;; *) false ;; esac); then
     echo ubuntu; return
@@ -41,17 +54,26 @@ hiddify_precheck() {
   if [[ "$units" =~ (^|$'\n')[[:blank:]]*hiddify[^[:space:]]*[.]service([[:space:]]|$) ]]; then
     echo existing; return
   fi
-  if ! listeners=$(ss -H -lntu); then echo listeners; return; fi
+  if ! listeners=$(ss -H -lntup); then echo listeners; return; fi
   if printf '%s\n' "$listeners" | awk '$5 ~ /:(80|443)$/ { busy=1 } END { exit !busy }'; then
     echo ports; return
   fi
-  if ! printf '%s\n' "$listeners" | awk '
-    NF == 0 || $5 ~ /^(127\.|\[::1\]:|::1:)/ { next }
-    $1 == "tcp" && $5 ~ /:22$/ { next }
-    $1 == "udp" && $5 ~ /:(68|546)$/ { next }
-    { busy=1 }
-    END { exit busy ? 1 : 0 }
-  '; then echo services; return; fi
+  while read -r protocol socket_state recv_queue send_queue address peer owner; do
+    [ -n "$protocol" ] || continue
+    case "$address" in 127.*|\[::1\]:*|::1:*) continue ;; esac
+    case "$protocol:${address##*:}" in
+      tcp:22|udp:68|udp:546) continue ;;
+      # Google Cloud's packaged Ops Agent uses these sockets within the VM.
+      # Verify the sole socket owner by executable and systemd service cgroup.
+      tcp:20201)
+        hiddify_is_ops_agent_owner "$owner" otelopscol opentelemetry-collector \
+          opentelemetry-collector/otelopscol && continue ;;
+      tcp:20202)
+        hiddify_is_ops_agent_owner "$owner" fluent-bit fluent-bit \
+          fluent-bit/bin/fluent-bit && continue ;;
+    esac
+    echo services; return
+  done <<< "$listeners"
   for tool in nginx apache2 haproxy caddy x-ui s-ui xray sing-box docker mariadbd mysqld redis-server; do
     if command -v "$tool" >/dev/null 2>&1; then echo services; return; fi
   done
