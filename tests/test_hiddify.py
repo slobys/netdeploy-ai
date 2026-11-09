@@ -1,9 +1,14 @@
+import os
+from pathlib import Path
+import shutil
+import subprocess
+
 from fastapi.testclient import TestClient
 import pytest
 
 from app import main
 from app.catalog import build_plan
-from app.hiddify import COMMIT, INSTALLER_SHA256, UTILS_SHA256, VERSION
+from app.hiddify import COMMIT, INSTALLER_SHA256, PRECHECK, UTILS_SHA256, VERSION
 from app.store import Store
 
 
@@ -38,6 +43,59 @@ def test_hiddify_plan_blocks_incompatible_targets(change):
     assert not plan["executable"]
     assert plan["issues"]
     assert not plan["steps"]
+
+
+@pytest.mark.parametrize(("unit_list", "unit_status", "expected"), [
+    ("ssh.service enabled enabled", "0", "ready"),
+    ("ssh.service enabled enabled\nhiddify-panel.service disabled enabled", "0", "existing"),
+    ("", "1", "unit_files"),
+])
+def test_hiddify_precheck_distinguishes_no_matching_unit_from_systemctl_failure(
+    tmp_path, unit_list, unit_status, expected,
+):
+    if os.name == "nt":
+        git = shutil.which("git")
+        bash = Path(git).resolve().parent.parent / "bin" / "bash.exe" if git else None
+        if bash and not bash.is_file():
+            bash = None
+    else:
+        bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("Bash is required to exercise the VPS precheck")
+
+    (tmp_path / "os-release").write_bytes(b'ID=ubuntu\nVERSION_ID="24.04"\n')
+    (tmp_path / "meminfo").write_bytes(b"MemTotal: 2000000 kB\n")
+    precheck = PRECHECK.replace("/etc/os-release", "./os-release").replace("/proc/meminfo", "./meminfo")
+    for prefix in ("/opt/hiddify", "/usr/bin/hiddify", "/usr/local/bin/hiddify", "/var/log/netdeploy-hiddify"):
+        precheck = precheck.replace(prefix, "." + prefix)
+
+    fake_vps = r"""
+command() {
+  case "$2" in
+    ss|curl|sha256sum|flock|timeout|systemctl|systemd-detect-virt) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+ps() { echo systemd; }
+systemd-detect-virt() { return 1; }
+ss() { echo 'tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:*'; }
+systemctl() {
+  # Ubuntu 24.04 exits with 1 if the name filter finds no unit files.
+  case "$*" in *'hiddify*.service'*) return 1 ;; esac
+  printf '%s\n' "$ND_UNIT_LIST"
+  return "$ND_UNIT_STATUS"
+}
+"""
+    result = subprocess.run(
+        [str(bash), "--noprofile", "--norc", "-se"],
+        input=(fake_vps + precheck + "\nhiddify_precheck\n").encode("ascii"),
+        cwd=tmp_path, capture_output=True, timeout=10, check=True,
+        env={**os.environ, "SSH_CONNECTION": "192.0.2.10 54321 192.0.2.20 22",
+             "ND_UNIT_LIST": unit_list, "ND_UNIT_STATUS": unit_status},
+    )
+    assert result.stdout.decode("ascii").strip() == expected
+    if expected != "ready":
+        assert not build_plan("hiddify", {**FACTS, "HIDDIFY_STATE": expected})["executable"]
 
 
 def test_hiddify_approval_rechecks_the_dedicated_host(tmp_path, monkeypatch):

@@ -10,6 +10,8 @@ BLOCKERS = {
     "ubuntu": "仅支持 Ubuntu 22.04、24.04 或 26.04",
     "systemd": "Hiddify 需要运行 systemd 的独立虚拟机或物理服务器",
     "tools": "缺少 ss、curl、flock 或其他基础检查工具",
+    "unit_files": "systemctl 无法读取系统服务列表，无法确认是否已有 Hiddify",
+    "listeners": "ss 无法读取端口监听状态，无法确认是否有端口冲突",
     "memory": "可用服务器规格不足，建议至少 1 GB 内存",
     "existing": "检测到现有 Hiddify 或安装残留，请通过 Hiddify 的管理工具检查",
     "ports": "TCP 或 UDP 的 80/443 已有监听，禁止覆盖现有服务",
@@ -34,9 +36,12 @@ hiddify_precheck() {
     if [ -e "$path" ] || [ -L "$path" ]; then echo existing; return; fi
   done
   if compgen -G '/var/log/netdeploy-hiddify.*.log' >/dev/null; then echo existing; return; fi
-  if ! units=$(systemctl list-unit-files --no-legend 'hiddify*.service'); then echo tools; return; fi
-  if printf '%s\n' "$units" | grep -q '^hiddify'; then echo existing; return; fi
-  if ! listeners=$(ss -H -lntu); then echo tools; return; fi
+  # systemd 255 returns 1 when a name filter matches no unit files.
+  if ! units=$(systemctl list-unit-files --type=service --no-legend --no-pager); then echo unit_files; return; fi
+  if [[ "$units" =~ (^|$'\n')[[:blank:]]*hiddify[^[:space:]]*[.]service([[:space:]]|$) ]]; then
+    echo existing; return
+  fi
+  if ! listeners=$(ss -H -lntu); then echo listeners; return; fi
   if printf '%s\n' "$listeners" | awk '$5 ~ /:(80|443)$/ { busy=1 } END { exit !busy }'; then
     echo ports; return
   fi
