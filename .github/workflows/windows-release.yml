@@ -19,7 +19,7 @@ jobs:
       - name: Verify installation, upgrade and uninstall
         shell: powershell
         run: |
-          ./packaging/windows/verify.ps1 -Installer (Resolve-Path 'release/NetDeployAI-0.3.40-Setup-x64.exe').Path -Python (Get-Command python.exe).Source
+          ./packaging/windows/verify.ps1 -Installer (Resolve-Path 'release/NetDeployAI-0.3.41-Setup-x64.exe').Path -Python (Get-Command python.exe).Source
       - uses: actions/upload-artifact@v4
         with:
           name: NetDeployAI-windows-x64

@@ -87,7 +87,7 @@ def main():
     try:
         install_now()
         launch()
-        assert api("health")["version"] == "0.3.40"
+        assert api("health")["version"] == "0.3.41"
         assert len(api("catalog")) >= 7
         assert api("capabilities")["secure_password_storage"]
         assert api("hosts") == [] and api("jobs") == []

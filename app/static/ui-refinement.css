@@ -41,6 +41,9 @@
   gap: 2px 12px;
 }
 .is-dashboard .section-heading p { margin-top: 0; }
+.is-dashboard #hosts-section .section-heading { margin: 18px 0 12px; }
+.is-dashboard #hosts-section .section-heading > div { display: block; }
+.is-dashboard #hosts-section .section-heading p { margin-top: 4px; }
 .is-dashboard .stat { padding: 11px 16px; gap: 0; }
 .is-dashboard .stat .icon { width: 28px; height: 28px; font-size: 17px; }
 .is-dashboard .stat strong { margin-top: 3px; }
@@ -55,15 +58,15 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-content: start;
-  flex: 0 1 520px;
+  flex: 0 1 580px;
   width: auto;
   max-width: 100%;
-  min-height: 112px;
-  padding: 10px 14px;
-  gap: 4px 10px;
+  min-height: 140px;
+  padding: 16px 18px;
+  gap: 8px 14px;
 }
 .is-dashboard .host-card-top, .is-dashboard .host-card-address { grid-column: 1 / -1; }
-.is-dashboard .host-card-top .host-icon { width: 28px; height: 28px; }
+.is-dashboard .host-card-top .host-icon { width: 32px; height: 32px; }
 .is-dashboard .host-title b { overflow-wrap: anywhere; }
 .is-dashboard .host-card-delete {
   position: static;
@@ -72,9 +75,9 @@
   align-self: end;
   padding: 6px 10px;
 }
-.is-dashboard .host-card-meta { align-self: center; gap: 3px 10px; }
+.is-dashboard .host-card-meta { align-self: center; gap: 6px 12px; }
 .is-dashboard .host-card-hint { grid-column: 1 / -1; }
-.is-dashboard .host-add-card { flex: 0 0 56px; align-self: stretch; min-height: 112px; }
+.is-dashboard .host-add-card { flex: 0 0 56px; align-self: stretch; min-height: 140px; }
 .is-dashboard #projects-section.is-featured .project-grid {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
@@ -90,6 +93,7 @@
 .is-dashboard footer { margin-top: 16px; padding-top: 10px; }
 @media (max-width: 1000px) {
   .is-dashboard .hero-content { width: 100%; }
+  .is-dashboard .host-item { flex-basis: min(580px, calc(100% - 66px)); }
   .is-dashboard .section-heading > div { display: block; }
 }
 @media (max-width: 1320px) {
