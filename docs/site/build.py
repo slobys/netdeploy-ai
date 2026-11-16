@@ -101,6 +101,9 @@ def build(output: Path = DEFAULT_OUTPUT) -> Path:
     template = Template((ROOT / "template.html").read_text(encoding="utf-8"))
     for asset in ("site.css", "site.js"):
         shutil.copyfile(ROOT / asset, output / asset)
+    (output / "brand").mkdir()
+    for asset in ("logo.svg", "favicon.ico", "icon-192.png", "social-preview.jpg"):
+        shutil.copyfile(PROJECT / "app/static/brand" / asset, output / "brand" / asset)
 
     search: list[dict[str, str]] = []
     for i, page in enumerate(pages):
@@ -127,6 +130,7 @@ def build(output: Path = DEFAULT_OUTPUT) -> Path:
         title = page["title"] + " · NetDeploy AI"
         result = template.substitute(
             title=html.escape(title), description=html.escape(page["description"], quote=True),
+            site_url=html.escape(config["url"], quote=True),
             canonical=config["url"] + ("" if page["id"] == "index" else page["id"] + ".html"),
             page_id=page["id"], page_title=html.escape(page["title"]),
             page_description=html.escape(page["description"]),
@@ -153,7 +157,8 @@ def build(output: Path = DEFAULT_OUTPUT) -> Path:
         '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         '<title>未找到页面 · NetDeploy AI</title><link rel="stylesheet" href="site.css">'
-        '</head><body><main class="not-found"><h1>404 · 页面未找到</h1>'
+        '<link rel="icon" href="brand/logo.svg">'
+        '</head><body><main class="not-found"><img src="brand/logo.svg" width="64" height="64" alt="NetDeploy AI"><h1>404 · 页面未找到</h1>'
         '<p>请返回文档首页并使用左侧目录或搜索。</p>'
         '<a class="button primary" href="index.html">返回文档首页</a></main></body></html>',
         encoding="utf-8",

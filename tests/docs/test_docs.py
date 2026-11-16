@@ -64,9 +64,11 @@ class DocsTests(unittest.TestCase):
         names = {x.name for x in self.output.iterdir()}
         expected = {p["id"] + ".html" for p in self.pages} | {
             "404.html", "site.css", "site.js", "search-index.json", "robots.txt",
-            "sitemap.xml", ".nojekyll"
+            "sitemap.xml", ".nojekyll", "brand"
         }
         self.assertEqual(names, expected)
+        self.assertEqual({p.name for p in (self.output / "brand").iterdir()},
+                         {"logo.svg", "favicon.ico", "icon-192.png", "social-preview.jpg"})
         self.assertFalse(names & {".env", "known_hosts", "secrets", "data", "app", ".git"})
 
     def test_google_cloud_root_command_is_short_and_customizable(self):

@@ -53,9 +53,9 @@ Source: "{#BundleDir}\*"; Excludes: "MicrosoftEdgeWebview2Setup.exe"; DestDir: "
 Source: "{#BundleDir}\MicrosoftEdgeWebview2Setup.exe"; Flags: dontcopy
 
 [Icons]
-Name: "{autoprograms}\NetDeploy AI"; Filename: "{app}\NetDeployAI.exe"
-Name: "{autoprograms}\{cm:ExitApp}"; Filename: "{app}\NetDeployAI.exe"; Parameters: "--stop"
-Name: "{autodesktop}\NetDeploy AI"; Filename: "{app}\NetDeployAI.exe"; Tasks: desktopicon
+Name: "{autoprograms}\NetDeploy AI"; Filename: "{app}\NetDeployAI.exe"; IconFilename: "{app}\netdeploy.ico"
+Name: "{autoprograms}\{cm:ExitApp}"; Filename: "{app}\NetDeployAI.exe"; IconFilename: "{app}\netdeploy.ico"; Parameters: "--stop"
+Name: "{autodesktop}\NetDeploy AI"; Filename: "{app}\NetDeployAI.exe"; IconFilename: "{app}\netdeploy.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\NetDeployAI.exe"; Description: "{cm:OpenApp}"; Flags: nowait postinstall skipifsilent

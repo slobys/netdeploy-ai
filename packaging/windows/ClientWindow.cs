@@ -20,7 +20,7 @@ internal sealed class ClientWindow : Form
     private bool testing;
     private bool openingHiddify;
     private Func<HttpMessageHandler> hiddifyHandler;
-    private FormWindowState visibleState = FormWindowState.Maximized;
+    private FormWindowState visibleState = FormWindowState.Normal;
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetWindowDpiAwarenessContext(IntPtr window);
@@ -36,10 +36,10 @@ internal sealed class ClientWindow : Form
         AutoScaleMode = AutoScaleMode.Dpi;
         Text = main ? "NetDeploy AI" : "NetDeploy AI · 管理面板";
         Icon = new Icon(Path.Combine(Launcher.Root, "netdeploy.ico"));
-        Size = new Size(1440, 900);
+        Size = new Size(1440, 1000);
         MinimumSize = new Size(900, 640);
         StartPosition = FormStartPosition.CenterScreen;
-        WindowState = FormWindowState.Maximized;
+        WindowState = FormWindowState.Normal;
         view.Dock = DockStyle.Fill;
         message.Dock = DockStyle.Fill;
         message.TextAlign = ContentAlignment.MiddleCenter;

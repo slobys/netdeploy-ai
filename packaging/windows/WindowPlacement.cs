@@ -30,15 +30,24 @@ internal static class WindowPlacement
 
     internal static void Restore(Form window, bool main)
     {
-        window.WindowState = FormWindowState.Maximized;
+        window.WindowState = FormWindowState.Normal;
+        var area = Screen.FromControl(window).WorkingArea;
+        double scale = window.DeviceDpi / 96.0;
+        window.MinimumSize = new System.Drawing.Size(Math.Min((int)(900 * scale), (int)(area.Width * .92)),
+            Math.Min((int)(640 * scale), (int)(area.Height * .92)));
+        int width = Math.Min((int)(1440 * scale), (int)(area.Width * .92));
+        int height = Math.Min((int)(1000 * scale), (int)(area.Height * .92));
+        window.StartPosition = FormStartPosition.Manual;
+        window.Bounds = new System.Drawing.Rectangle(area.Left + (area.Width - width) / 2,
+            area.Top + (area.Height - height) / 2, width, height);
         try
         {
             string file = FileName(main);
             if (!File.Exists(file)) return;
             var placement = new JavaScriptSerializer().Deserialize<Placement>(File.ReadAllText(file));
             var bounds = placement.NormalPosition;
-            long width = (long)bounds.Right - bounds.Left, height = (long)bounds.Bottom - bounds.Top;
-            if (width < 200 || height < 150 || width > 32768 || height > 32768 ||
+            long savedWidth = (long)bounds.Right - bounds.Left, savedHeight = (long)bounds.Bottom - bounds.Top;
+            if (savedWidth < 200 || savedHeight < 150 || savedWidth > 32768 || savedHeight > 32768 ||
                 (placement.ShowCommand != 1 && placement.ShowCommand != 3)) return;
             placement.Length = Marshal.SizeOf(typeof(Placement));
             placement.Flags = 0;

@@ -6,15 +6,20 @@
   <meta name="color-scheme" content="light dark">
   <title>$title</title>
   <meta name="description" content="$description">
+  <meta property="og:title" content="$title">
+  <meta property="og:image" content="${site_url}brand/social-preview.jpg">
   <link rel="canonical" href="$canonical">
   <link rel="stylesheet" href="site.css">
+  <link rel="icon" type="image/svg+xml" href="brand/logo.svg">
+  <link rel="icon" href="brand/favicon.ico">
+  <link rel="apple-touch-icon" href="brand/icon-192.png">
   <script src="site.js" defer></script>
 </head>
 <body data-page="$page_id">
   <a class="skip-link" href="#content">跳转到正文</a>
   <header class="header">
     <a href="index.html" class="brand" aria-label="NetDeploy AI 文档首页">
-      <span class="brand-icon" aria-hidden="true">N<span>D</span></span>
+      <img class="brand-icon" src="brand/logo.svg" width="42" height="42" alt="">
       <span class="brand-name">NetDeploy <strong>AI</strong><small>使用手册</small></span>
     </a>
     <button type="button" class="search-trigger" data-search-open aria-keyshortcuts="Control+K Meta+K">⌕ <span>搜索文档</span><kbd>Ctrl K</kbd></button>

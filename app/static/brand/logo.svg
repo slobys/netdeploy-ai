@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">NetDeploy AI</title>
+  <desc id="desc">An N-shaped network route ending at a mint deployment node.</desc>
+  <rect width="64" height="64" rx="15" fill="#0c6551"/>
+  <path d="M14 47V17H22L40 37V27H48V47H40L22 27V47Z" fill="#f4fffb"/>
+  <circle cx="44" cy="17" r="5" fill="#73e5b1"/>
+</svg>

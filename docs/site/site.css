@@ -1,11 +1,11 @@
 /* NetDeploy AI public documentation: standalone, accessible and dependency-free. */
 :root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","Microsoft YaHei",sans-serif;color-scheme:light;
 --bg:#f7f9fc;--surface:#fff;--surface2:#f0f5fc;--text:#16243c;--muted:#61718c;--edge:#dce4ef;
---blue:#2463ed;--blue2:#0d4ac4;--accent:#11a7bb;--code:#111f33;--code-text:#e5f0ff;--warn:#91521c;
+--blue:#2463ed;--blue2:#0d4ac4;--accent:#0c6551;--brand:#0c6551;--code:#111f33;--code-text:#e5f0ff;--warn:#91521c;
 --warning-bg:#fff5e6;--warning-border:#e7cda0;--shadow:0 8px 25px rgba(18,39,78,.06);
 scroll-behavior:smooth}
 :root[data-theme="dark"]{color-scheme:dark;--bg:#0b1424;--surface:#101f34;--surface2:#142840;--text:#e5efff;--muted:#99abc4;
---edge:#2a3d57;--blue:#6eabff;--blue2:#84bbff;--accent:#55cddd;--code:#08111f;--code-text:#dcecff;
+--edge:#2a3d57;--blue:#6eabff;--blue2:#84bbff;--accent:#73e5b1;--brand:#73e5b1;--code:#08111f;--code-text:#dcecff;
 --warn:#ffd59b;--warning-bg:#322516;--warning-border:#70512f;--shadow:0 14px 28px rgba(0,0,0,.12)}
 *{box-sizing:border-box}html{scroll-padding-top:98px}body{margin:0;color:var(--text);background:var(--bg);font-size:15px;line-height:1.78}
 a{color:var(--blue);text-underline-offset:3px}a:hover{color:var(--blue2)}button,input{font:inherit}
@@ -13,7 +13,7 @@ button{cursor:pointer}button:focus-visible,a:focus-visible,input:focus-visible{o
 .skip-link{position:absolute;top:-100px;left:14px;z-index:1000;background:var(--surface);padding:10px}.skip-link:focus{top:10px}
 .header{height:72px;position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:18px;padding:0 clamp(16px,3.4vw,58px);background:var(--surface);border-bottom:1px solid var(--edge);box-shadow:0 3px 12px rgba(2,18,47,.03)}
 .brand{display:flex;align-items:center;gap:11px;text-decoration:none;color:var(--text);flex-shrink:0}.brand-icon{display:flex;align-items:center;justify-content:center;height:42px;width:42px;border-radius:13px;color:white;font-size:17px;letter-spacing:-.08em;font-weight:850;background:linear-gradient(145deg,#206cf5,#10a8c1);box-shadow:0 6px 13px rgba(30,102,218,.2)}
-.brand-icon span{color:#aff6ff}.brand-name{font-size:17px;line-height:1.1;letter-spacing:-.025em;font-weight:800}.brand-name strong{color:var(--blue)}.brand-name small{display:block;color:var(--muted);font-weight:500;letter-spacing:.03em;font-size:11px;margin-top:5px}
+.brand-icon{object-fit:contain;background:transparent;box-shadow:none;border-radius:0}.brand-name{font-size:17px;line-height:1.1;letter-spacing:-.025em;font-weight:800}.brand-name strong{color:var(--brand)}.brand-name small{display:block;color:var(--muted);font-weight:500;letter-spacing:.03em;font-size:11px;margin-top:5px}
 .search-trigger{margin-left:auto;width:min(320px,28vw);border:1px solid var(--edge);border-radius:11px;background:var(--bg);color:var(--muted);text-align:left;padding:8px 10px;display:flex;align-items:center;gap:10px}
 .search-trigger:hover{border-color:var(--blue);color:var(--text)}.search-trigger>span{flex:1}.search-trigger kbd{border:1px solid var(--edge);border-radius:5px;font-size:11px;padding:1px 5px;font-family:inherit}
 .top-links{display:flex;gap:17px;align-items:center;white-space:nowrap}.top-links a{font-size:13px;text-decoration:none;color:var(--muted);font-weight:600}.top-links a:hover{color:var(--blue)}

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">NetDeploy AI</title>
+  <desc id="desc">VPS 管理、项目部署与 Codex 助手。</desc>
+  <rect width="1280" height="640" fill="#ffffff"/>
+  <g transform="translate(84 182) scale(2.5)">
+    <rect width="64" height="64" rx="15" fill="#0c6551"/>
+    <path d="M14 47V17H22L40 37V27H48V47H40L22 27V47Z" fill="#f4fffb"/>
+    <circle cx="44" cy="17" r="5" fill="#73e5b1"/>
+  </g>
+  <g font-family="Segoe UI,Microsoft YaHei,sans-serif">
+    <text x="286" y="256" font-size="72" font-weight="750" fill="#17372f">NetDeploy <tspan fill="#0c6551">AI</tspan></text>
+    <text x="290" y="320" font-size="30" fill="#455b57">VPS 管理与项目部署</text>
+    <text x="88" y="444" font-size="24" fill="#0c6551">SSH 连接　 /　 部署审批　 /　 Codex 助手</text>
+    <text x="88" y="566" font-size="20" fill="#506b62">github.com/slobys/netdeploy-ai</text>
+  </g>
+  <path d="M88 492H1192" stroke="#dbe7e1"/>
+  <path d="M1192 84H1128" stroke="#73e5b1" stroke-width="8"/>
+</svg>

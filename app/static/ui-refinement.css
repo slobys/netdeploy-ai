@@ -15,8 +15,81 @@
 }
 .content {
   width: 100%;
-  max-width: 1480px;
-  padding-inline: clamp(18px, 2.5vw, 34px);
+  max-width: none;
+  margin-inline: 0;
+  padding: 18px clamp(18px, 2vw, 30px) 24px;
+}
+.sidebar .brand-logo, .brand-logo.large {
+  flex-shrink: 0;
+  object-fit: contain;
+  background: transparent;
+  box-shadow: none;
+}
+.brand-logo.large { display: block; margin: 0 auto 18px; }
+
+/* A normal desktop window should expose the daily workflow without shrinking text. */
+.is-dashboard .hero { min-height: 88px; height: auto; }
+.is-dashboard .hero-content { padding: 14px 22px; width: min(88%, 1040px); }
+.is-dashboard .hero p { margin-top: 4px; }
+.is-dashboard .section-heading,
+.is-dashboard .section-heading.smaller,
+.is-dashboard #hosts-section .section-heading { margin: 10px 0 6px; }
+.is-dashboard .section-heading > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+.is-dashboard .section-heading p { margin-top: 0; }
+.is-dashboard .stat { padding: 11px 16px; gap: 0; }
+.is-dashboard .stat .icon { width: 28px; height: 28px; font-size: 17px; }
+.is-dashboard .stat strong { margin-top: 3px; }
+.is-dashboard .stat small { margin-top: 3px; }
+.is-dashboard .host-list:has(.host-item) { display: flex; flex-wrap: wrap; gap: 10px; }
+.is-dashboard .host-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: start;
+  flex: 1 1 440px;
+  min-height: 124px;
+  padding: 12px 16px;
+  gap: 6px 12px;
+}
+.is-dashboard .host-card-top, .is-dashboard .host-card-address { grid-column: 1 / -1; }
+.is-dashboard .host-card-top .host-icon { width: 34px; height: 34px; }
+.is-dashboard .host-card-delete { position: static; align-self: end; padding: 6px 10px; }
+.is-dashboard .host-card-meta { align-self: center; gap: 3px 10px; }
+.is-dashboard .host-add-card { flex: 0 0 72px; min-height: 124px; }
+.is-dashboard #projects-section.is-featured .project-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.is-dashboard #projects-section.is-featured .project { min-height: 174px; padding: 12px; gap: 5px; }
+.is-dashboard #projects-section.is-featured .project h3 { margin-top: 0; }
+.is-dashboard #projects-section.is-featured .project p { line-height: 1.5; }
+.is-dashboard #projects-section.is-featured .project-icon { width: 30px; height: 30px; font-size: 19px; }
+.is-dashboard #projects-section.is-featured .project-footer { padding-top: 6px; gap: 6px; }
+.is-dashboard #projects-section.is-featured .project-footer .btn { padding-inline: 9px; }
+.is-dashboard .job-item { padding: 10px 14px; gap: 10px; }
+.is-dashboard .empty { min-height: 96px; }
+.is-dashboard footer { margin-top: 16px; padding-top: 10px; }
+@media (max-width: 1000px) {
+  .is-dashboard .hero-content { width: 100%; }
+  .is-dashboard .host-item { flex-basis: calc(100% - 82px); }
+  .is-dashboard .section-heading > div { display: block; }
+}
+@media (max-width: 1320px) {
+  .is-dashboard #projects-section.is-featured .project-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1000px) {
+  .is-dashboard #projects-section.is-featured .project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 650px) {
+  .is-dashboard #projects-section.is-featured .project-grid { grid-template-columns: minmax(0, 1fr); }
+  .is-dashboard .host-item { flex-basis: 100%; }
+  .is-dashboard .host-add-card { flex-basis: 100%; min-height: 48px; }
+  .is-dashboard .host-card-meta { grid-column: 1 / -1; }
+  .is-dashboard .host-card-delete { grid-column: 2; }
 }
 .section-heading, .section-heading.smaller {
   column-gap: 18px;

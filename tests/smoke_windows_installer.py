@@ -87,7 +87,7 @@ def main():
     try:
         install_now()
         launch()
-        assert api("health")["version"] == "0.3.38"
+        assert api("health")["version"] == "0.3.39"
         assert len(api("catalog")) >= 7
         assert api("capabilities")["secure_password_storage"]
         assert api("hosts") == [] and api("jobs") == []
@@ -97,11 +97,11 @@ def main():
             assert json.load(response)["token"] == config["admin_token"]
         assert api("auth") == {"ok": True}
         ui = verify_ui()
-        assert ui["windowState"] == "Maximized"
+        assert ui["windowState"] == "Normal"
         print("Desktop DPI verified:", json.dumps(ui["display"]))
         window_file = home / "window-main.json"
         placement = json.loads(window_file.read_text(encoding="utf-8"))
-        assert placement["ShowCommand"] == 3
+        assert placement["ShowCommand"] == 1
         ratio = ui["display"]["devicePixelRatio"]
         normal_bounds = {"Left": 50, "Top": 50, "Right": 50 + round(1000 * ratio),
                          "Bottom": 50 + round(700 * ratio)}
@@ -110,13 +110,18 @@ def main():
         assert verify_ui()["windowState"] == "Normal"
         assert verify_ui()["windowState"] == "Normal"
         assert json.loads(window_file.read_text(encoding="utf-8"))["NormalPosition"] == normal_bounds
+        placement["ShowCommand"] = 3
+        window_file.write_text(json.dumps(placement), encoding="utf-8")
+        assert verify_ui()["windowState"] == "Maximized"
+        assert verify_ui()["windowState"] == "Maximized"
+        placement["ShowCommand"] = 1
         # A removed monitor or a damaged preference must not strand the client.
         placement["NormalPosition"] = {"Left": 60000, "Top": 60000, "Right": 61500, "Bottom": 61050}
         window_file.write_text(json.dumps(placement), encoding="utf-8")
         assert verify_ui()["windowState"] == "Normal"
         window_file.write_text("invalid preference", encoding="utf-8")
-        assert verify_ui()["windowState"] == "Maximized"
-        print("Window preferences verified: first maximize, size/position persistence, activation, off-screen recovery and external browser links.")
+        assert verify_ui()["windowState"] == "Normal"
+        print("Window preferences verified: normal default, size/position and maximized persistence, activation, off-screen recovery and external browser links.")
 
         def worker_ready():
             state = json.loads((home / "data" / "codex-worker-startup.json").read_text(encoding="utf-8"))

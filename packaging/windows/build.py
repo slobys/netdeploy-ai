@@ -8,15 +8,13 @@ import json
 import os
 from pathlib import Path
 import shutil
-import struct
 import subprocess
 import sys
 import urllib.request
 import zipfile
-import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = "0.3.38"
+VERSION = "0.3.39"
 PYTHON_VERSION = "3.13.17"
 PYTHON_SHA256 = "9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38"
 SSH_VERSION = "10.4.0.0p1-Preview"
@@ -40,23 +38,6 @@ def download(url: str, path: Path, digest: str) -> Path:
 
 def run(args: list[str], **kwargs):
     subprocess.run([str(arg) for arg in args], check=True, **kwargs)
-
-
-def icon(path: Path):
-    # Render the product's emerald diamond mark without an image dependency.
-    rows = bytearray()
-    size = 64
-    for y in range(size):
-        rows.append(0)
-        for x in range(size):
-            diamond = abs(x - 31.5) + abs(y - 31.5)
-            color = (239, 255, 249, 255) if 16 < diamond < 19 else (18, 113, 85, 255)
-            rows.extend(color)
-    def chunk(name: bytes, data: bytes):
-        return struct.pack(">I", len(data)) + name + data + struct.pack(">I", zlib.crc32(name + data))
-    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">2I5B", size, size, 8, 6, 0, 0, 0))
-           + chunk(b"IDAT", zlib.compress(bytes(rows))) + chunk(b"IEND", b""))
-    path.write_bytes(struct.pack("<3H", 0, 1, 1) + struct.pack("<4B2H2I", size, size, 0, 0, 1, 32, len(png), 22) + png)
 
 
 def runtime(archive: Path, target: Path, *, panel: bool):
@@ -117,7 +98,7 @@ def main():
                 destination = bundle / "ssh" / name
                 destination.parent.mkdir(exist_ok=True)
                 destination.write_bytes(package.read(entry))
-    icon(bundle / "netdeploy.ico")
+    shutil.copyfile(bundle / "app/static/brand/favicon.ico", bundle / "netdeploy.ico")
     webview = download(
         f"https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/{WEBVIEW_VERSION}",
         downloads / "webview2-sdk.nupkg", WEBVIEW_SHA256,

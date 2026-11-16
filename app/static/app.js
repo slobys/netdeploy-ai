@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.38 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.39 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.38';
+const CLIENT_VERSION = '0.3.39';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -250,6 +250,7 @@ function render(){
  renderSection();
 }
 function renderSection(){
+ el('.content').classList.toggle('is-dashboard',state.section==='dashboard');
  const visibleProjects=catalogProjects(state.catalog).length;
  const navBadge=el('#project-nav-count');
  if(navBadge){navBadge.textContent=String(visibleProjects);navBadge.setAttribute('aria-label',`共 ${visibleProjects} 个项目`);}
