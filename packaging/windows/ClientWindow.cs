@@ -266,6 +266,7 @@ internal sealed partial class ClientWindow : Form
             }
             await VerifyHiddifyLinks(panelSource);
             await VerifyDesktopUpdates(panelSource);
+            await VerifyHostLayout();
             // Exercise the actual CSS cascade in both modes, including cases
             // where older component rules used pale colors intended for dark mode.
             string readable = await view.CoreWebView2.ExecuteScriptAsync(@"
@@ -308,7 +309,7 @@ internal sealed partial class ClientWindow : Form
                     {"embedded", true}, {"authenticated", true}, {"themeText", true},
                     {"display", mainDisplay}, {"hiddifyExternal", true}, {"hiddifyErrorsSafe", true}, {"suiExternal", true},
                     {"windowState", initialState.ToString()}, {"activationPreservesState", true}, {"documentationExternal", true},
-                    {"managementLinksExternal", true}, {"desktopUpdates", true}
+                    {"managementLinksExternal", true}, {"desktopUpdates", true}, {"hostCardsAligned", true}
                 }));
             Close();
         }
@@ -391,6 +392,36 @@ internal sealed partial class ClientWindow : Form
             await view.CoreWebView2.ExecuteScriptAsync("closeDialog()");
         }
         finally { hiddifyHandler = null; }
+    }
+
+    private async Task VerifyHostLayout()
+    {
+        string valid = await view.CoreWebView2.ExecuteScriptAsync(@"
+            (() => {
+                const previousHosts=state.hosts, previousSection=state.section;
+                try {
+                    state.section='dashboard';
+                    const host={id:9001,name:'Layout check',hostname:'2001:db8::1',port:22,username:'root',
+                        credential_ready:true,auth_mode:'password',password_remembered:true,job_count:1,
+                        facts:{OS_ID:'ubuntu',ARCH:'x86_64'}};
+                    state.hosts=[{...host,tls_domain:''},{...host,id:9002,
+                        hostname:'2001:db8:1400:49d5:5400:7ff:fe0e:2383',
+                        tls_domain:'long-panel-name.region.example.com'}];
+                    render();
+                    const cards=[...document.querySelectorAll('.host-item')];
+                    const a=cards[0].getBoundingClientRect(),b=cards[1].getBoundingClientRect();
+                    const sameRow=Math.abs(a.top-b.top)<1;
+                    if(sameRow && Math.abs(a.height-b.height)>1) return false;
+                    if(sameRow && Math.abs(cards[0].querySelector('.host-card-delete').getBoundingClientRect().bottom-
+                        cards[1].querySelector('.host-card-delete').getBoundingClientRect().bottom)>1) return false;
+                    if(document.querySelector('.host-add-card')) return false;
+                    return cards.every(card=>{
+                        const r=card.getBoundingClientRect(),button=card.querySelector('.host-card-delete').getBoundingClientRect();
+                        return button.right<=r.right && button.bottom<=r.bottom && card.scrollWidth<=card.clientWidth+1;
+                    }) && document.documentElement.scrollWidth<=innerWidth;
+                } finally { state.hosts=previousHosts;state.section=previousSection;render(); }
+            })()");
+        if (valid != "true") throw new Exception("Server cards or footer actions do not align or fit the window.");
     }
 
     private void Fail(string text)

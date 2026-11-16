@@ -77,7 +77,7 @@ def main():
         ui = json.loads((home / "desktop-ui-smoke.json").read_text(encoding="utf-8"))
         assert all(ui[key] is True for key in ("embedded", "authenticated", "themeText", "hiddifyExternal",
                                                "hiddifyErrorsSafe", "suiExternal", "activationPreservesState",
-                                               "documentationExternal", "managementLinksExternal", "desktopUpdates"))
+                                               "documentationExternal", "managementLinksExternal", "desktopUpdates", "hostCardsAligned"))
         for key in ("display",):
             display = ui[key]
             assert display["perMonitorV2"] is True
@@ -88,7 +88,7 @@ def main():
     try:
         install_now()
         launch()
-        assert api("health")["version"] == "0.3.42"
+        assert api("health")["version"] == "0.3.43"
         assert len(api("catalog")) >= 7
         assert api("capabilities")["secure_password_storage"]
         assert api("hosts") == [] and api("jobs") == []
@@ -201,7 +201,7 @@ def main():
         shutil.copy2(args.installer.resolve(), staged_setup)
         subprocess.run([str(updater), str(install), str(home), "18787", "18789",
                         str(staged_setup), hashlib.sha256(staged_setup.read_bytes()).hexdigest(),
-                        "0.3.42"], env=env, check=True, timeout=210)
+                        "0.3.43"], env=env, check=True, timeout=210)
         assert list((home / "update-backups").glob("*/COMPLETE"))
         desktop.wait(timeout=15)
         assert desktop.returncode == 0

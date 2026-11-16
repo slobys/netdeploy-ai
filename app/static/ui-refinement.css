@@ -48,36 +48,6 @@
 .is-dashboard .stat .icon { width: 28px; height: 28px; font-size: 17px; }
 .is-dashboard .stat strong { margin-top: 3px; }
 .is-dashboard .stat small { margin-top: 3px; }
-.is-dashboard .host-list:has(.host-item) {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 10px;
-}
-.is-dashboard .host-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-content: start;
-  flex: 0 1 580px;
-  width: auto;
-  max-width: 100%;
-  min-height: 140px;
-  padding: 16px 18px;
-  gap: 8px 14px;
-}
-.is-dashboard .host-card-top, .is-dashboard .host-card-address { grid-column: 1 / -1; }
-.is-dashboard .host-card-top .host-icon { width: 32px; height: 32px; }
-.is-dashboard .host-title b { overflow-wrap: anywhere; }
-.is-dashboard .host-card-delete {
-  position: static;
-  grid-column: 2;
-  grid-row: 3;
-  align-self: end;
-  padding: 6px 10px;
-}
-.is-dashboard .host-card-meta { align-self: center; gap: 6px 12px; }
-.is-dashboard .host-card-hint { grid-column: 1 / -1; }
-.is-dashboard .host-add-card { flex: 0 0 56px; align-self: stretch; min-height: 140px; }
 .is-dashboard #projects-section.is-featured .project-grid {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
@@ -93,7 +63,6 @@
 .is-dashboard footer { margin-top: 16px; padding-top: 10px; }
 @media (max-width: 1000px) {
   .is-dashboard .hero-content { width: 100%; }
-  .is-dashboard .host-item { flex-basis: min(580px, calc(100% - 66px)); }
   .is-dashboard .section-heading > div { display: block; }
 }
 @media (max-width: 1320px) {
@@ -104,10 +73,6 @@
 }
 @media (max-width: 650px) {
   .is-dashboard #projects-section.is-featured .project-grid { grid-template-columns: minmax(0, 1fr); }
-  .is-dashboard .host-item { flex-basis: 100%; }
-  .is-dashboard .host-add-card { flex-basis: 100%; min-height: 48px; }
-  .is-dashboard .host-card-meta { grid-column: 1 / -1; }
-  .is-dashboard .host-card-delete { grid-row: auto; }
 }
 .section-heading, .section-heading.smaller {
   column-gap: 18px;
@@ -118,8 +83,13 @@
 .section-heading p { max-width: 80ch; }
 .hero {
   border-color: var(--theme-line);
-  box-shadow: 0 8px 26px color-mix(in srgb, #000 14%, transparent);
+  box-shadow: none;
 }
+.hero-art { opacity: .15; }
+.page-heading { margin: 4px 0 20px; }
+.section-heading > .btn { flex-shrink: 0; }
+.content[data-section="hosts"] #hosts-section > .section-heading,
+.content[data-section="jobs"] #jobs-section > .section-heading { display: none; }
 .stats { gap: 12px; }
 .stat, .host-item, .project, .job-item {
   border-radius: var(--nd-card-radius);
@@ -146,21 +116,23 @@
 #projects-section:is(.is-featured,.is-catalog) .project {
   min-width: 0;
   border-color: var(--theme-line);
-  background: linear-gradient(
-    150deg,
-    color-mix(in srgb, var(--theme-action) 5%, var(--theme-panel)),
-    var(--theme-panel)
-  );
+  background: var(--theme-panel);
   box-shadow: 0 1px 1px color-mix(in srgb, #000 8%, transparent);
 }
 #projects-section:is(.is-featured,.is-catalog) .project:hover {
-  transform: translateY(-1px);
+  transform: none;
   border-color: var(--theme-line-strong);
-  box-shadow: 0 8px 20px color-mix(in srgb, #000 12%, transparent);
+  box-shadow: var(--theme-shadow);
 }
-.project:hover .project-icon, .host-item:hover .host-icon {
-  transform: translateY(-1px);
+.project:hover .project-icon, .host-item:hover .host-icon { transform: none; }
+/* Keep surface changes immediate when switching appearance; cross-fading a
+   dark foreground against the old light card briefly made text unreadable. */
+.project, .host-item, .job-item, .stat,
+.btn, .nav-item, .icon-button, .topbar-doc-link, .server-tab {
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
+.btn:hover:not(:disabled), .btn:active:not(:disabled),
+.icon-button:active:not(:disabled) { transform: none; }
 #projects-section:is(.is-featured,.is-catalog) .project-footer {
   margin-top: auto;
   padding-top: 11px;
@@ -208,40 +180,49 @@
 @media (pointer: coarse) {
   .project-sort-handle { width: 44px; height: 44px; }
 }
-.host-list { align-items: stretch; }
-.host-add-card {
+.host-list {
   display: grid;
-  place-items: center;
-  min-height: 72px;
-  padding: 8px;
-  border: 1px dashed var(--theme-line-strong);
-  border-radius: var(--nd-card-radius);
-  color: var(--theme-accent);
-  background: transparent;
-  font-size: 32px;
-  line-height: 1;
-}
-.host-add-card:hover {
-  border-color: var(--theme-accent);
-  background: var(--theme-panel-2);
-}
-.host-add-card:focus-visible {
-  outline: 2px solid var(--theme-accent);
-  outline-offset: 3px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+  align-items: stretch;
+  gap: 16px;
 }
 .host-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 164px;
+  padding: 16px 18px;
+  gap: 10px;
+  background: var(--theme-panel);
   border-color: var(--theme-line);
-  box-shadow: 0 1px 1px color-mix(in srgb, #000 9%, transparent);
+  box-shadow: var(--theme-shadow);
 }
+.host-card-top { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.host-card-top .host-icon { width: 32px; height: 32px; align-self: start; }
+.host-card-open { align-self: start; padding-top: 6px; }
+.host-title { min-width: 0; }
+.host-title b { overflow-wrap: anywhere; }
+.host-card-address { line-height: 1.6; }
+.host-card-meta { gap: 6px 12px; }
+.host-card-footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--theme-line);
+}
+.host-card-details { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.host-card-footer .host-card-delete { position: static; flex-shrink: 0; padding: 6px 10px; }
+.host-card-footer .host-card-hint { margin: 0; }
+.host-card-meta span:not(:last-child):after { content: none; }
+.host-list > .empty { grid-column: 1 / -1; }
 /* The older hover rule uses a hard-coded navy background. On a light theme
    that hid the dark host name and IP, so keep hover/focus in the active palette. */
 .host-item:is(:hover, :focus-visible) {
-  background: linear-gradient(
-    140deg,
-    color-mix(in srgb, var(--theme-action) 10%, var(--theme-panel)),
-    color-mix(in srgb, var(--theme-action) 7%, var(--theme-panel-2))
-  );
-  border-color: var(--theme-line-strong);
+  background: var(--theme-panel);
+  border-color: var(--theme-action);
   box-shadow: var(--theme-shadow);
 }
 .host-item:is(:hover, :focus-visible) .host-card-open {
@@ -324,13 +305,13 @@
 }
 .btn.primary {
   color: var(--theme-on-action);
-  background: linear-gradient(125deg, var(--theme-action), var(--theme-action-deep));
+  background: var(--theme-action);
   border-color: var(--theme-action);
-  box-shadow: 0 4px 13px color-mix(in srgb, var(--theme-action) 22%, transparent);
+  box-shadow: 0 2px 5px color-mix(in srgb, #000 12%, transparent);
 }
 .btn.primary:hover:not(:disabled) {
   filter: brightness(1.05);
-  box-shadow: 0 6px 16px color-mix(in srgb, var(--theme-action) 25%, transparent);
+  box-shadow: 0 3px 8px color-mix(in srgb, #000 14%, transparent);
 }
 .btn.subtle, .modal .btn.ghost {
   color: var(--theme-title);
@@ -504,6 +485,7 @@
 .topbar-doc-link { min-height: 40px; }
 .topbar-add { min-height: 40px !important; }
 .topbar .tag.alpha { white-space: nowrap; }
+.topbar #desktop-version { border: 1px solid var(--theme-line); border-radius: 999px; padding: 6px 10px; background: var(--theme-panel-2); color: var(--theme-accent); }
 .topbar .crumb { min-width: 0; white-space: nowrap; }
 
 /* One-time device code is large enough to read or copy without a terminal. */
