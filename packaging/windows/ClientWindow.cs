@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -18,9 +19,18 @@ internal sealed class ClientWindow : Form
     private CoreWebView2Environment environment;
     private bool testing;
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindowDpiAwarenessContext(IntPtr window);
+    [DllImport("user32.dll")]
+    private static extern bool AreDpiAwarenessContextsEqual(IntPtr first, IntPtr second);
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr window);
+
     internal ClientWindow(bool mainWindow)
     {
         main = mainWindow;
+        AutoScaleDimensions = new SizeF(96, 96);
+        AutoScaleMode = AutoScaleMode.Dpi;
         Text = main ? "NetDeploy AI" : "NetDeploy AI · 管理面板";
         Icon = new Icon(Path.Combine(Launcher.Root, "netdeploy.ico"));
         Size = new Size(1440, 900);
@@ -130,6 +140,25 @@ internal sealed class ClientWindow : Form
         finally { deferral.Complete(); }
     }
 
+    private async Task<Dictionary<string, object>> VerifyDisplay()
+    {
+        if (!AreDpiAwarenessContextsEqual(GetWindowDpiAwarenessContext(Handle), new IntPtr(-4)))
+            throw new Exception("Desktop window is not PerMonitorV2 DPI aware.");
+        uint dpi = GetDpiForWindow(Handle);
+        var display = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(
+            await view.CoreWebView2.ExecuteScriptAsync(
+                "({ratio:window.devicePixelRatio,width:window.innerWidth,height:window.innerHeight})"));
+        double ratio = Convert.ToDouble(display["ratio"]);
+        if (Math.Abs(ratio - dpi / 96.0) > 0.01 || DeviceDpi != dpi)
+            throw new Exception("WebView raster scale does not match the window DPI.");
+        if (Math.Abs(Convert.ToDouble(display["width"]) * ratio - view.ClientSize.Width) > 2 ||
+            Math.Abs(Convert.ToDouble(display["height"]) * ratio - view.ClientSize.Height) > 2)
+            throw new Exception("WebView content does not fill its physical pixel bounds.");
+        return new Dictionary<string, object> {
+            {"perMonitorV2", true}, {"windowDpi", dpi}, {"devicePixelRatio", ratio}
+        };
+    }
+
     private async Task VerifyWindow()
     {
         try
@@ -143,6 +172,7 @@ internal sealed class ClientWindow : Form
                 await Task.Delay(100);
             }
             if (!authenticated) throw new Exception("Embedded panel did not authenticate.");
+            var mainDisplay = await VerifyDisplay();
             await view.CoreWebView2.ExecuteScriptAsync(
                 "window.open('/static/hiddify-launch.html#invalid','_blank');");
             bool popup = false;
@@ -157,8 +187,12 @@ internal sealed class ClientWindow : Form
                 await Task.Delay(100);
             }
             if (!popup) throw new Exception("Embedded popup or session inheritance failed.");
+            var popupDisplay = await children[0].VerifyDisplay();
             File.WriteAllText(Path.Combine(Launcher.Home, "desktop-ui-smoke.json"),
-                "{\"embedded\":true,\"authenticated\":true,\"popup\":true,\"openerCleared\":true}");
+                new JavaScriptSerializer().Serialize(new Dictionary<string, object> {
+                    {"embedded", true}, {"authenticated", true}, {"popup", true}, {"openerCleared", true},
+                    {"display", mainDisplay}, {"popupDisplay", popupDisplay}
+                }));
             Close();
         }
         catch (Exception error) { Fail(error.Message); }

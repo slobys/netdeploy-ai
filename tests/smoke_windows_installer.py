@@ -73,7 +73,7 @@ def main():
     try:
         install_now()
         launch()
-        assert api("health")["version"] == "0.3.33"
+        assert api("health")["version"] == "0.3.34"
         assert len(api("catalog")) >= 7
         assert api("capabilities")["secure_password_storage"]
         assert api("hosts") == [] and api("jobs") == []
@@ -85,7 +85,13 @@ def main():
         subprocess.run([str(install / "NetDeployAI.exe"), "--ui-smoke", "--quiet"],
                        env=env, check=True, timeout=60)
         ui = json.loads((home / "desktop-ui-smoke.json").read_text(encoding="utf-8"))
-        assert ui == {"embedded": True, "authenticated": True, "popup": True, "openerCleared": True}
+        assert all(ui[key] is True for key in ("embedded", "authenticated", "popup", "openerCleared"))
+        for key in ("display", "popupDisplay"):
+            display = ui[key]
+            assert display["perMonitorV2"] is True
+            assert display["windowDpi"] >= 96
+            assert abs(display["devicePixelRatio"] - display["windowDpi"] / 96) < .01
+        print("Desktop DPI verified:", json.dumps({key: ui[key] for key in ("display", "popupDisplay")}))
 
         def worker_ready():
             state = json.loads((home / "data" / "codex-worker-startup.json").read_text(encoding="utf-8"))

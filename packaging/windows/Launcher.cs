@@ -11,8 +11,9 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("NetDeploy AI desktop client")]
 [assembly: AssemblyCompany("NetDeploy AI")]
 [assembly: AssemblyProduct("NetDeploy AI")]
-[assembly: AssemblyVersion("0.3.33.0")]
-[assembly: AssemblyFileVersion("0.3.33.0")]
+[assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
+[assembly: AssemblyVersion("0.3.34.0")]
+[assembly: AssemblyFileVersion("0.3.34.0")]
 
 internal static class Launcher
 {
@@ -73,6 +74,9 @@ internal static class Launcher
     {
         try
         {
+            // Configure WinForms DPI handling before any window or WebView is created.
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
             Home = Path.GetFullPath(Option(args, "--home",
                 Environment.GetEnvironmentVariable("NETDEPLOY_DESKTOP_HOME") ??
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetDeployAI", "desktop")));
@@ -118,8 +122,6 @@ internal static class Launcher
             using (var mutex = new Mutex(true, name, out first))
             {
                 if (!first) { Signal(name + ".Focus"); return 0; }
-                Application.EnableVisualStyles();
-                Application.SetCompatibleTextRenderingDefault(false);
                 using (var focus = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".Focus"))
                 using (var exit = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".Exit"))
                 using (var window = new ClientWindow(true))

@@ -16,7 +16,7 @@ import zipfile
 import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = "0.3.33"
+VERSION = "0.3.34"
 PYTHON_VERSION = "3.13.17"
 PYTHON_SHA256 = "9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38"
 SSH_VERSION = "10.4.0.0p1-Preview"
@@ -136,12 +136,15 @@ def main():
         ):
             (bundle / name).write_bytes(sdk.read(source))
     compiler = Path(os.environ["WINDIR"]) / "Microsoft.NET" / "Framework64" / "v4.0.30319" / "csc.exe"
+    shutil.copyfile(ROOT / "packaging" / "windows" / "NetDeployAI.exe.config",
+                    bundle / "NetDeployAI.exe.config")
     run([compiler, "/nologo", "/target:winexe", "/platform:x64",
          "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll",
          "/reference:System.Net.Http.dll", "/reference:System.Web.Extensions.dll",
          f"/reference:{bundle / 'Microsoft.Web.WebView2.Core.dll'}",
          f"/reference:{bundle / 'Microsoft.Web.WebView2.WinForms.dll'}",
          f"/win32icon:{bundle / 'netdeploy.ico'}", f"/out:{bundle / 'NetDeployAI.exe'}",
+         f"/win32manifest:{ROOT / 'packaging' / 'windows' / 'app.manifest'}",
          ROOT / "packaging" / "windows" / "Launcher.cs",
          ROOT / "packaging" / "windows" / "ClientWindow.cs"])
     for executable in ("runtime/python.exe", "codex-runtime/python.exe", "ssh/ssh.exe"):

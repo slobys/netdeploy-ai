@@ -1,5 +1,6 @@
-安装 `NetDeployAI-0.3.33-Setup-x64.exe` 后，从桌面或开始菜单打开 NetDeploy AI。
+安装 `NetDeployAI-0.3.34-Setup-x64.exe` 后，从桌面或开始菜单打开 NetDeploy AI。
 
+- 修复高分屏和 125% / 150% 等系统缩放下客户端内容发虚的问题，主窗口与管理子窗口按所在显示器 DPI 渲染；保留现有界面风格。
 - 支持 Windows 10/11 x64，安装包内含 Python、SSH 客户端及 Codex SDK。
 - 双击图标直接进入独立客户端窗口。Hiddify 等管理页面在客户端子窗口打开。
 - 安装程序会检查 WebView2，缺少时自动联网安装微软运行组件。
