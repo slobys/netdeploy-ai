@@ -102,7 +102,7 @@ internal sealed partial class ClientWindow : Form
             await Initialize(env);
             view.CoreWebView2.Navigate(Launcher.Panel.AbsoluteUri);
         }
-        catch (Exception error) { Fail(error.Message); }
+        catch (Exception error) { Fail(Launcher.Smoke ? error.ToString() : error.Message); }
     }
 
     private async Task Initialize(CoreWebView2Environment env)
@@ -313,7 +313,7 @@ internal sealed partial class ClientWindow : Form
                 }));
             Close();
         }
-        catch (Exception error) { Fail(error.Message); }
+        catch (Exception error) { Fail(error.ToString()); }
     }
 
     private sealed class SmokeBackend : HttpMessageHandler

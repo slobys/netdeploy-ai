@@ -72,9 +72,15 @@ def main():
                        env=env, check=True, timeout=30)
 
     def verify_ui():
+        report = home / "desktop-ui-smoke.json"
+        error = home / "desktop-ui-smoke-error.txt"
+        report.unlink(missing_ok=True)
+        error.unlink(missing_ok=True)
         subprocess.run([str(install / "NetDeployAI.exe"), "--ui-smoke", "--quiet"],
                        env=env, check=True, timeout=60)
-        ui = json.loads((home / "desktop-ui-smoke.json").read_text(encoding="utf-8"))
+        assert report.is_file(), (error.read_text(encoding="utf-8") if error.is_file()
+                                  else "Native window exited before completing UI verification")
+        ui = json.loads(report.read_text(encoding="utf-8"))
         assert all(ui[key] is True for key in ("embedded", "authenticated", "themeText", "hiddifyExternal",
                                                "hiddifyErrorsSafe", "suiExternal", "activationPreservesState",
                                                "documentationExternal", "managementLinksExternal", "desktopUpdates", "hostCardsAligned"))
