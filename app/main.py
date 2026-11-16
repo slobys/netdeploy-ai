@@ -65,7 +65,7 @@ async def native_codex_lifespan(_application: FastAPI):
         stop_native_codex()
 
 
-app = FastAPI(title="NetDeploy AI", version="0.3.31",
+app = FastAPI(title="NetDeploy AI", version="0.3.32",
               lifespan=native_codex_lifespan)
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
@@ -80,7 +80,12 @@ def start_native_codex():
     if not native_enabled():
         return
     try:
-        manager = NativeCodexManager(BASE.parent, DATA_DIR)
+        local_root = os.environ.get("NETDEPLOY_CODEX_LOCAL_ROOT")
+        manager = NativeCodexManager(
+            BASE.parent, DATA_DIR,
+            local_root=Path(local_root) if local_root else None,
+            port=int(os.environ.get("NETDEPLOY_CODEX_WORKER_PORT", "8789")),
+        )
         manager.start()  # Async daemon thread, never blocks main API startup.
         _native_codex_manager = manager
     except (OSError, RuntimeError):
@@ -253,7 +258,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.31", "security": "local-only"}
+    return {"ok": True, "version": "0.3.32", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -268,7 +273,8 @@ def local_session(request: Request, x_netdeploy_local: str | None = Header(defau
         raise HTTPException(status_code=403, detail="本机免登录模式未启用")
     client = request.client.host if request.client else ""
     host = request.headers.get("host", "").lower()
-    allowed_hosts = {"127.0.0.1:8787", "localhost:8787"}
+    local_port = int(os.environ.get("NETDEPLOY_LOCAL_PORT", "8787"))
+    allowed_hosts = {f"127.0.0.1:{local_port}", f"localhost:{local_port}"}
     origin = request.headers.get("origin", "")
     fetch_site = request.headers.get("sec-fetch-site", "")
     if (client not in {"127.0.0.1", "::1"} or host not in allowed_hosts

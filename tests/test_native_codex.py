@@ -187,7 +187,7 @@ def test_failed_worker_health_probe_reaps_native_process(monkeypatch, tmp_path):
 def test_native_lifecycle_is_nonblocking_and_stops_cleanly(monkeypatch):
     calls = []
     class FakeManager:
-        def __init__(self, root, data):
+        def __init__(self, root, data, **kwargs):
             calls.append(("init", root, data))
         def start(self):
             calls.append(("start",))

@@ -239,7 +239,8 @@ class NativeCodexManager:
                                   encoding="utf-8")
 
             base_env = self._env()
-            python = venv / "Scripts" / "python.exe"
+            bundled_python = self.project_root / "codex-runtime" / "python.exe"
+            python = bundled_python if bundled_python.is_file() else venv / "Scripts" / "python.exe"
             if not python.is_file():
                 self._state("starting", "首次创建 Windows 原生 Codex 独立运行环境")
                 self._run_setup(
@@ -249,8 +250,9 @@ class NativeCodexManager:
             requirements = self.project_root / VENV_REQUIREMENTS
             digest = hashlib.sha256(requirements.read_bytes()).hexdigest()
             marker = root / "requirements.sha256"
-            installed = python.exists() and marker.exists() and (
-                marker.read_text(encoding="utf-8").strip() == digest
+            installed = bundled_python.is_file() or (
+                python.exists() and marker.exists()
+                and marker.read_text(encoding="utf-8").strip() == digest
             )
             if not installed:
                 self._state("starting", "首次安装 Windows 原生 Codex SDK，后台继续启动 VPS 面板")

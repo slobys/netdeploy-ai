@@ -22,3 +22,4 @@ Thumbs.db
 .DS_Store
 # Generated public handbook and local build output
 .build/
+release/
