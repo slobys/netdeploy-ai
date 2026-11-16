@@ -4,7 +4,7 @@
 
 输出位于 `release/`，包括安装 EXE、免安装 ZIP、SHA-256 和构建清单。构建时不会读取本机 `.env`、数据库、SSH 文件或 ChatGPT 授权。安装包中的依赖各自保留其许可证。
 
-执行 `python tests/smoke_windows_installer.py release/NetDeployAI-0.3.36-Setup-x64.exe` 可验证首次安装、独立 Codex SDK、重复打开、覆盖升级及卸载保留数据。测试使用临时中文目录与独立端口 18787、18789。
+执行 `python tests/smoke_windows_installer.py release/NetDeployAI-0.3.37-Setup-x64.exe` 可验证首次安装、独立 Codex SDK、重复打开、覆盖升级及卸载保留数据。测试使用临时中文目录与独立端口 18787、18789。
 
 客户端使用 .NET Framework 4.8、Windows 10 兼容清单和 WinForms 的 PerMonitorV2 配置，避免系统位图拉伸导致 WebView2 内容发虚。构建必须同时分发 `NetDeployAI.exe.config`。安装验证会检查主窗口与子窗口的 DPI 感知、WebView2 像素比例和实际内容尺寸；应在标准 DPI 与高 DPI 环境分别运行。
 
@@ -14,4 +14,4 @@
 
 GitHub Actions 的 Windows installer 工作流支持手动构建和版本标签构建。标签构建完成真实安装验证后，会发布 Release 附件。此版本尚未配置 Authenticode 代码签名。
 
-主窗口和管理子窗口首次打开默认最大化，分别把位置与状态保存为用户数据目录中的 `window-main.json` 和 `window-panel.json`。这些文件与授权配置分开存储；缺失或损坏时回到最大化，移除显示器后由 Windows 恢复到可见区域。安装验证覆盖状态恢复、最小化唤回、文档外部浏览器路由及原有管理子窗口行为。
+主窗口和管理子窗口首次打开默认最大化，分别把位置与状态保存为用户数据目录中的 `window-main.json` 和 `window-panel.json`。这些文件与授权配置分开存储；缺失或损坏时回到最大化，移除显示器后由 Windows 恢复到可见区域。外部 HTTP/HTTPS 直达链接使用系统默认浏览器，原页面保持不变；同源 Hiddify 鉴权启动页保留子窗口及会话继承。安装验证覆盖窗口状态、外部链接的新标签与当前页跳转两条路径，以及同源启动页的授权隔离。

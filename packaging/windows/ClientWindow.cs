@@ -116,23 +116,15 @@ internal sealed class ClientWindow : Form
             { args.Cancel = true; Launcher.External(uri); return; }
             if (main && !Launcher.Local(uri)) {
                 args.Cancel = true;
-                OpenPage(uri);
+                Launcher.External(uri);
             }
         };
         view.CoreWebView2.NavigationCompleted += async delegate(object sender, CoreWebView2NavigationCompletedEventArgs args) {
+            if (!args.IsSuccess && args.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled) return;
             if (!args.IsSuccess) { message.Text = "页面暂时无法打开，请按 F5 重试。"; message.Visible = true; return; }
             message.Visible = false;
             if (Launcher.Smoke && main && !testing) { testing = true; await VerifyWindow(); }
         };
-    }
-
-    private async void OpenPage(Uri uri)
-    {
-        var child = new ClientWindow(false);
-        children.Add(child);
-        child.Show();
-        try { await child.Initialize(environment); child.view.CoreWebView2.Navigate(uri.AbsoluteUri); }
-        catch (Exception error) { child.Fail(error.Message); }
     }
 
     private async void Popup(object sender, CoreWebView2NewWindowRequestedEventArgs args)
@@ -140,7 +132,7 @@ internal sealed class ClientWindow : Form
         Uri uri;
         if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
         { args.Handled = true; return; }
-        if (Launcher.Authorization(uri) || Launcher.Documentation(uri))
+        if (!Launcher.Local(uri))
         { args.Handled = true; Launcher.External(uri); return; }
         var deferral = args.GetDeferral();
         var child = new ClientWindow(false);
@@ -205,6 +197,20 @@ internal sealed class ClientWindow : Form
             if (Launcher.SmokeExternal == null || !Launcher.Documentation(Launcher.SmokeExternal) ||
                 children.Count != 0 || view.CoreWebView2.Source != panelSource)
                 throw new Exception("Documentation did not route to the system browser while retaining the panel.");
+            var externalPanel = new Uri("https://panel.example.invalid:8443/panel");
+            foreach (string navigation in new[] {
+                "window.open('https://panel.example.invalid:8443/panel','_blank','noopener,noreferrer')",
+                "window.location.href='https://panel.example.invalid:8443/panel'"
+            })
+            {
+                Launcher.SmokeExternal = null;
+                await view.CoreWebView2.ExecuteScriptAsync(navigation);
+                for (int attempt = 0; attempt < 40 && Launcher.SmokeExternal == null; attempt++) await Task.Delay(50);
+                await Task.Delay(150);
+                if (Launcher.SmokeExternal != externalPanel || children.Count != 0 ||
+                    view.CoreWebView2.Source != panelSource || message.Visible)
+                    throw new Exception("External management link did not open in the system browser while retaining the client.");
+            }
             // Exercise the actual CSS cascade in both modes, including cases
             // where older component rules used pale colors intended for dark mode.
             string readable = await view.CoreWebView2.ExecuteScriptAsync(@"
@@ -261,7 +267,8 @@ internal sealed class ClientWindow : Form
                 new JavaScriptSerializer().Serialize(new Dictionary<string, object> {
                     {"embedded", true}, {"authenticated", true}, {"popup", true}, {"openerCleared", true}, {"themeText", true},
                     {"display", mainDisplay}, {"popupDisplay", popupDisplay},
-                    {"windowState", initialState.ToString()}, {"activationPreservesState", true}, {"documentationExternal", true}
+                    {"windowState", initialState.ToString()}, {"activationPreservesState", true}, {"documentationExternal", true},
+                    {"managementLinksExternal", true}
                 }));
             Close();
         }

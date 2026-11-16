@@ -75,7 +75,7 @@ def main():
                        env=env, check=True, timeout=60)
         ui = json.loads((home / "desktop-ui-smoke.json").read_text(encoding="utf-8"))
         assert all(ui[key] is True for key in ("embedded", "authenticated", "popup", "openerCleared", "themeText",
-                                               "activationPreservesState", "documentationExternal"))
+                                               "activationPreservesState", "documentationExternal", "managementLinksExternal"))
         for key in ("display", "popupDisplay"):
             display = ui[key]
             assert display["perMonitorV2"] is True
@@ -86,7 +86,7 @@ def main():
     try:
         install_now()
         launch()
-        assert api("health")["version"] == "0.3.36"
+        assert api("health")["version"] == "0.3.37"
         assert len(api("catalog")) >= 7
         assert api("capabilities")["secure_password_storage"]
         assert api("hosts") == [] and api("jobs") == []
@@ -115,7 +115,7 @@ def main():
         assert verify_ui()["windowState"] == "Normal"
         window_file.write_text("invalid preference", encoding="utf-8")
         assert verify_ui()["windowState"] == "Maximized"
-        print("Window preferences verified: first maximize, size/position persistence, activation, off-screen recovery and browser documentation.")
+        print("Window preferences verified: first maximize, size/position persistence, activation, off-screen recovery and external browser links.")
 
         def worker_ready():
             state = json.loads((home / "data" / "codex-worker-startup.json").read_text(encoding="utf-8"))
