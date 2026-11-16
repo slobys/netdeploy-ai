@@ -129,7 +129,27 @@ def main():
         def client_visible():
             if desktop.poll() is not None:
                 raise AssertionError("Desktop client exited before upgrade")
-            return bool(ctypes.windll.user32.FindWindowW(None, "NetDeploy AI"))
+            # A user's production client may already have the same window title.
+            # Wait for this test process to own a window before checking reuse.
+            found = False
+            callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_ssize_t)
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+            user32.IsWindowVisible.argtypes = [ctypes.c_void_p]
+            user32.EnumWindows.argtypes = [callback_type, ctypes.c_ssize_t]
+
+            @callback_type
+            def visit(window, _):
+                nonlocal found
+                owner = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(window, ctypes.byref(owner))
+                if owner.value == desktop.pid and user32.IsWindowVisible(window):
+                    found = True
+                    return False
+                return True
+
+            user32.EnumWindows(visit, 0)
+            return found
 
         wait_for(client_visible)
         subprocess.run([str(install / "NetDeployAI.exe"), "--quiet"], env=env, check=True, timeout=15)
