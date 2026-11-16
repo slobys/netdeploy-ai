@@ -18,6 +18,7 @@ internal sealed class ClientWindow : Form
     private readonly List<ClientWindow> children = new List<ClientWindow>();
     private CoreWebView2Environment environment;
     private bool testing;
+    private FormWindowState visibleState = FormWindowState.Maximized;
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetWindowDpiAwarenessContext(IntPtr window);
@@ -36,6 +37,7 @@ internal sealed class ClientWindow : Form
         Size = new Size(1440, 900);
         MinimumSize = new Size(900, 640);
         StartPosition = FormStartPosition.CenterScreen;
+        WindowState = FormWindowState.Maximized;
         view.Dock = DockStyle.Fill;
         message.Dock = DockStyle.Fill;
         message.TextAlign = ContentAlignment.MiddleCenter;
@@ -43,6 +45,11 @@ internal sealed class ClientWindow : Form
         message.Text = "正在启动 NetDeploy AI…";
         Controls.Add(view);
         Controls.Add(message);
+        Load += delegate { WindowPlacement.Restore(this, main); };
+        Resize += delegate {
+            if (WindowState != FormWindowState.Minimized) visibleState = WindowState;
+        };
+        FormClosing += delegate { WindowPlacement.Save(this, main, visibleState); };
         if (main) Shown += async delegate { await Start(); };
         FormClosed += delegate {
             foreach (var child in children.ToArray()) if (!child.IsDisposed) child.Close();
@@ -54,6 +61,13 @@ internal sealed class ClientWindow : Form
     {
         try { if (!IsDisposed && IsHandleCreated) BeginInvoke(action); }
         catch (InvalidOperationException) { }
+    }
+
+    internal void FocusWindow()
+    {
+        Show();
+        if (WindowState == FormWindowState.Minimized) WindowState = visibleState;
+        Activate();
     }
 
     private async Task Start()
@@ -98,7 +112,8 @@ internal sealed class ClientWindow : Form
             Uri uri;
             if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out uri)) { args.Cancel = true; return; }
             if (uri.Scheme != "http" && uri.Scheme != "https") { args.Cancel = true; return; }
-            if (Launcher.Authorization(uri)) { args.Cancel = true; Launcher.External(uri); return; }
+            if (Launcher.Authorization(uri) || Launcher.Documentation(uri))
+            { args.Cancel = true; Launcher.External(uri); return; }
             if (main && !Launcher.Local(uri)) {
                 args.Cancel = true;
                 OpenPage(uri);
@@ -125,7 +140,8 @@ internal sealed class ClientWindow : Form
         Uri uri;
         if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
         { args.Handled = true; return; }
-        if (Launcher.Authorization(uri)) { args.Handled = true; Launcher.External(uri); return; }
+        if (Launcher.Authorization(uri) || Launcher.Documentation(uri))
+        { args.Handled = true; Launcher.External(uri); return; }
         var deferral = args.GetDeferral();
         var child = new ClientWindow(false);
         children.Add(child);
@@ -172,7 +188,23 @@ internal sealed class ClientWindow : Form
                 await Task.Delay(100);
             }
             if (!authenticated) throw new Exception("Embedded panel did not authenticate.");
+            FormWindowState initialState = WindowState;
+            FocusWindow();
+            if (WindowState != initialState) throw new Exception("Activating the client changed its window state.");
+            WindowState = FormWindowState.Minimized;
+            FocusWindow();
+            await Task.Delay(150);
+            if (WindowState != initialState) throw new Exception("Minimized client did not restore its previous state.");
+            Rectangle visibleBounds = Rectangle.Intersect(Bounds, Screen.FromControl(this).WorkingArea);
+            if (visibleBounds.Width < 100 || visibleBounds.Height < 100)
+                throw new Exception("Restored window is outside the available displays.");
             var mainDisplay = await VerifyDisplay();
+            string panelSource = view.CoreWebView2.Source;
+            await view.CoreWebView2.ExecuteScriptAsync("document.querySelector('.topbar-doc-link').click()");
+            for (int attempt = 0; attempt < 40 && Launcher.SmokeExternal == null; attempt++) await Task.Delay(50);
+            if (Launcher.SmokeExternal == null || !Launcher.Documentation(Launcher.SmokeExternal) ||
+                children.Count != 0 || view.CoreWebView2.Source != panelSource)
+                throw new Exception("Documentation did not route to the system browser while retaining the panel.");
             // Exercise the actual CSS cascade in both modes, including cases
             // where older component rules used pale colors intended for dark mode.
             string readable = await view.CoreWebView2.ExecuteScriptAsync(@"
@@ -228,7 +260,8 @@ internal sealed class ClientWindow : Form
             File.WriteAllText(Path.Combine(Launcher.Home, "desktop-ui-smoke.json"),
                 new JavaScriptSerializer().Serialize(new Dictionary<string, object> {
                     {"embedded", true}, {"authenticated", true}, {"popup", true}, {"openerCleared", true}, {"themeText", true},
-                    {"display", mainDisplay}, {"popupDisplay", popupDisplay}
+                    {"display", mainDisplay}, {"popupDisplay", popupDisplay},
+                    {"windowState", initialState.ToString()}, {"activationPreservesState", true}, {"documentationExternal", true}
                 }));
             Close();
         }

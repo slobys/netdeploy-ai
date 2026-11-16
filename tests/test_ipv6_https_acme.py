@@ -6,6 +6,8 @@ public issuance and reachability still require independent cloud-VPS testing.
 from __future__ import annotations
 
 import shutil
+import re
+import shlex
 import subprocess
 import sys
 
@@ -86,6 +88,7 @@ def test_ipv6_acme_script_has_pinned_address_dns_and_valid_shortlived_renewal(
     assert " --insecure " not in issue + activate and " -k " not in issue + activate
     assert "__TLS_" not in pre + issue + activate
     assert "__IPV6_" not in pre + issue + activate
+    assert not re.search(r"__[A-Z][A-Z0-9_]*__", pre + install + issue + activate), "Nested templates must fully expand before approval"
     if identity == V6:
         assert '--ip-address "' + V6 + '"' in issue
         assert "--preferred-profile shortlived" in issue
@@ -107,6 +110,27 @@ def test_ipv6_acme_script_has_pinned_address_dns_and_valid_shortlived_renewal(
         assert '"$panel_cli" setting -listenIP ::' in activate
         assert "netdeploy_public_socket" in activate
         assert "ND_IPV6_PUBLIC_HTTPS_FAILED" in activate
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None,
+                    reason="Linux remote probe execution")
+@pytest.mark.parametrize("curl_exit,http_code,expected_exit", [(0, "200", 0), (60, "000", 36), (0, "404", 36)])
+def test_ipv6_public_probe_uses_the_approved_port_and_keeps_tls_fail_closed(tmp_path, curl_exit, http_code, expected_exit):
+    script = https_steps(DOMAIN, 8443, ssh_ipv6=V6)[-1]["script"]
+    probe = script.split("# Verify TLS on the assigned public IPv6", 1)[1].split("changes_started=no", 1)[0]
+    recorded = tmp_path / "curl-args"
+    fake = ("set -eu\ncurl() {\n"
+            f"printf '%s\\n' \"$@\" > {shlex.quote(str(recorded))}\n"
+            f"printf '%s' {shlex.quote(http_code)}\nreturn {curl_exit}\n}}\nweb_path=approvedPath\n")
+    result = subprocess.run(["bash", "-s"], input=fake + "# Verify TLS on the assigned public IPv6" + probe,
+                            text=True, capture_output=True, timeout=10)
+    assert result.returncode == expected_exit, result.stderr
+    args = recorded.read_text().splitlines()
+    assert args[-1] == "https://panel.example.com:8443/approvedPath"
+    assert args[args.index("--resolve") + 1] == f"{DOMAIN}:8443:[{V6}]"
+    assert "-6" in args and "--insecure" not in args and "-k" not in args
+    if expected_exit:
+        assert "ND_IPV6_PUBLIC_HTTPS_FAILED" in result.stderr
 
 
 def test_ipv6_plan_creation_and_invalid_cross_family_pins_fail_closed():

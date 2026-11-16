@@ -70,10 +70,23 @@ def main():
         subprocess.run([str(install / "NetDeployAI.exe"), "--stop", "--quiet"],
                        env=env, check=True, timeout=30)
 
+    def verify_ui():
+        subprocess.run([str(install / "NetDeployAI.exe"), "--ui-smoke", "--quiet"],
+                       env=env, check=True, timeout=60)
+        ui = json.loads((home / "desktop-ui-smoke.json").read_text(encoding="utf-8"))
+        assert all(ui[key] is True for key in ("embedded", "authenticated", "popup", "openerCleared", "themeText",
+                                               "activationPreservesState", "documentationExternal"))
+        for key in ("display", "popupDisplay"):
+            display = ui[key]
+            assert display["perMonitorV2"] is True
+            assert display["windowDpi"] >= 96
+            assert abs(display["devicePixelRatio"] - display["windowDpi"] / 96) < .01
+        return ui
+
     try:
         install_now()
         launch()
-        assert api("health")["version"] == "0.3.35"
+        assert api("health")["version"] == "0.3.36"
         assert len(api("catalog")) >= 7
         assert api("capabilities")["secure_password_storage"]
         assert api("hosts") == [] and api("jobs") == []
@@ -82,16 +95,27 @@ def main():
         with client.open(session_request) as response:
             assert json.load(response)["token"] == config["admin_token"]
         assert api("auth") == {"ok": True}
-        subprocess.run([str(install / "NetDeployAI.exe"), "--ui-smoke", "--quiet"],
-                       env=env, check=True, timeout=60)
-        ui = json.loads((home / "desktop-ui-smoke.json").read_text(encoding="utf-8"))
-        assert all(ui[key] is True for key in ("embedded", "authenticated", "popup", "openerCleared", "themeText"))
-        for key in ("display", "popupDisplay"):
-            display = ui[key]
-            assert display["perMonitorV2"] is True
-            assert display["windowDpi"] >= 96
-            assert abs(display["devicePixelRatio"] - display["windowDpi"] / 96) < .01
+        ui = verify_ui()
+        assert ui["windowState"] == "Maximized"
         print("Desktop DPI verified:", json.dumps({key: ui[key] for key in ("display", "popupDisplay")}))
+        window_file = home / "window-main.json"
+        placement = json.loads(window_file.read_text(encoding="utf-8"))
+        assert placement["ShowCommand"] == 3
+        ratio = ui["display"]["devicePixelRatio"]
+        normal_bounds = {"Left": 50, "Top": 50, "Right": 50 + round(1000 * ratio),
+                         "Bottom": 50 + round(700 * ratio)}
+        placement.update(ShowCommand=1, NormalPosition=normal_bounds)
+        window_file.write_text(json.dumps(placement), encoding="utf-8")
+        assert verify_ui()["windowState"] == "Normal"
+        assert verify_ui()["windowState"] == "Normal"
+        assert json.loads(window_file.read_text(encoding="utf-8"))["NormalPosition"] == normal_bounds
+        # A removed monitor or a damaged preference must not strand the client.
+        placement["NormalPosition"] = {"Left": 60000, "Top": 60000, "Right": 61500, "Bottom": 61050}
+        window_file.write_text(json.dumps(placement), encoding="utf-8")
+        assert verify_ui()["windowState"] == "Normal"
+        window_file.write_text("invalid preference", encoding="utf-8")
+        assert verify_ui()["windowState"] == "Maximized"
+        print("Window preferences verified: first maximize, size/position persistence, activation, off-screen recovery and browser documentation.")
 
         def worker_ready():
             state = json.loads((home / "data" / "codex-worker-startup.json").read_text(encoding="utf-8"))

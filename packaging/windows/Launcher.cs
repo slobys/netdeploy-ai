@@ -12,8 +12,8 @@ using System.Windows.Forms;
 [assembly: AssemblyCompany("NetDeploy AI")]
 [assembly: AssemblyProduct("NetDeploy AI")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
-[assembly: AssemblyVersion("0.3.35.0")]
-[assembly: AssemblyFileVersion("0.3.35.0")]
+[assembly: AssemblyVersion("0.3.36.0")]
+[assembly: AssemblyFileVersion("0.3.36.0")]
 
 internal static class Launcher
 {
@@ -22,6 +22,7 @@ internal static class Launcher
     internal static string Home;
     internal static Uri Panel;
     internal static bool Smoke;
+    internal static Uri SmokeExternal;
     internal static int Result;
 
     internal static string Quote(string value)
@@ -58,8 +59,15 @@ internal static class Launcher
         return uri.Scheme == "https" && (uri.Host == "auth.openai.com" || uri.Host == "chatgpt.com");
     }
 
+    internal static bool Documentation(Uri uri)
+    {
+        return uri.Scheme == "https" && uri.Host == "slobys.github.io" &&
+            (uri.AbsolutePath == "/netdeploy-ai" || uri.AbsolutePath.StartsWith("/netdeploy-ai/", StringComparison.Ordinal));
+    }
+
     internal static void External(Uri uri)
     {
+        if (Smoke) { SmokeExternal = uri; return; }
         Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
     }
 
@@ -127,7 +135,7 @@ internal static class Launcher
                 using (var window = new ClientWindow(true))
                 {
                     var focusWait = ThreadPool.RegisterWaitForSingleObject(focus, delegate {
-                        window.OnUi(delegate { window.Show(); window.WindowState = FormWindowState.Normal; window.Activate(); });
+                        window.OnUi(window.FocusWindow);
                     }, null, -1, false);
                     var exitWait = ThreadPool.RegisterWaitForSingleObject(exit, delegate {
                         window.OnUi(delegate { window.Close(); });

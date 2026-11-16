@@ -421,9 +421,20 @@ echo 'Public HTTPS is active; cloud security group must separately permit the se
         pinned_v6 = ssh_ipv6 if ssh_ipv6 is not None else identity
         resolve = (f"--resolve '{identity}:{port}:[{pinned_v6}]'"
                    if mode == "domain" else "")
-        public_ipv6_health = "\n# Verify a real public IPv6 TLS handshake too (local routing to our own\n# assigned address cannot establish that the cloud security group is open).\ncode6=\"$(curl -6 -g --noproxy '*' --proto '=https' --tlsv1.2 \\\n    --silent --output /dev/null --write-out '%{http_code}' \\\n    --connect-timeout 3 --max-time 8 __PUBLIC_RESOLVE__ \\\n    \"https://__TLS_URL_HOST__:__PORT__/$web_path\" 2>/dev/null)\" || code6=000\ncase \"$code6\" in 200|301|302|303|307|308|401|403) ;;\n    *) echo 'ND_IPV6_PUBLIC_HTTPS_FAILED: IPv6 TLS or certificate identity failed; reverting to localhost' >&2\n       exit 36 ;;\nesac\n".replace(
-            "__PUBLIC_RESOLVE__", resolve
-        )
+        public_ipv6_health = r"""
+# Verify TLS on the assigned public IPv6 too. A self-connection does not
+# independently prove that the cloud security group permits external access.
+public_curl_exit=0
+code6="$(curl -6 -g --noproxy '*' --proto '=https' --tlsv1.2 \
+    --silent --output /dev/null --write-out '%{http_code}' \
+    --connect-timeout 3 --max-time 8 __PUBLIC_RESOLVE__ \
+    "https://__TLS_URL_HOST__:__PORT__/$web_path" 2>/dev/null)" || public_curl_exit=$?
+case "$public_curl_exit:$code6" in
+    0:200|0:301|0:302|0:303|0:307|0:308|0:401|0:403) ;;
+    *) printf 'ND_IPV6_PUBLIC_HTTPS_FAILED: public IPv6 HTTPS probe failed (curl exit %s, HTTP %s); reverting to localhost\n' "$public_curl_exit" "$code6" >&2
+       exit 36 ;;
+esac
+""".replace("__PUBLIC_RESOLVE__", resolve)
     preflight_timeout = 60 if family == 6 else 35
     label = "检查公网 IP 和 ACME 80 端口" if mode == "ip" else "检查域名解析和 ACME 80 端口"
     stages = [(label, preflight, preflight_timeout),
@@ -431,20 +442,22 @@ echo 'Public HTTPS is active; cloud security group must separately permit the se
                else "检查 Certbot / 自动等待 Ubuntu APT 锁", install, 600),
               ("申请证书、验证标识并配置自动续期", issue, 300),
               ("验证后开启 HTTPS 直连（失败回退本机监听）", activate, 60)]
-    # Expand nested placeholders inside the installer command, too.
-    values = {"__ISSUE_CMD__": issue_cmd.strip(), "__MODE__": mode,
+    # Expand outer script chunks before their nested identity/port placeholders.
+    values = {"__ISSUE_CMD__": issue_cmd.strip(),
+              "__IPV6_PUBLIC_HEALTH__": public_ipv6_health, "__MODE__": mode,
               "__CERTBOT_CMD__": certbot_command(mode),
               "__CERT_ROOT__": cert_root(mode), "__RENEW_TIMER__": renew_timer(mode),
               "__IDENTITY__": identity, "__PORT__": str(port),
               "__SSH_IP__": ssh_ipv4 or "", "__SSH_IPV6__": ssh_ipv6 or "",
               "__PUBLIC_SOCKET_CHECK__": PUBLIC_SOCKET_CHECK,
-              "__IPV6_PUBLIC_HEALTH__": public_ipv6_health,
               "__CHECK__": "checkip" if mode == "ip" else "checkhost",
               **transport}
     result = []
     for label, script, timeout in stages:
         for key, value in values.items():
             script = script.replace(key, value)
+        if re.search(r"__[A-Z][A-Z0-9_]*__", script):
+            raise RuntimeError("HTTPS script template contains an unexpanded parameter")
         result.append({"label": label, "script": script, "timeout": timeout})
     return result
 
