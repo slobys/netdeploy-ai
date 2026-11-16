@@ -117,7 +117,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.37';
+let runtimeVersion='0.3.38';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -416,9 +416,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.37';
+  runtimeVersion='0.3.38';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.37');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.38');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -646,6 +646,8 @@ function fingerprintFor(label) {
   await evaluate('showExistingSui(1)');
   assert(modal.innerHTML.includes('直接打开 HTTPS 面板'));
   assert(modal.innerHTML.includes('https://panel.example.com:2095/deadbeef'));
+  assert(modal.innerHTML.includes('href="https://panel.example.com:2095/deadbeefdeadbeefdeadbeef/" rel="noopener noreferrer" target="_blank"'),
+    'S-UI must preserve the current NetDeploy page when opening its management link');
   assert(!modal.innerHTML.includes('SSH 隧道命令'));
   assert.equal(suiReadRequests,2);
   suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};

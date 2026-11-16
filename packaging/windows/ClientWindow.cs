@@ -18,6 +18,8 @@ internal sealed class ClientWindow : Form
     private readonly List<ClientWindow> children = new List<ClientWindow>();
     private CoreWebView2Environment environment;
     private bool testing;
+    private bool openingHiddify;
+    private Func<HttpMessageHandler> hiddifyHandler;
     private FormWindowState visibleState = FormWindowState.Maximized;
 
     [DllImport("user32.dll")]
@@ -108,13 +110,15 @@ internal sealed class ClientWindow : Form
         view.CoreWebView2.Settings.AreHostObjectsAllowed = false;
         view.CoreWebView2.Settings.IsWebMessageEnabled = false;
         view.CoreWebView2.NewWindowRequested += Popup;
-        view.CoreWebView2.NavigationStarting += delegate(object sender, CoreWebView2NavigationStartingEventArgs args) {
+        view.CoreWebView2.NavigationStarting += async delegate(object sender, CoreWebView2NavigationStartingEventArgs args) {
             Uri uri;
             if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out uri)) { args.Cancel = true; return; }
             if (uri.Scheme != "http" && uri.Scheme != "https") { args.Cancel = true; return; }
+            if (HiddifyBrowser.IsLauncher(uri))
+            { args.Cancel = true; await OpenHiddify(uri); return; }
             if (Launcher.Authorization(uri) || Launcher.Documentation(uri))
             { args.Cancel = true; Launcher.External(uri); return; }
-            if (main && !Launcher.Local(uri)) {
+            if (!Launcher.Local(uri)) {
                 args.Cancel = true;
                 Launcher.External(uri);
             }
@@ -127,11 +131,48 @@ internal sealed class ClientWindow : Form
         };
     }
 
+    private async Task Notify(string text, bool bad = false)
+    {
+        if (!IsDisposed && view.CoreWebView2 != null)
+            await view.CoreWebView2.ExecuteScriptAsync("typeof toast==='function' && toast(" +
+                new JavaScriptSerializer().Serialize(text) + "," + (bad ? "true" : "false") + ")");
+    }
+
+    private async Task OpenHiddify(Uri launch)
+    {
+        if (openingHiddify) return;
+        openingHiddify = true;
+        try
+        {
+            string failure = null;
+            try
+            {
+                Uri source;
+                if (!Uri.TryCreate(view.CoreWebView2.Source, UriKind.Absolute, out source) || !Launcher.Local(source))
+                    throw new InvalidOperationException("请从 NetDeploy 的部署任务打开管理面板。");
+                await Notify("正在读取 Hiddify 管理链接…");
+                string token = new JavaScriptSerializer().Deserialize<string>(
+                    await view.CoreWebView2.ExecuteScriptAsync("sessionStorage.getItem('nd_token')"));
+                Uri url = await HiddifyBrowser.ReadLink(launch, token,
+                    hiddifyHandler == null ? null : hiddifyHandler());
+                if (IsDisposed) return;
+                Launcher.External(url);
+                await Notify("已交给默认浏览器打开 Hiddify 管理面板");
+            }
+            catch (TaskCanceledException) { failure = "读取 Hiddify 管理链接超时，请检查 SSH 连接后重试。"; }
+            catch (Exception error) { failure = error.Message; }
+            if (failure != null) await Notify(failure, true);
+        }
+        finally { openingHiddify = false; }
+    }
+
     private async void Popup(object sender, CoreWebView2NewWindowRequestedEventArgs args)
     {
         Uri uri;
         if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
         { args.Handled = true; return; }
+        if (HiddifyBrowser.IsLauncher(uri))
+        { args.Handled = true; await OpenHiddify(uri); return; }
         if (!Launcher.Local(uri))
         { args.Handled = true; Launcher.External(uri); return; }
         var deferral = args.GetDeferral();
@@ -197,20 +238,28 @@ internal sealed class ClientWindow : Form
             if (Launcher.SmokeExternal == null || !Launcher.Documentation(Launcher.SmokeExternal) ||
                 children.Count != 0 || view.CoreWebView2.Source != panelSource)
                 throw new Exception("Documentation did not route to the system browser while retaining the panel.");
-            var externalPanel = new Uri("https://panel.example.invalid:8443/panel");
-            foreach (string navigation in new[] {
-                "window.open('https://panel.example.invalid:8443/panel','_blank','noopener,noreferrer')",
-                "window.location.href='https://panel.example.invalid:8443/panel'"
+            foreach (var externalPanel in new[] {
+                new Uri("https://panel.example.invalid:8443/panel"),
+                new Uri("https://sui.example.invalid:2095/app/"),
+                new Uri("https://[2001:db8::1]:2095/app/")
             })
             {
-                Launcher.SmokeExternal = null;
-                await view.CoreWebView2.ExecuteScriptAsync(navigation);
-                for (int attempt = 0; attempt < 40 && Launcher.SmokeExternal == null; attempt++) await Task.Delay(50);
-                await Task.Delay(150);
-                if (Launcher.SmokeExternal != externalPanel || children.Count != 0 ||
-                    view.CoreWebView2.Source != panelSource || message.Visible)
-                    throw new Exception("External management link did not open in the system browser while retaining the client.");
+                string target = new JavaScriptSerializer().Serialize(externalPanel.AbsoluteUri);
+                foreach (string navigation in new[] {
+                    "window.open(" + target + ",'_blank','noopener,noreferrer')",
+                    "window.location.href=" + target
+                })
+                {
+                    Launcher.SmokeExternal = null;
+                    await view.CoreWebView2.ExecuteScriptAsync(navigation);
+                    for (int attempt = 0; attempt < 40 && Launcher.SmokeExternal == null; attempt++) await Task.Delay(50);
+                    await Task.Delay(150);
+                    if (Launcher.SmokeExternal != externalPanel || children.Count != 0 ||
+                        view.CoreWebView2.Source != panelSource || message.Visible)
+                        throw new Exception("External management link did not open in the system browser while retaining the client.");
+                }
             }
+            await VerifyHiddifyLinks(panelSource);
             // Exercise the actual CSS cascade in both modes, including cases
             // where older component rules used pale colors intended for dark mode.
             string readable = await view.CoreWebView2.ExecuteScriptAsync(@"
@@ -248,31 +297,94 @@ internal sealed class ClientWindow : Form
             if (readable != "true") throw new Exception("Light/dark supporting text does not use readable theme colors.");
             using (var capture = File.Create(Path.Combine(Launcher.Home, "desktop-ui-smoke.png")))
                 await view.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, capture);
-            await view.CoreWebView2.ExecuteScriptAsync(
-                "window.open('/static/hiddify-launch.html#invalid','_blank');");
-            bool popup = false;
-            for (int attempt = 0; attempt < 100; attempt++)
-            {
-                if (children.Count == 1 && children[0].view.CoreWebView2 != null)
-                {
-                    popup = await children[0].view.CoreWebView2.ExecuteScriptAsync(
-                        "!!sessionStorage.getItem('nd_token') && window.opener===null && document.querySelector('#launch-status')?.textContent.includes('任务编号无效')") == "true";
-                    if (popup) break;
-                }
-                await Task.Delay(100);
-            }
-            if (!popup) throw new Exception("Embedded popup or session inheritance failed.");
-            var popupDisplay = await children[0].VerifyDisplay();
             File.WriteAllText(Path.Combine(Launcher.Home, "desktop-ui-smoke.json"),
                 new JavaScriptSerializer().Serialize(new Dictionary<string, object> {
-                    {"embedded", true}, {"authenticated", true}, {"popup", true}, {"openerCleared", true}, {"themeText", true},
-                    {"display", mainDisplay}, {"popupDisplay", popupDisplay},
+                    {"embedded", true}, {"authenticated", true}, {"themeText", true},
+                    {"display", mainDisplay}, {"hiddifyExternal", true}, {"hiddifyErrorsSafe", true}, {"suiExternal", true},
                     {"windowState", initialState.ToString()}, {"activationPreservesState", true}, {"documentationExternal", true},
                     {"managementLinksExternal", true}
                 }));
             Close();
         }
         catch (Exception error) { Fail(error.Message); }
+    }
+
+    private sealed class SmokeBackend : HttpMessageHandler
+    {
+        private readonly Func<HttpRequestMessage, HttpResponseMessage> respond;
+        internal SmokeBackend(Func<HttpRequestMessage, HttpResponseMessage> response) { respond = response; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            System.Threading.CancellationToken cancellation) { return Task.FromResult(respond(request)); }
+    }
+
+    private async Task VerifyHiddifyLinks(string panelSource)
+    {
+        string token = new JavaScriptSerializer().Deserialize<string>(
+            await view.CoreWebView2.ExecuteScriptAsync("sessionStorage.getItem('nd_token')"));
+        var destination = new Uri("https://hiddify.example.invalid/admin/v2/quick-setup");
+        string body = "{\"url\":\"" + destination.AbsoluteUri + "\",\"tls_verified\":true}";
+        int status = 200, requests = 0;
+        hiddifyHandler = delegate { return new SmokeBackend(request => {
+            if (request.Method != HttpMethod.Get || request.RequestUri != new Uri(Launcher.Panel,
+                "api/jobs/a1b2c3d4e5f6a7b8/hiddify-admin") ||
+                String.Join("", request.Headers.GetValues("X-Admin-Token")) != token)
+                throw new Exception("Hiddify lookup must use authenticated localhost GET only.");
+            requests++;
+            return new HttpResponseMessage((System.Net.HttpStatusCode)status) { Content = new StringContent(body) };
+        }); };
+        try
+        {
+            await view.CoreWebView2.ExecuteScriptAsync(
+                "dialog(modalHead('Hiddify · 导航验证')+hiddifyAdminLink('a1b2c3d4e5f6a7b8'))");
+            string click = "document.querySelector('a[href^=\"/static/hiddify-launch.html#\"]').click()";
+            foreach (string action in new[] { click + ";" + click,
+                "window.location.href='/static/hiddify-launch.html#a1b2c3d4e5f6a7b8'" })
+            {
+                Launcher.SmokeExternal = null;
+                await view.CoreWebView2.ExecuteScriptAsync(action);
+                for (int attempt = 0; attempt < 100 && (Launcher.SmokeExternal == null || openingHiddify); attempt++)
+                    await Task.Delay(50);
+                if (Launcher.SmokeExternal != destination || view.CoreWebView2.Source != panelSource || children.Count != 0)
+                    throw new Exception("Hiddify did not open externally while retaining the original page.");
+            }
+            if (requests != 2) throw new Exception("Hiddify authenticated lookup was not exercised.");
+            foreach (string invalid in new[] { "http://hiddify.example.invalid/", "https://user:secret@hiddify.example.invalid/", "javascript:alert(1)", "" })
+            {
+                body = new JavaScriptSerializer().Serialize(new { url = invalid });
+                Launcher.SmokeExternal = null;
+                int before = requests;
+                await view.CoreWebView2.ExecuteScriptAsync(click);
+                for (int attempt = 0; attempt < 100 && (requests == before || openingHiddify); attempt++) await Task.Delay(50);
+                if (requests != before + 1 || Launcher.SmokeExternal != null || children.Count != 0 ||
+                    view.CoreWebView2.Source != panelSource || await view.CoreWebView2.ExecuteScriptAsync(
+                        "document.querySelector('#toast').textContent.includes('格式无效')") != "true")
+                    throw new Exception("Invalid Hiddify URL was not rejected safely in the original page.");
+            }
+            foreach (int denied in new[] { 401, 302 })
+            {
+                status = denied;
+                int deniedBefore = requests;
+                await view.CoreWebView2.ExecuteScriptAsync(click);
+                for (int attempt = 0; attempt < 100 && (requests == deniedBefore || openingHiddify); attempt++) await Task.Delay(50);
+                if (Launcher.SmokeExternal != null || children.Count != 0 || view.CoreWebView2.Source != panelSource ||
+                    await view.CoreWebView2.ExecuteScriptAsync(
+                        "document.querySelector('#toast').textContent.includes('HTTP " + denied + "')") != "true")
+                    throw new Exception("Hiddify API failure did not remain visible in the original page.");
+            }
+            int invalidBefore = requests;
+            await view.CoreWebView2.ExecuteScriptAsync("window.open('/static/hiddify-launch.html#invalid','_blank')");
+            for (int attempt = 0; attempt < 100; attempt++)
+            {
+                if (await view.CoreWebView2.ExecuteScriptAsync(
+                    "document.querySelector('#toast').textContent.includes('任务编号无效')") == "true" && !openingHiddify) break;
+                await Task.Delay(50);
+            }
+            if (requests != invalidBefore || children.Count != 0 || Launcher.SmokeExternal != null ||
+                await view.CoreWebView2.ExecuteScriptAsync("document.querySelector('#toast').textContent.includes('任务编号无效')") != "true")
+                throw new Exception("Invalid Hiddify task must not make an authenticated lookup or open a window.");
+            await view.CoreWebView2.ExecuteScriptAsync("closeDialog()");
+        }
+        finally { hiddifyHandler = null; }
     }
 
     private void Fail(string text)

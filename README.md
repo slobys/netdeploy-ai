@@ -40,9 +40,9 @@
 
 ## Windows 安装包（推荐）
 
-从 [GitHub Releases](https://github.com/slobys/netdeploy-ai/releases/latest) 下载 `NetDeployAI-0.3.37-Setup-x64.exe`，安装后双击桌面上的 **NetDeploy AI**，直接进入独立客户端窗口。支持 Windows 10/11 x64，内含 Python、SSH 客户端和 Codex SDK。安装程序会检查 WebView2，缺少时自动联网安装微软运行组件。
+从 [GitHub Releases](https://github.com/slobys/netdeploy-ai/releases/latest) 下载 `NetDeployAI-0.3.38-Setup-x64.exe`，安装后双击桌面上的 **NetDeploy AI**，直接进入独立客户端窗口。支持 Windows 10/11 x64，内含 Python、SSH 客户端和 Codex SDK。安装程序会检查 WebView2，缺少时自动联网安装微软运行组件。
 
-首次打开默认最大化，之后记住窗口大小和位置。再次点击桌面图标会保持原窗口状态并唤起客户端。「使用文档」和 3X-UI、S-UI、Dockge 的直接面板链接在系统默认浏览器打开，保留客户端当前页面。关闭客户端窗口后，后台继续运行；需要完全退出时，在开始菜单选择 **退出 NetDeploy AI**。Hiddify 的鉴权启动页保持客户端子窗口流程，ChatGPT 账号授权页使用系统浏览器。更新时下载新版安装包覆盖安装即可。VPS、任务和 ChatGPT 授权保存在 `%LOCALAPPDATA%\NetDeployAI\desktop`，升级和卸载均保留此目录。每位用户首次使用 Codex 时登录自己的 ChatGPT 账号。
+首次打开默认最大化，之后记住窗口大小和位置。再次点击桌面图标会保持原窗口状态并唤起客户端。「使用文档」及 Hiddify、S-UI、3X-UI、Dockge 的面板链接在系统默认浏览器打开，保留客户端当前页面。Hiddify 管理地址由客户端通过已鉴权的本机 API 读取，NetDeploy 登录令牌不会传给外部浏览器；读取失败时在原页面提示，可直接重试。关闭客户端窗口后，后台继续运行；需要完全退出时，在开始菜单选择 **退出 NetDeploy AI**。ChatGPT 账号授权页使用系统浏览器。更新时下载新版安装包覆盖安装即可。VPS、任务和 ChatGPT 授权保存在 `%LOCALAPPDATA%\NetDeployAI\desktop`，升级和卸载均保留此目录。每位用户首次使用 Codex 时登录自己的 ChatGPT 账号。
 
 安装包尚未配置代码签名，Windows 可能显示未知发布者提示。下载文件的 SHA-256 见同一 Release 的 `SHA256SUMS.txt`。安装版使用独立数据目录，已有面板正在运行时，客户端会连接现有面板。
 

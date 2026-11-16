@@ -74,9 +74,10 @@ def main():
         subprocess.run([str(install / "NetDeployAI.exe"), "--ui-smoke", "--quiet"],
                        env=env, check=True, timeout=60)
         ui = json.loads((home / "desktop-ui-smoke.json").read_text(encoding="utf-8"))
-        assert all(ui[key] is True for key in ("embedded", "authenticated", "popup", "openerCleared", "themeText",
-                                               "activationPreservesState", "documentationExternal", "managementLinksExternal"))
-        for key in ("display", "popupDisplay"):
+        assert all(ui[key] is True for key in ("embedded", "authenticated", "themeText", "hiddifyExternal",
+                                               "hiddifyErrorsSafe", "suiExternal", "activationPreservesState",
+                                               "documentationExternal", "managementLinksExternal"))
+        for key in ("display",):
             display = ui[key]
             assert display["perMonitorV2"] is True
             assert display["windowDpi"] >= 96
@@ -86,7 +87,7 @@ def main():
     try:
         install_now()
         launch()
-        assert api("health")["version"] == "0.3.37"
+        assert api("health")["version"] == "0.3.38"
         assert len(api("catalog")) >= 7
         assert api("capabilities")["secure_password_storage"]
         assert api("hosts") == [] and api("jobs") == []
@@ -97,7 +98,7 @@ def main():
         assert api("auth") == {"ok": True}
         ui = verify_ui()
         assert ui["windowState"] == "Maximized"
-        print("Desktop DPI verified:", json.dumps({key: ui[key] for key in ("display", "popupDisplay")}))
+        print("Desktop DPI verified:", json.dumps(ui["display"]))
         window_file = home / "window-main.json"
         placement = json.loads(window_file.read_text(encoding="utf-8"))
         assert placement["ShowCommand"] == 3
@@ -194,7 +195,7 @@ def main():
         with sqlite3.connect(home / "data" / "netdeploy.db") as database:
             assert database.execute("SELECT COUNT(*) FROM hosts").fetchone()[0] == 1
             assert database.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 1
-        print("Installer smoke passed: embedded client, authenticated child window, SDK, upgrade and data retention.")
+        print("Installer smoke passed: embedded client, authenticated external Hiddify/S-UI, SDK, upgrade and data retention.")
     finally:
         if (install / "NetDeployAI.exe").exists():
             stop()
