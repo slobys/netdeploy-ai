@@ -4,7 +4,7 @@
 
 输出位于 `release/`，包括安装 EXE、免安装 ZIP、SHA-256 和构建清单。构建时不会读取本机 `.env`、数据库、SSH 文件或 ChatGPT 授权。安装包中的依赖各自保留其许可证。
 
-执行 `python tests/smoke_windows_installer.py release/NetDeployAI-0.3.41-Setup-x64.exe` 可验证首次安装、独立 Codex SDK、重复打开、覆盖升级及卸载保留数据。测试使用临时中文目录与独立端口 18787、18789。
+执行 `python tests/smoke_windows_installer.py release/NetDeployAI-0.3.42-Setup-x64.exe` 可验证首次安装、独立 Codex SDK、重复打开、覆盖升级及卸载保留数据。测试使用临时中文目录与独立端口 18787、18789。
 
 客户端使用 .NET Framework 4.8、Windows 10 兼容清单和 WinForms 的 PerMonitorV2 配置，避免系统位图拉伸导致 WebView2 内容发虚。构建必须同时分发 `NetDeployAI.exe.config`。安装验证会检查主窗口的 DPI 感知、WebView2 像素比例和实际内容尺寸；应在标准 DPI 与高 DPI 环境分别运行。
 
@@ -15,3 +15,5 @@
 GitHub Actions 的 Windows installer 工作流支持手动构建和版本标签构建。标签构建完成真实安装验证后，会发布 Release 附件。此版本尚未配置 Authenticode 代码签名。
 
 窗口状态保存为用户数据目录中的 `window-main.json`，与授权配置分开存储；缺失或损坏时使用不超过屏幕工作区的普通窗口，移除显示器后由 Windows 恢复到可见区域。Hiddify、S-UI 和其他面板都在默认浏览器打开，原页面保持不变。客户端截获 Hiddify 同源启动链接，用当前会话令牌请求固定的本机 API（禁止重定向），仅把校验后的 HTTPS 管理地址交给浏览器，失败在原页面提示。网页版本保留同源启动页的新标签流程。安装验证使用模拟管理链接接口，覆盖成功、无效链接、HTTP 错误、重复点击、IPv6 S-UI 和窗口状态恢复，不连接实际 VPS。
+
+在线更新由 ClientUpdates.cs 桥接固定的 GitHub Release 源，DesktopUpdates.cs 检查正式版本、限定资产地址、流式下载与 SHA-256 校验。暂存目录下的独立 NetDeployUpdater.exe 先通过原有停止入口检查部署任务，再调用 app/desktop_update.py 离线备份数据库、SSH 指纹、配置、账号授权和窗口偏好，静默覆盖安装并重启。失败不删除用户数据，备份在用户数据目录 update-backups，安装日志与下载包在 updates。外部网页不能调用更新桥接，网页版本号提供 Release 下载入口。

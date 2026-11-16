@@ -14,7 +14,7 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = "0.3.41"
+VERSION = "0.3.42"
 PYTHON_VERSION = "3.13.17"
 PYTHON_SHA256 = "9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38"
 SSH_VERSION = "10.4.0.0p1-Preview"
@@ -128,8 +128,15 @@ def main():
          f"/win32manifest:{ROOT / 'packaging' / 'windows' / 'app.manifest'}",
          ROOT / "packaging" / "windows" / "Launcher.cs",
          ROOT / "packaging" / "windows" / "ClientWindow.cs",
+         ROOT / "packaging" / "windows" / "ClientUpdates.cs",
+         ROOT / "packaging" / "windows" / "DesktopUpdates.cs",
          ROOT / "packaging" / "windows" / "HiddifyBrowser.cs",
          ROOT / "packaging" / "windows" / "WindowPlacement.cs"])
+    run([compiler, "/nologo", "/target:winexe", "/platform:x64",
+         "/reference:System.Windows.Forms.dll", "/reference:System.Net.Http.dll",
+         "/reference:System.Web.Extensions.dll", f"/out:{bundle / 'NetDeployUpdater.exe'}",
+         ROOT / "packaging" / "windows" / "UpdateInstaller.cs",
+         ROOT / "packaging" / "windows" / "DesktopUpdates.cs"])
     for executable in ("runtime/python.exe", "codex-runtime/python.exe", "ssh/ssh.exe"):
         if not (bundle / executable).is_file():
             raise RuntimeError(f"Missing runtime {executable}")

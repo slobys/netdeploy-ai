@@ -12,8 +12,8 @@ using System.Windows.Forms;
 [assembly: AssemblyCompany("NetDeploy AI")]
 [assembly: AssemblyProduct("NetDeploy AI")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
-[assembly: AssemblyVersion("0.3.41.0")]
-[assembly: AssemblyFileVersion("0.3.41.0")]
+[assembly: AssemblyVersion("0.3.42.0")]
+[assembly: AssemblyFileVersion("0.3.42.0")]
 
 internal static class Launcher
 {
@@ -21,6 +21,7 @@ internal static class Launcher
     internal static string Root = AppDomain.CurrentDomain.BaseDirectory;
     internal static string Home;
     internal static Uri Panel;
+    internal static int WorkerPort;
     internal static bool Smoke;
     internal static Uri SmokeExternal;
     internal static int Result;
@@ -91,6 +92,8 @@ internal static class Launcher
             int port = int.Parse(Option(args, "--port",
                 Environment.GetEnvironmentVariable("NETDEPLOY_DESKTOP_PORT") ?? "8787"));
             Panel = new Uri("http://127.0.0.1:" + port + "/");
+            WorkerPort = int.Parse(Option(args, "--worker-port",
+                Environment.GetEnvironmentVariable("NETDEPLOY_DESKTOP_WORKER_PORT") ?? "8789"));
             Smoke = Array.IndexOf(args, "--ui-smoke") >= 0;
             string key;
             using (var sha = SHA256.Create())

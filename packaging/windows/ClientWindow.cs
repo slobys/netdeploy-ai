@@ -10,7 +10,7 @@ using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
-internal sealed class ClientWindow : Form
+internal sealed partial class ClientWindow : Form
 {
     private readonly bool main;
     private readonly WebView2 view = new WebView2();
@@ -111,6 +111,7 @@ internal sealed class ClientWindow : Form
         await view.EnsureCoreWebView2Async(env);
         view.CoreWebView2.Settings.AreHostObjectsAllowed = false;
         view.CoreWebView2.Settings.IsWebMessageEnabled = false;
+        await InitializeUpdates();
         view.CoreWebView2.NewWindowRequested += Popup;
         view.CoreWebView2.NavigationStarting += async delegate(object sender, CoreWebView2NavigationStartingEventArgs args) {
             Uri uri;
@@ -264,6 +265,7 @@ internal sealed class ClientWindow : Form
                 }
             }
             await VerifyHiddifyLinks(panelSource);
+            await VerifyDesktopUpdates(panelSource);
             // Exercise the actual CSS cascade in both modes, including cases
             // where older component rules used pale colors intended for dark mode.
             string readable = await view.CoreWebView2.ExecuteScriptAsync(@"
@@ -306,7 +308,7 @@ internal sealed class ClientWindow : Form
                     {"embedded", true}, {"authenticated", true}, {"themeText", true},
                     {"display", mainDisplay}, {"hiddifyExternal", true}, {"hiddifyErrorsSafe", true}, {"suiExternal", true},
                     {"windowState", initialState.ToString()}, {"activationPreservesState", true}, {"documentationExternal", true},
-                    {"managementLinksExternal", true}
+                    {"managementLinksExternal", true}, {"desktopUpdates", true}
                 }));
             Close();
         }

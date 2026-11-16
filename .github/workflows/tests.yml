@@ -32,6 +32,8 @@ jobs:
         run: node --check app/static/theme.js
       - name: Test appearance themes and accessibility
         run: node tests/theme_smoke.cjs
+      - name: Test desktop update prompt and states
+        run: node tests/desktop_updates_smoke.cjs
 
       - name: Validate Windows PowerShell 5.1 launcher and updater
         if: runner.os == 'Windows'
