@@ -114,7 +114,8 @@ def main():
         window_file.write_text(json.dumps(placement), encoding="utf-8")
         assert verify_ui()["windowState"] == "Normal"
         assert verify_ui()["windowState"] == "Normal"
-        assert json.loads(window_file.read_text(encoding="utf-8"))["NormalPosition"] == normal_bounds
+        restored_bounds = json.loads(window_file.read_text(encoding="utf-8"))["NormalPosition"]
+        assert restored_bounds == normal_bounds, {"expected": normal_bounds, "actual": restored_bounds}
         placement["ShowCommand"] = 3
         window_file.write_text(json.dumps(placement), encoding="utf-8")
         assert verify_ui()["windowState"] == "Maximized"

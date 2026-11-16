@@ -47,7 +47,9 @@ internal sealed class ClientWindow : Form
         message.Text = "正在启动 NetDeploy AI…";
         Controls.Add(view);
         Controls.Add(message);
-        Load += delegate { WindowPlacement.Restore(this, main); };
+        // Restore only after WinForms has applied the monitor's initial DPI scale.
+        // Doing this during Load can scale a saved physical size a second time.
+        Shown += delegate { WindowPlacement.Restore(this, main); };
         Resize += delegate {
             if (WindowState != FormWindowState.Minimized) visibleState = WindowState;
         };
@@ -204,7 +206,9 @@ internal sealed class ClientWindow : Form
             Math.Abs(Convert.ToDouble(display["height"]) * ratio - view.ClientSize.Height) > 2)
             throw new Exception("WebView content does not fill its physical pixel bounds.");
         return new Dictionary<string, object> {
-            {"perMonitorV2", true}, {"windowDpi", dpi}, {"devicePixelRatio", ratio}
+            {"perMonitorV2", true}, {"windowDpi", dpi}, {"devicePixelRatio", ratio},
+            {"windowWidth", Width}, {"windowHeight", Height},
+            {"minimumWidth", MinimumSize.Width}, {"minimumHeight", MinimumSize.Height}
         };
     }
 
