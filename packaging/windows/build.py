@@ -16,7 +16,7 @@ import zipfile
 import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = "0.3.34"
+VERSION = "0.3.35"
 PYTHON_VERSION = "3.13.17"
 PYTHON_SHA256 = "9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38"
 SSH_VERSION = "10.4.0.0p1-Preview"

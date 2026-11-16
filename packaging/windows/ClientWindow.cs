@@ -173,6 +173,43 @@ internal sealed class ClientWindow : Form
             }
             if (!authenticated) throw new Exception("Embedded panel did not authenticate.");
             var mainDisplay = await VerifyDisplay();
+            // Exercise the actual CSS cascade in both modes, including cases
+            // where older component rules used pale colors intended for dark mode.
+            string readable = await view.CoreWebView2.ExecuteScriptAsync(@"
+                (() => {
+                    const root=document.documentElement, original=root.getAttribute('data-appearance');
+                    const rgb=hex=>hex.trim().replace('#','').match(/../g).map(v=>parseInt(v,16));
+                    const lum=values=>values.map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4)
+                        .reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
+                    let checked=0;
+                    try {
+                        for(const mode of ['light','dark']) {
+                            root.setAttribute('data-appearance',mode);
+                            const tokens=getComputedStyle(root);
+                            for(const [selector,token] of [['.section-heading p','--theme-secondary'],
+                                ['.project p','--theme-secondary'],['.host-card-meta','--theme-secondary'],
+                                ['.brand small','--theme-subtle']]) {
+                                const element=document.querySelector(selector);
+                                if(!element) continue;
+                                const actual=getComputedStyle(element).color.match(/[\d.]+/g).slice(0,3).map(Number);
+                                const expected=rgb(tokens.getPropertyValue(token));
+                                if(actual.some((v,i)=>v!==expected[i])) return false;
+                                for(const background of ['--theme-page','--theme-panel']) {
+                                    const a=lum(actual), b=lum(rgb(tokens.getPropertyValue(background)));
+                                    if((Math.max(a,b)+.05)/(Math.min(a,b)+.05)<4.5) return false;
+                                }
+                                checked++;
+                            }
+                        }
+                        return checked>=4;
+                    } finally {
+                        if(original===null) root.removeAttribute('data-appearance');
+                        else root.setAttribute('data-appearance',original);
+                    }
+                })()");
+            if (readable != "true") throw new Exception("Light/dark supporting text does not use readable theme colors.");
+            using (var capture = File.Create(Path.Combine(Launcher.Home, "desktop-ui-smoke.png")))
+                await view.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, capture);
             await view.CoreWebView2.ExecuteScriptAsync(
                 "window.open('/static/hiddify-launch.html#invalid','_blank');");
             bool popup = false;
@@ -190,7 +227,7 @@ internal sealed class ClientWindow : Form
             var popupDisplay = await children[0].VerifyDisplay();
             File.WriteAllText(Path.Combine(Launcher.Home, "desktop-ui-smoke.json"),
                 new JavaScriptSerializer().Serialize(new Dictionary<string, object> {
-                    {"embedded", true}, {"authenticated", true}, {"popup", true}, {"openerCleared", true},
+                    {"embedded", true}, {"authenticated", true}, {"popup", true}, {"openerCleared", true}, {"themeText", true},
                     {"display", mainDisplay}, {"popupDisplay", popupDisplay}
                 }));
             Close();

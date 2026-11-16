@@ -73,7 +73,7 @@ def main():
     try:
         install_now()
         launch()
-        assert api("health")["version"] == "0.3.34"
+        assert api("health")["version"] == "0.3.35"
         assert len(api("catalog")) >= 7
         assert api("capabilities")["secure_password_storage"]
         assert api("hosts") == [] and api("jobs") == []
@@ -85,7 +85,7 @@ def main():
         subprocess.run([str(install / "NetDeployAI.exe"), "--ui-smoke", "--quiet"],
                        env=env, check=True, timeout=60)
         ui = json.loads((home / "desktop-ui-smoke.json").read_text(encoding="utf-8"))
-        assert all(ui[key] is True for key in ("embedded", "authenticated", "popup", "openerCleared"))
+        assert all(ui[key] is True for key in ("embedded", "authenticated", "popup", "openerCleared", "themeText"))
         for key in ("display", "popupDisplay"):
             display = ui[key]
             assert display["perMonitorV2"] is True

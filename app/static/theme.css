@@ -91,16 +91,18 @@ body{
     color-mix(in srgb,var(--theme-action) 12%,transparent),transparent 72%),var(--theme-page);
 }
 a{color:var(--theme-accent)}
-:where(.section-heading h2,.stat strong,.project h3,.host-title b,.job-main b,.brand strong,.modal h2,.modal h3,
+/* Text tokens must outrank the legacy component colors. :where() has zero
+   specificity and left pale dark-mode text on light backgrounds. */
+:is(.section-heading h2,.stat strong,.project h3,.host-title b,.job-main b,.brand strong,.modal h2,.modal h3,
        .server-console-head h3,.xui-existing h3,.server-next-action h3){color:var(--theme-title)}
-:where(.section-heading p,.stat small,.project p,.host-main small,.job-main small,.helptext,
+:is(.section-heading p,.stat small,.project p,.host-main small,.job-main small,.helptext,
        .host-card-meta,.server-tab-intro p,.server-console-head p,.xui-existing>p,
        .server-subheading p,.plan-overview p,.fingerprint-guide>p,.setup-port-form-heading span,
        .cloud-firewall-help>p){color:var(--theme-secondary)}
-:where(.sidebar-caption,.brand small,.crumb,.logout,.stat .top,.host-submeta,
+:is(.sidebar-caption,.brand small,.crumb,.logout,.stat .top,.host-submeta,
        .server-kpi span,.server-simple-status span,.server-history-item small,
        .setup-progress li,.step small,.xui-info-row>.xui-note){color:var(--theme-subtle)}
-:where(.text-action,.server-back,.host-card-open,.project-choice-link,.server-next-kicker,
+:is(.text-action,.server-back,.host-card-open,.project-choice-link,.server-next-kicker,
        .host-cert-detail,.plan-technical>summary,.cloud-firewall-help>summary){color:var(--theme-accent)}
 :where(.topbar,.sidebar,.modal,.project,.stat,.host-item,.job-item,.login-box,.server-console-head,
        .server-kpi,.server-status-panel,.server-simple-status>div,.server-history-item,
