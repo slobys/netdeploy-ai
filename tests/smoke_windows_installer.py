@@ -197,8 +197,10 @@ def main():
         import shutil
         updater = staged / "NetDeployUpdater.exe"
         shutil.copy2(install / "NetDeployUpdater.exe", updater)
+        staged_setup = staged / args.installer.name
+        shutil.copy2(args.installer.resolve(), staged_setup)
         subprocess.run([str(updater), str(install), str(home), "18787", "18789",
-                        str(args.installer.resolve()), hashlib.sha256(args.installer.read_bytes()).hexdigest(),
+                        str(staged_setup), hashlib.sha256(staged_setup.read_bytes()).hexdigest(),
                         "0.3.42"], env=env, check=True, timeout=210)
         assert list((home / "update-backups").glob("*/COMPLETE"))
         desktop.wait(timeout=15)
