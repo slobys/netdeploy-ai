@@ -63,7 +63,7 @@ def main():
         subprocess.run([str(install / "NetDeployAI.exe"), "--no-browser", "--quiet"],
                        env=env, check=True, timeout=10)
         wait_for(lambda: api("health"))
-        config.update(json.loads((home / "settings.json").read_text()))
+        config.update(json.loads((home / "settings.json").read_text(encoding="utf-8")))
 
     def stop():
         subprocess.run([str(install / "NetDeployAI.exe"), "--stop", "--quiet"],
@@ -83,7 +83,7 @@ def main():
         assert api("auth") == {"ok": True}
 
         def worker_ready():
-            state = json.loads((home / "data" / "codex-worker-startup.json").read_text())
+            state = json.loads((home / "data" / "codex-worker-startup.json").read_text(encoding="utf-8"))
             if state["state"] == "failed":
                 raise AssertionError(state["message"])
             return state["state"] == "ready"
@@ -105,6 +105,14 @@ def main():
                              "VALUES('installer-test',?,'hiddify','{}','planned','test','test')", (host["id"],))
         auth_marker = home / "codex-native" / "auth" / "preserve-test.txt"
         auth_marker.write_text("test-only")
+        launch()
+        with sqlite3.connect(home / "data" / "netdeploy.db") as database:
+            database.execute("UPDATE jobs SET status='running' WHERE id='installer-test'")
+        refused = subprocess.run([str(install / "NetDeployAI.exe"), "--stop", "--quiet"],
+                                 env=env, timeout=30)
+        assert refused.returncode != 0 and api("health")["ok"]
+        with sqlite3.connect(home / "data" / "netdeploy.db") as database:
+            database.execute("UPDATE jobs SET status='planned' WHERE id='installer-test'")
         install_now()
         launch()
         assert config == original
@@ -114,7 +122,7 @@ def main():
         subprocess.run([str(install / "unins000.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
                        env=env, check=True, timeout=90)
         assert not (install / "NetDeployAI.exe").exists()
-        assert json.loads((home / "settings.json").read_text()) == original
+        assert json.loads((home / "settings.json").read_text(encoding="utf-8")) == original
         assert auth_marker.read_text() == "test-only"
         with sqlite3.connect(home / "data" / "netdeploy.db") as database:
             assert database.execute("SELECT COUNT(*) FROM hosts").fetchone()[0] == 1

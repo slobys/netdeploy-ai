@@ -38,7 +38,15 @@
 - **自动证书检查**：IPv6 签发前验证目标地址确实分配给 VPS；若使用域名，则要求其全部 AAAA 记录指向当前 IPv6。Certbot 使用 IPv6 TCP 80 接受 HTTP-01 挑战，签发后校验可信证书链、IPv6 TLS 监听和本机公网 IPv6 连接。IPv6 IP 证书使用独立 Certbot 每四小时检查续期；域名使用系统 Certbot 定时器。
 - **上线前仍需实机验收**：UFW 必须启用 IPv6（活跃时 `/etc/default/ufw` 的 `IPV6=yes`），云厂商 IPv6 安全组需独立放行 TCP 80 和管理端口、限制管理来源；本机 curl 验证不等于已从外部网络验证。IPv6 ACME 自动化虽已有模拟测试，尚未在真实 IPv6 VPS/Let’s Encrypt 生产环境实测；建议先用可重装的测试 VPS 试用。IPv4 原流程不变。
 
-## Windows 快速开始（推荐）
+## Windows 安装包（推荐）
+
+从 [GitHub Releases](https://github.com/slobys/netdeploy-ai/releases/latest) 下载 `NetDeployAI-0.3.32-Setup-x64.exe`，安装后双击桌面上的 **NetDeploy AI**。支持 Windows 10/11 x64，内含 Python、SSH 客户端和 Codex SDK，默认后台运行并打开浏览器中的面板。
+
+再次点击桌面图标可以重新打开面板。需要退出后台时，在开始菜单选择 **退出 NetDeploy AI**。更新时下载新版安装包覆盖安装即可。VPS、任务和 ChatGPT 授权保存在 `%LOCALAPPDATA%\NetDeployAI\desktop`，升级和卸载均保留此目录。每位用户首次使用 Codex 时登录自己的 ChatGPT 账号。
+
+安装包尚未配置代码签名，Windows 可能显示未知发布者提示。下载文件的 SHA-256 见同一 Release 的 `SHA256SUMS.txt`。安装版使用独立数据目录，已有源码版正在运行时，桌面图标会打开现有面板。
+
+## Windows 源码快速开始
 
 先安装 [Git for Windows](https://git-scm.com/downloads/win) 和 [Python 3.12+](https://www.python.org/downloads/windows/)（需包含 `py` 启动器）。
 

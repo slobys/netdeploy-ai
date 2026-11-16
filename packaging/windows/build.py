@@ -135,6 +135,12 @@ def main():
         "codex": "0.163.0",
         "signed": False,
     }
+    for directory in ("runtime", "codex-runtime"):
+        installed = subprocess.check_output([
+            bundle / directory / "python.exe", "-I", "-c",
+            "import importlib.metadata as m,json; print(json.dumps({d.metadata['Name']:d.version for d in m.distributions()}))",
+        ], text=True)
+        manifest[directory] = json.loads(installed)
     (bundle / "BUILD-MANIFEST.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     inno = ROOT / ".build" / "tools" / "inno" / "ISCC.exe"
     if not inno.is_file():
