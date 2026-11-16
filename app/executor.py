@@ -183,7 +183,8 @@ class SSHExecutor:
         try:
             res = subprocess.run(self._args(host), input=script, text=True,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                 timeout=timeout, check=False)
+                                 timeout=timeout, check=False,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except subprocess.TimeoutExpired as exc:
             raise SSHError(f"执行超时（{timeout}s）") from exc
         except FileNotFoundError as exc:

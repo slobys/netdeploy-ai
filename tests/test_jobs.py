@@ -41,6 +41,27 @@ def test_job_approval_and_audited_execution():
         assert s.job(j['id'])['logs'].count('通过：')==3
 
 
+def test_desktop_exit_prevents_an_approval_from_racing_shutdown(tmp_path):
+    store = Store(str(tmp_path / "jobs.db"))
+    host = store.add_host({"name": "vps", "hostname": "example.com", "username": "root", "port": 22})
+    plan = build_plan("sing-box", FACTS)
+    job = store.new_job(host["id"], "sing-box", plan)
+    executor = StubExecutor()
+    runner = JobRunner(store, executor)
+    store.set_status(job["id"], "running")
+    assert not runner.stop_if_idle()
+    store.set_status(job["id"], "planned")
+    assert runner.stop_if_idle()
+    try:
+        runner.enqueue(store.job(job["id"]), host, runner.approval_text(job, host))
+    except ValueError as error:
+        assert "退出" in str(error)
+    else:
+        raise AssertionError("A desktop shutdown must reject concurrent approvals")
+    assert not executor.scripts
+    assert store.job(job["id"])["status"] == "planned"
+
+
 def test_xui_install_is_approved_and_runs_only_frozen_steps():
     with TemporaryDirectory() as td:
         store=Store(str(Path(td)/'data.db'))

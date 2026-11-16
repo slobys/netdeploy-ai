@@ -138,7 +138,7 @@ def main() -> int:
 
         import uvicorn
         from fastapi import Depends, HTTPException
-        from app.main import app, authorized, store
+        from app.main import app, authorized, runner
 
         server = uvicorn.Server(uvicorn.Config(
             app, host="127.0.0.1", port=args.port, workers=1,
@@ -147,7 +147,7 @@ def main() -> int:
 
         @app.post("/api/desktop/stop", dependencies=[Depends(authorized)])
         def stop():
-            if any(job["status"] in {"queued", "running"} for job in store.jobs()):
+            if not runner.stop_if_idle():
                 raise HTTPException(409, "请等待部署任务结束后再退出。")
             server.should_exit = True
             return {"ok": True}

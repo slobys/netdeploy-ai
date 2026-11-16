@@ -22,6 +22,15 @@ class JobRunner:
         self.executor = executor
         self._locks: dict[int, threading.Lock] = {}
         self._mutex = threading.Lock()
+        self._stopping = False
+
+    def stop_if_idle(self) -> bool:
+        """Atomically stop accepting approvals before an installed app exits."""
+        with self._mutex:
+            if any(job["status"] in {"queued", "running"} for job in self.store.jobs()):
+                return False
+            self._stopping = True
+            return True
 
     def approval_text(self, job: dict, host: dict) -> str:
         return f'DEPLOY {job["project"]} TO {host["hostname"]}'
@@ -36,6 +45,8 @@ class JobRunner:
             raise ValueError("部署方案已超过十分钟，请重新进行环境检测并生成方案")
         # Avoid running two mutations for the same VPS in one process.
         with self._mutex:
+            if self._stopping:
+                raise ValueError("面板正在退出，请重新打开后再审批部署")
             lock = self._locks.setdefault(host["id"], threading.Lock())
             if not lock.acquire(blocking=False):
                 raise ValueError("此服务器有其他正在运行的变更任务")
