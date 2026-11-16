@@ -4,7 +4,7 @@
 
 输出位于 `release/`，包括安装 EXE、免安装 ZIP、SHA-256 和构建清单。构建时不会读取本机 `.env`、数据库、SSH 文件或 ChatGPT 授权。安装包中的依赖各自保留其许可证。
 
-执行 `python tests/smoke_windows_installer.py release/NetDeployAI-0.3.32-Setup-x64.exe` 可验证首次安装、独立 Codex SDK、重复打开、覆盖升级及卸载保留数据。测试使用临时中文目录与独立端口 18787、18789。
+执行 `python tests/smoke_windows_installer.py release/NetDeployAI-0.3.33-Setup-x64.exe` 可验证首次安装、独立 Codex SDK、重复打开、覆盖升级及卸载保留数据。测试使用临时中文目录与独立端口 18787、18789。
 
 安装版的数据根目录为 `%LOCALAPPDATA%\NetDeployAI\desktop`。SSH 密码使用 Windows 凭据保管库。使用 SSH 私钥的用户可将专用私钥放在该目录的 `ssh_key` 文件。
 

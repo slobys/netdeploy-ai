@@ -16,12 +16,15 @@ import zipfile
 import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = "0.3.32"
+VERSION = "0.3.33"
 PYTHON_VERSION = "3.13.17"
 PYTHON_SHA256 = "9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38"
 SSH_VERSION = "10.4.0.0p1-Preview"
 SSH_SHA256 = "b67ff8becd203502190ec42ac7787c24c2cd3325ed7700485fe7a1c83d2a7957"
 INNO_SHA256 = "8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0"
+WEBVIEW_VERSION = "1.0.4314.35"
+WEBVIEW_SHA256 = "90778deb1b77e36292828b4b5833c9255c27533f40e0ddd55891ae718944edc4"
+WEBVIEW_SETUP_SHA256 = "cf2f2445fef0c5c14e372045f84998771eeb8bb01d59be4afd00692fa160082e"
 
 
 def download(url: str, path: Path, digest: str) -> Path:
@@ -115,10 +118,32 @@ def main():
                 destination.parent.mkdir(exist_ok=True)
                 destination.write_bytes(package.read(entry))
     icon(bundle / "netdeploy.ico")
+    webview = download(
+        f"https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/{WEBVIEW_VERSION}",
+        downloads / "webview2-sdk.nupkg", WEBVIEW_SHA256,
+    )
+    bootstrapper = download(
+        "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+        downloads / "MicrosoftEdgeWebview2Setup.exe", WEBVIEW_SETUP_SHA256,
+    )
+    shutil.copyfile(bootstrapper, bundle / bootstrapper.name)
+    with zipfile.ZipFile(webview) as sdk:
+        for source, name in (
+            ("lib/net462/Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.Core.dll"),
+            ("lib/net462/Microsoft.Web.WebView2.WinForms.dll", "Microsoft.Web.WebView2.WinForms.dll"),
+            ("build/native/x64/WebView2Loader.dll", "WebView2Loader.dll"),
+            ("LICENSE.txt", "WebView2-LICENSE.txt"),
+        ):
+            (bundle / name).write_bytes(sdk.read(source))
     compiler = Path(os.environ["WINDIR"]) / "Microsoft.NET" / "Framework64" / "v4.0.30319" / "csc.exe"
-    run([compiler, "/nologo", "/target:winexe", "/platform:x64", "/reference:System.Windows.Forms.dll",
+    run([compiler, "/nologo", "/target:winexe", "/platform:x64",
+         "/reference:System.Windows.Forms.dll", "/reference:System.Drawing.dll",
+         "/reference:System.Net.Http.dll", "/reference:System.Web.Extensions.dll",
+         f"/reference:{bundle / 'Microsoft.Web.WebView2.Core.dll'}",
+         f"/reference:{bundle / 'Microsoft.Web.WebView2.WinForms.dll'}",
          f"/win32icon:{bundle / 'netdeploy.ico'}", f"/out:{bundle / 'NetDeployAI.exe'}",
-         ROOT / "packaging" / "windows" / "Launcher.cs"])
+         ROOT / "packaging" / "windows" / "Launcher.cs",
+         ROOT / "packaging" / "windows" / "ClientWindow.cs"])
     for executable in ("runtime/python.exe", "codex-runtime/python.exe", "ssh/ssh.exe"):
         if not (bundle / executable).is_file():
             raise RuntimeError(f"Missing runtime {executable}")
@@ -134,6 +159,8 @@ def main():
         "openssh": {"version": SSH_VERSION, "sha256": SSH_SHA256},
         "codex": "0.163.0",
         "signed": False,
+        "webview2_sdk": {"version": WEBVIEW_VERSION, "sha256": WEBVIEW_SHA256},
+        "webview2_setup_sha256": WEBVIEW_SETUP_SHA256,
     }
     for directory in ("runtime", "codex-runtime"):
         installed = subprocess.check_output([

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -72,7 +73,7 @@ def main():
     try:
         install_now()
         launch()
-        assert api("health")["version"] == "0.3.32"
+        assert api("health")["version"] == "0.3.33"
         assert len(api("catalog")) >= 7
         assert api("capabilities")["secure_password_storage"]
         assert api("hosts") == [] and api("jobs") == []
@@ -81,6 +82,10 @@ def main():
         with client.open(session_request) as response:
             assert json.load(response)["token"] == config["admin_token"]
         assert api("auth") == {"ok": True}
+        subprocess.run([str(install / "NetDeployAI.exe"), "--ui-smoke", "--quiet"],
+                       env=env, check=True, timeout=60)
+        ui = json.loads((home / "desktop-ui-smoke.json").read_text(encoding="utf-8"))
+        assert ui == {"embedded": True, "authenticated": True, "popup": True, "openerCleared": True}
 
         def worker_ready():
             state = json.loads((home / "data" / "codex-worker-startup.json").read_text(encoding="utf-8"))
@@ -113,7 +118,19 @@ def main():
         assert refused.returncode != 0 and api("health")["ok"]
         with sqlite3.connect(home / "data" / "netdeploy.db") as database:
             database.execute("UPDATE jobs SET status='planned' WHERE id='installer-test'")
+        desktop = subprocess.Popen([str(install / "NetDeployAI.exe"), "--quiet"], env=env)
+
+        def client_visible():
+            if desktop.poll() is not None:
+                raise AssertionError("Desktop client exited before upgrade")
+            return bool(ctypes.windll.user32.FindWindowW(None, "NetDeploy AI"))
+
+        wait_for(client_visible)
+        subprocess.run([str(install / "NetDeployAI.exe"), "--quiet"], env=env, check=True, timeout=15)
+        assert desktop.poll() is None
         install_now()
+        desktop.wait(timeout=15)
+        assert desktop.returncode == 0
         launch()
         assert config == original
         assert api("hosts")[0]["name"] == "安装升级验证"
@@ -127,7 +144,7 @@ def main():
         with sqlite3.connect(home / "data" / "netdeploy.db") as database:
             assert database.execute("SELECT COUNT(*) FROM hosts").fetchone()[0] == 1
             assert database.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 1
-        print("Installer smoke passed: clean install, embedded SDK, double launch, upgrade and uninstall data retention.")
+        print("Installer smoke passed: embedded client, authenticated child window, SDK, upgrade and data retention.")
     finally:
         if (install / "NetDeployAI.exe").exists():
             stop()

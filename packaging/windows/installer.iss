@@ -49,7 +49,8 @@ english.OpenApp=Open NetDeploy AI
 chinesesimplified.OpenApp=打开 NetDeploy AI
 
 [Files]
-Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\*"; Excludes: "MicrosoftEdgeWebview2Setup.exe"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\MicrosoftEdgeWebview2Setup.exe"; Flags: dontcopy
 
 [Icons]
 Name: "{autoprograms}\NetDeploy AI"; Filename: "{app}\NetDeployAI.exe"
@@ -60,6 +61,17 @@ Name: "{autodesktop}\NetDeploy AI"; Filename: "{app}\NetDeployAI.exe"; Tasks: de
 Filename: "{app}\NetDeployAI.exe"; Description: "{cm:OpenApp}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+function NeedWebView2: Boolean;
+var
+  Version: String;
+  Key: String;
+begin
+  Key := 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+  Result := not ((RegQueryStringValue(HKCU, Key, 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0')) or
+    (RegQueryStringValue(HKLM32, Key, 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0')) or
+    (RegQueryStringValue(HKLM64, Key, 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0')));
+end;
+
 function StopPanel: Boolean;
 var
   ResultCode: Integer;
@@ -71,10 +83,21 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
 begin
   Result := '';
-  if not StopPanel then
+  if not StopPanel then begin
     Result := 'Please finish deployment tasks and exit NetDeploy AI before updating.';
+    Exit;
+  end;
+  if NeedWebView2 then begin
+    ExtractTemporaryFile('MicrosoftEdgeWebview2Setup.exe');
+    if not Exec(ExpandConstant('{tmp}\MicrosoftEdgeWebview2Setup.exe'), '/silent /install', '',
+      SW_HIDE, ewWaitUntilTerminated, ResultCode) or
+      ((ResultCode <> 0) and (ResultCode <> 3010)) then
+      Result := 'Microsoft WebView2 could not be installed. Check the network connection and try again.';
+  end;
 end;
 
 function InitializeUninstall: Boolean;
