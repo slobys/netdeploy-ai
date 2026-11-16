@@ -33,10 +33,13 @@ internal static class WindowPlacement
         window.WindowState = FormWindowState.Normal;
         var area = Screen.FromControl(window).WorkingArea;
         double scale = window.DeviceDpi / 96.0;
-        window.MinimumSize = new System.Drawing.Size(Math.Min((int)(900 * scale), (int)(area.Width * .92)),
-            Math.Min((int)(640 * scale), (int)(area.Height * .92)));
-        int width = Math.Min((int)(1440 * scale), (int)(area.Width * .92));
-        int height = Math.Min((int)(1000 * scale), (int)(area.Height * .92));
+        // Keep the approved 3:2 landscape proportion when fitting a smaller screen.
+        double fit = Math.Min(1.0, Math.Min(area.Width * .92 / (1500 * scale),
+            area.Height * .92 / (1000 * scale)));
+        int width = (int)Math.Round(1500 * scale * fit);
+        int height = (int)Math.Round(1000 * scale * fit);
+        window.MinimumSize = new System.Drawing.Size(Math.Min((int)(900 * scale), width),
+            Math.Min((int)(640 * scale), height));
         window.StartPosition = FormStartPosition.Manual;
         window.Bounds = new System.Drawing.Rectangle(area.Left + (area.Width - width) / 2,
             area.Top + (area.Height - height) / 2, width, height);

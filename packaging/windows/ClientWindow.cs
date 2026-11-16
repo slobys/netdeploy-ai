@@ -36,7 +36,7 @@ internal sealed class ClientWindow : Form
         AutoScaleMode = AutoScaleMode.Dpi;
         Text = main ? "NetDeploy AI" : "NetDeploy AI · 管理面板";
         Icon = new Icon(Path.Combine(Launcher.Root, "netdeploy.ico"));
-        Size = new Size(1440, 1000);
+        Size = new Size(1500, 1000);
         MinimumSize = new Size(900, 640);
         StartPosition = FormStartPosition.CenterScreen;
         WindowState = FormWindowState.Normal;

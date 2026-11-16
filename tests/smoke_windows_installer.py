@@ -87,7 +87,7 @@ def main():
     try:
         install_now()
         launch()
-        assert api("health")["version"] == "0.3.39"
+        assert api("health")["version"] == "0.3.40"
         assert len(api("catalog")) >= 7
         assert api("capabilities")["secure_password_storage"]
         assert api("hosts") == [] and api("jobs") == []
@@ -103,6 +103,11 @@ def main():
         placement = json.loads(window_file.read_text(encoding="utf-8"))
         assert placement["ShowCommand"] == 1
         ratio = ui["display"]["devicePixelRatio"]
+        first_bounds = placement["NormalPosition"]
+        first_width = first_bounds["Right"] - first_bounds["Left"]
+        first_height = first_bounds["Bottom"] - first_bounds["Top"]
+        assert abs(first_width / first_height - 1.5) < .01
+        assert first_width / ratio <= 1501 and first_height / ratio <= 1001
         normal_bounds = {"Left": 50, "Top": 50, "Right": 50 + round(1000 * ratio),
                          "Bottom": 50 + round(700 * ratio)}
         placement.update(ShowCommand=1, NormalPosition=normal_bounds)
