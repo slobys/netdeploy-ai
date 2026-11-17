@@ -12,8 +12,8 @@ using System.Windows.Forms;
 [assembly: AssemblyCompany("NetDeploy AI")]
 [assembly: AssemblyProduct("NetDeploy AI")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
-[assembly: AssemblyVersion("0.3.43.0")]
-[assembly: AssemblyFileVersion("0.3.43.0")]
+[assembly: AssemblyVersion("0.3.44.0")]
+[assembly: AssemblyFileVersion("0.3.44.0")]
 
 internal static class Launcher
 {

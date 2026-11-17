@@ -414,7 +414,14 @@ internal sealed partial class ClientWindow : Form
                     if(sameRow && Math.abs(a.height-b.height)>1) return false;
                     if(sameRow && Math.abs(cards[0].querySelector('.host-card-delete').getBoundingClientRect().bottom-
                         cards[1].querySelector('.host-card-delete').getBoundingClientRect().bottom)>1) return false;
-                    if(document.querySelector('.host-add-card')) return false;
+                    const add=document.querySelector('.host-add-card');
+                    if(!add || add.dataset.action!=='add-host' || add.tagName!=='BUTTON') return false;
+                    const ar=add.getBoundingClientRect();
+                    if(ar.width<a.width-1 || ar.height<164 || ar.right>innerWidth) return false;
+                    add.click();
+                    const opensForm=!!document.querySelector('#add-host-form input[name=name]');
+                    closeDialog();
+                    if(!opensForm) return false;
                     return cards.every(card=>{
                         const r=card.getBoundingClientRect(),button=card.querySelector('.host-card-delete').getBoundingClientRect();
                         return button.right<=r.right && button.bottom<=r.bottom && card.scrollWidth<=card.clientWidth+1;

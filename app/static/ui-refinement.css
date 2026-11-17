@@ -218,6 +218,26 @@
 .host-card-footer .host-card-hint { margin: 0; }
 .host-card-meta span:not(:last-child):after { content: none; }
 .host-list > .empty { grid-column: 1 / -1; }
+.host-add-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 164px;
+  padding: 18px;
+  border: 2px dashed var(--theme-line-strong);
+  border-radius: 16px;
+  background: var(--theme-panel-2);
+  color: var(--theme-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.host-add-icon { width: 36px; height: 36px; }
+.host-add-card:is(:hover, :focus-visible) {
+  border-color: var(--theme-accent);
+  background: var(--theme-panel-3);
+}
 /* The older hover rule uses a hard-coded navy background. On a light theme
    that hid the dark host name and IP, so keep hover/focus in the active palette. */
 .host-item:is(:hover, :focus-visible) {
