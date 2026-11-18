@@ -8,6 +8,7 @@ const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'app/static/theme.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'app/static/theme.css'), 'utf8');
+const enhanced = fs.readFileSync(path.join(root, 'app/static/app-enhanced.css'), 'utf8');
 const typography = fs.readFileSync(path.join(root, 'app/static/typography.css'), 'utf8');
 const refinement = fs.readFileSync(path.join(root, 'app/static/ui-refinement.css'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'app/static/index.html'), 'utf8');
@@ -250,10 +251,18 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
     'Only compact layouts should hide the theme button label');
   // Regression: hovering a light-mode VPS must not apply an old navy gradient
   // while the host name, address and details remain dark theme-aware text.
-  const hoverRule=refinement.match(/\.host-item:is\(:hover[^\n]+, :focus-visible\),[^{}]+\{([^}]+)\}/);
+  const hoverRule=refinement.match(/\.host-item:is\(:hover:not\(:has\(\.host-card-delete:hover\)\), :focus-visible\),[^{}]+\{([^}]+)\}/);
   assert(hoverRule && /background:\s*var\(--nd-hover-tint\)/.test(hoverRule[1]) &&
     /--nd-hover-tint:\s*color-mix\(in srgb, var\(--theme-accent\) \d+%, var\(--theme-panel\)\)/.test(refinement),
-    'Host hover must use the current theme panel colors');
+    'Only the manage area uses the host hover tint');
+  for (const stylesheet of [enhanced, css]) {
+    const unscopedHostHover = [...stylesheet.matchAll(/([^{}]+)\{([^{}]+)\}/g)].filter(
+      ([, selector, declarations]) => /\.host-item:hover/.test(selector) &&
+        /(?:^|;)\s*(?:background(?:-color|-image)?|color|border-color|box-shadow)\s*:/.test(declarations)
+    );
+    assert.equal(unscopedHostHover.length, 0,
+      'Hovering a nested delete button must not fall back to a legacy host color or border');
+  }
   const cleaned=refinement.replace(/\/\*[\s\S]*?\*\//g,'');
   let depth=0;
   for(const ch of cleaned){

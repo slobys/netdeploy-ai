@@ -62,17 +62,15 @@ body{
   gap:14px;
   transition:transform .28s var(--ease),border-color .28s var(--ease),background .28s var(--ease),box-shadow .28s var(--ease);
 }
-.host-item:hover{background:linear-gradient(122deg,#152640,#102035);border-color:#4673b0;box-shadow:0 12px 35px #0004,inset 0 1px 0 #ffffff12}
 /* Cursor-follow highlight is deliberately subtle and never blocks clicks. */
 .project,.host-item{position:relative;isolation:isolate;overflow:hidden}
-.project::before,.host-item::before{
+.project::before{
   content:"";position:absolute;inset:0;pointer-events:none;z-index:0;border-radius:inherit;
   background:radial-gradient(280px circle at var(--hover-x,50%) var(--hover-y,50%),#6ea6ff17,transparent 75%);
   opacity:0;transition:opacity .3s var(--ease);
 }
-.project:hover::before,.host-item:hover::before{opacity:1}
+.project:hover::before{opacity:1}
 .project>*,.host-item>*{position:relative;z-index:1}
-.host-item:hover .host-icon{transform:translateY(-2px) rotate(-5deg);background:linear-gradient(125deg,#34588c,#213962)}
 .host-icon{transition:transform .3s var(--ease),background .3s var(--ease)}
 .host-main{min-width:220px}
 .host-title{display:flex;flex-wrap:wrap;align-items:center;gap:7px}
@@ -135,7 +133,6 @@ details>summary:hover{color:#d2e6ff}
 @keyframes nd-spin{to{transform:rotate(360deg)}}
 @keyframes nd-enter{from{opacity:.7;transform:translateY(12px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes nd-toast{from{opacity:0;transform:translateX(15px)}to{opacity:1;transform:translateX(0)}}
-@media(min-width:1000px){.host-item:hover{transform:translateY(-2px)}}
 @media(max-width:1320px){
   .host-item{flex-wrap:wrap}
   .host-actions{width:100%;justify-content:flex-start;padding-left:56px}
@@ -186,7 +183,6 @@ details>summary:hover{color:#d2e6ff}
 .host-card-top .host-title{flex:1;min-width:0}
 .host-card-top .host-title b{font-size:15px;line-height:1.35}
 .host-card-open{font-size:11px;color:#8bb9ff;white-space:nowrap;font-weight:700}
-.host-item:hover .host-card-open{color:#d6e8ff;transform:translateX(3px)}
 .host-card-address{font-size:14px;font-weight:630;color:#d6e5fb;overflow-wrap:anywhere}
 .host-card-meta{display:flex;flex-wrap:wrap;gap:9px 13px;font-size:11px;color:#8da5c2}
 .host-card-meta span:not(:last-child):after{content:" ·";color:#49627f}

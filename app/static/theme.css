@@ -200,12 +200,11 @@ a{color:var(--theme-accent)}
   background:var(--theme-panel);
   border-color:var(--theme-line);
 }
-.project:hover,.host-item:hover,.job-item:hover,.stat:hover{
+.project:hover,.job-item:hover,.stat:hover{
   border-color:var(--theme-accent);
   box-shadow:var(--theme-shadow);
 }
-.project::before,.host-item::before{display:none}
-.host-item:hover .host-icon{background:color-mix(in srgb,var(--theme-action) 25%,var(--theme-panel))}
+.project::before{display:none}
 .host-card-address{color:var(--theme-title)}
 .host-card-open,.project-kind,.host-cert-detail{color:var(--theme-accent)}
 .host-card-hint,.fingerprint-shared{color:var(--theme-warning)}

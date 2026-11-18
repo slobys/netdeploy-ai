@@ -127,7 +127,7 @@
   border-color: var(--theme-accent);
   box-shadow: var(--nd-hover-edge);
 }
-.project:hover .project-icon, .host-item:hover .host-icon { transform: none; }
+.project:hover .project-icon { transform: none; }
 /* Keep surface changes immediate when switching appearance; cross-fading a
    dark foreground against the old light card briefly made text unreadable. */
 .project, .host-item, .job-item, .stat,
@@ -237,11 +237,6 @@
   cursor: pointer;
 }
 .host-add-icon { width: 36px; height: 36px; }
-.host-item:hover {
-  transform: none;
-  border-color: var(--theme-line);
-  box-shadow: var(--theme-shadow);
-}
 /* The delete control has a separate action and its own hover and focus state. */
 .host-item:is(:hover:not(:has(.host-card-delete:hover)), :focus-visible),
 .host-add-card:is(:hover, :focus-visible),
@@ -670,6 +665,5 @@ label.check:has(input:checked) {
     animation: none !important;
     transform: none !important;
   }
-  .project:hover .project-icon,
-  .host-item:hover .host-icon { transform: none !important; }
+  .project:hover .project-icon { transform: none !important; }
 }
