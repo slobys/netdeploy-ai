@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.48 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.49 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.48';
+const CLIENT_VERSION = '0.3.49';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -225,6 +225,14 @@ function sampleFor(host){
 function usageTone(value){
  return value>=85?'high':value>=70?'warn':'normal';
 }
+function resourceValue(sample,key){
+ const value=sample[key];
+ return sample.status==='connected'&&Number.isFinite(value)?Math.max(0,Math.min(100,value)):null;
+}
+function hostUsageTone(sample){
+ const values=metricFields.map(([key])=>resourceValue(sample,key)).filter(value=>value!==null);
+ return values.length?usageTone(Math.max(...values)):'unknown';
+}
 function hostConnectionMarkup(sample){
  const [message,tone]=({
    connected:['SSH 可连接','success'],unreachable:['SSH 无法连接','error'],
@@ -237,7 +245,7 @@ function hostConnectionMarkup(sample){
 }
 function hostUsageMarkup(sample){
  return metricFields.map(([key,label])=>{
-   const value=sample.status==='connected'&&Number.isFinite(sample[key])?Math.max(0,Math.min(100,sample[key])):null;
+   const value=resourceValue(sample,key);
    return `<span class="host-usage" data-level="${value===null?'unknown':usageTone(value)}">${label} <strong>${value===null?'—':value+'%'}</strong></span>`;
  }).join('');
 }
@@ -245,7 +253,7 @@ function renderOverview(){
  const samples=state.hosts.map(sampleFor);
  const online=samples.filter(sample=>sample.status==='connected').length;
  const review=samples.filter(sample=>!['connected','sampling'].includes(sample.status)).length;
- const high=samples.filter(sample=>sample.status==='connected'&&metricFields.some(([key])=>sample[key]>=85)).length;
+ const high=samples.filter(sample=>hostUsageTone(sample)==='high').length;
  el('#stats').innerHTML=[
    ['服务器',samples.length,'neutral','已添加的 VPS'],
    ['可连接',online,'success','通过 SSH 核验'],
@@ -261,6 +269,7 @@ function paintHostSamples(){
    const card=el(`.host-item[data-id="${host.id}"]`);
    if(!card)continue;
    const sample=sampleFor(host);
+   card.dataset.usage=hostUsageTone(sample);
    card.querySelector('.host-connection-slot').innerHTML=hostConnectionMarkup(sample);
    card.querySelector('.host-resource-values').innerHTML=hostUsageMarkup(sample);
  }
@@ -361,7 +370,7 @@ function render(){
  el('#host-list').innerHTML=hosts.length?hosts.map(h=>{
    const duplicate=hosts.filter(x=>x.hostname.toLowerCase()===h.hostname.toLowerCase()&&x.port===h.port).length;
    const sample=sampleFor(h);
-   return `<article class="host-item interactive-card" role="button" tabindex="0" data-action="host-console" data-id="${h.id}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台" aria-describedby="host-connection-${h.id} host-usage-${h.id}">
+   return `<article class="host-item interactive-card" role="button" tabindex="0" data-action="host-console" data-id="${h.id}" data-usage="${hostUsageTone(sample)}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台" aria-describedby="host-connection-${h.id} host-usage-${h.id}">
       <div class="host-card-top"><div class="host-icon">▤</div><div class="host-title"><b>${escapeHtml(h.name)}</b><span class="host-connection-slot" id="host-connection-${h.id}">${hostConnectionMarkup(sample)}</span></div><span class="host-card-open">管理服务器 →</span></div>
       <div class="host-card-address">${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port}</div>
       <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span><span class="host-resource-values" id="host-usage-${h.id}">${hostUsageMarkup(sample)}</span></div>
@@ -377,6 +386,7 @@ function renderSection(){
  el('.content').classList.toggle('is-dashboard',state.section==='dashboard');
  el('.content').dataset.section=state.section;
  el('#page-heading').classList.toggle('hidden',state.section==='dashboard');
+ el('#hero').classList.toggle('hidden',state.section!=='dashboard');
  el('#overview-section').classList.toggle('hidden',state.section!=='dashboard');
  el('#page-add-host').classList.toggle('hidden',state.section!=='hosts');
  const visibleProjects=catalogProjects(state.catalog).length;
@@ -936,8 +946,8 @@ function authSelect(current='password',remembered=false) {
  const rememberUI=native
    ? `<label class="check"><input type="checkbox" name="remember_password" ${remembered?'checked':''}/><span>保存到 Windows 系统凭据库（以后更新、重启免输密码）</span></label>`
    : '<div class="modal-tip">此设备没有可用的 Windows 凭据保管库，密码仅保存在当前进程内存；建议使用 SSH 密钥登录。</div>';
- return `<div class="form-group"><label>SSH 登录方式</label><select name="auth_mode" id="auth-mode"><option value="password" ${current==='password'?'selected':''}>SSH 密码登录</option><option value="key" ${current==='key'?'selected':''}>SSH 私钥登录</option></select></div>
- <div class="form-group" id="password-field" ${current==='key'?'hidden':''}><label>SSH 登录密码</label><input id="ssh-password" type="password" name="password" maxlength="1024" autocomplete="new-password" placeholder="输入 VPS SSH 登录密码" ${current==='password'?'required':''}/>${rememberUI}</div>`;
+ return `<div class="form-group"><label for="auth-mode">SSH 登录方式</label><select name="auth_mode" id="auth-mode"><option value="password" ${current==='password'?'selected':''}>SSH 密码登录</option><option value="key" ${current==='key'?'selected':''}>SSH 私钥登录</option></select></div>
+ <div class="form-group" id="password-field" ${current==='key'?'hidden':''}><label for="ssh-password">SSH 登录密码</label><input id="ssh-password" type="password" name="password" maxlength="1024" autocomplete="new-password" placeholder="输入 VPS SSH 登录密码" ${current==='password'?'required':''}/>${rememberUI}</div>`;
 }
 function enableAuthToggle(){
  const select=el('#auth-mode');const password=el('#ssh-password');const field=el('#password-field');

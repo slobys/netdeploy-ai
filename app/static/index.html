@@ -80,12 +80,19 @@
     <p class="theme-font-note">推荐「舒适」：标题醒目，正文清晰，表单更好阅读。</p>
     <div class="theme-menu-foot">当前：<span id="theme-status" role="status" aria-live="polite">暗黑 · 经典蓝</span></div>
   </section>
-</div><button class="btn primary topbar-add" data-action="add-host"><span aria-hidden="true">＋</span> 添加 VPS</button><button id="desktop-version" type="button" class="tag alpha" title="检查更新" aria-label="当前版本，点击检查更新">ALPHA v0.3.48</button><button id="refresh" class="icon-button" aria-label="刷新服务器与任务数据" title="刷新服务器与任务数据">⟳</button><div class="avatar">ND</div></div>
+</div><button class="btn primary topbar-add" data-action="add-host"><span aria-hidden="true">＋</span> 添加 VPS</button><button id="desktop-version" type="button" class="tag alpha" title="检查更新" aria-label="当前版本，点击检查更新">ALPHA v0.3.49</button><button id="refresh" class="icon-button" aria-label="刷新服务器与任务数据" title="刷新服务器与任务数据">⟳</button><div class="avatar">ND</div></div>
     </header>
     <main class="content">
       <div class="section-heading page-heading hidden" id="page-heading"><div><h2 id="section-title">运行概览</h2><p id="section-subtitle">集中管理服务器与自动化部署任务</p></div><button type="button" class="btn subtle hidden" id="page-add-host" data-action="add-host">＋ 添加 VPS</button></div>
+      <section class="hero hidden" id="hero" aria-labelledby="hero-title">
+        <div class="hero-content">
+          <h1 id="hero-title">服务器管理 <em>更简单、更直观。</em></h1>
+          <p>添加或编辑 VPS、核对 SSH 指纹、验证连接与部署项目，都能在首页直接完成。</p>
+        </div>
+        <div class="hero-art" aria-hidden="true"><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="center-cube">⌘</div><div class="orbit-node node-1">⌁</div><div class="orbit-node node-2">▣</div><div class="orbit-node node-3">◈</div></div>
+      </section>
       <section id="overview-section" aria-labelledby="overview-title">
-        <div class="section-heading" id="stats-heading"><div><h1 id="overview-title">运行概览</h1><p>查看服务器 SSH 连通性和资源占用</p></div></div>
+        <div class="section-heading" id="stats-heading"><div><h2 id="overview-title">运行概览</h2><p>查看服务器 SSH 连通性和资源占用</p></div></div>
         <div class="stats" id="stats"></div>
       </section>
       <section class="section" id="hosts-section"><div class="section-heading smaller"><div><h2>我的 VPS 服务器</h2><p>连接、编辑、重装后重新核对指纹、环境检测，均可在此操作</p></div><button type="button" class="btn subtle" data-action="add-host">＋ 添加 VPS</button></div><div class="host-list" id="host-list"></div></section>
@@ -95,7 +102,7 @@
         <div class="job-list" id="job-list"></div>
       </section>
       <p id="project-order-status" role="status"></p>
-      <footer>NetDeploy AI v0.3.48 · Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
+      <footer>NetDeploy AI v0.3.49 · Alpha · 不会自动执行 AI 生成的 shell 命令</footer>
     </main>
   </div>
 </div>

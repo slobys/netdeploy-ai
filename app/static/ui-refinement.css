@@ -37,9 +37,11 @@
 .section-heading h2 { text-wrap: balance; }
 .section-heading p { max-width: 80ch; }
 .hero {
+  min-height: 0;
   border-color: var(--theme-line);
   box-shadow: none;
 }
+.hero-content { padding-block: 14px; }
 .hero-art { opacity: .15; }
 .page-heading { margin: 4px 0 20px; }
 .section-heading > .btn { flex-shrink: 0; }
@@ -60,8 +62,7 @@
 .stat .top span { min-width: 0; }
 .stat strong { font-variant-numeric: tabular-nums; }
 .stat small { overflow-wrap: anywhere; }
-#overview-section .section-heading { margin: 4px 0 16px; }
-#overview-title { font-size: var(--ui-fs-hero); color: var(--theme-title); }
+#overview-section .section-heading { margin: 18px 0 12px; }
 .is-dashboard #hosts-section .section-heading { margin: 26px 0 14px; }
 .is-dashboard footer { margin-top: 24px; }
 .overview-stat { padding: 14px 16px; gap: 4px; box-shadow: none; }
@@ -153,15 +154,29 @@
   gap: 16px;
 }
 .host-item {
+  --host-card-bg: var(--theme-panel);
+  --host-card-line: var(--theme-line);
   display: flex;
   flex-direction: column;
   align-items: stretch;
   min-height: 164px;
   padding: 16px 18px;
   gap: 10px;
-  background: var(--theme-panel);
-  border-color: var(--theme-line);
+  background: var(--host-card-bg);
+  border-color: var(--host-card-line);
   box-shadow: var(--theme-shadow);
+}
+.host-item[data-usage="normal"] {
+  --host-card-bg: var(--theme-success-bg);
+  --host-card-line: var(--theme-success-line);
+}
+.host-item[data-usage="warn"] {
+  --host-card-bg: var(--theme-warning-bg);
+  --host-card-line: var(--theme-warning-line);
+}
+.host-item[data-usage="high"] {
+  --host-card-bg: var(--theme-danger-bg);
+  --host-card-line: var(--theme-danger-line);
 }
 .host-card-top { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
 .host-card-top .host-icon { width: 32px; height: 32px; align-self: start; }
@@ -255,7 +270,10 @@
 }
 .host-add-icon { width: 36px; height: 36px; }
 /* The delete control has a separate action and its own hover and focus state. */
-.host-item:is(:hover:not(:has(.host-card-delete:hover)), :focus-visible),
+.host-item:is(:hover:not(:has(.host-card-delete:hover)), :focus-visible) {
+  border-color: var(--theme-accent);
+  box-shadow: var(--nd-hover-edge);
+}
 .host-add-card:is(:hover, :focus-visible),
 .job-item:has(.btn:is(:hover, :focus-visible)),
 .server-history-item:is(:hover, :focus-visible) {
@@ -268,7 +286,10 @@
   text-decoration: underline;
   text-underline-offset: .2em;
 }
-.host-item:active:not(:has(.host-card-delete:active)), .host-add-card:active {
+.host-item:active:not(:has(.host-card-delete:active)) {
+  background: color-mix(in srgb, var(--theme-title) 6%, var(--host-card-bg));
+}
+.host-add-card:active {
   background: var(--nd-press-tint);
 }
 .job-item:hover, .server-tab:hover:not(.active), .host-card-delete:hover {
@@ -496,6 +517,7 @@ label.check:has(input:checked) {
   background: var(--nd-hover-tint);
   border-color: var(--theme-accent);
 }
+#ssh-password + :is(label.check, .modal-tip) { margin-top: 10px; }
 #delete-host-form {
   display: grid;
   gap: 14px;

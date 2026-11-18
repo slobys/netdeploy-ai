@@ -251,10 +251,10 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
     'Only compact layouts should hide the theme button label');
   // Regression: hovering a light-mode VPS must not apply an old navy gradient
   // while the host name, address and details remain dark theme-aware text.
-  const hoverRule=refinement.match(/\.host-item:is\(:hover:not\(:has\(\.host-card-delete:hover\)\), :focus-visible\),[^{}]+\{([^}]+)\}/);
-  assert(hoverRule && /background:\s*var\(--nd-hover-tint\)/.test(hoverRule[1]) &&
-    /--nd-hover-tint:\s*color-mix\(in srgb, var\(--theme-accent\) \d+%, var\(--theme-panel\)\)/.test(refinement),
-    'Only the manage area uses the host hover tint');
+  const hoverRule=refinement.match(/\.host-item:is\(:hover:not\(:has\(\.host-card-delete:hover\)\), :focus-visible\)\s*\{([^}]+)\}/);
+  assert(hoverRule && /border-color:\s*var\(--theme-accent\)/.test(hoverRule[1]) &&
+    !/background(?:-color|-image)?\s*:/.test(hoverRule[1]),
+    'The manage area highlights its edge and preserves the resource background');
   for (const stylesheet of [enhanced, css]) {
     const unscopedHostHover = [...stylesheet.matchAll(/([^{}]+)\{([^{}]+)\}/g)].filter(
       ([, selector, declarations]) => /\.host-item:hover/.test(selector) &&

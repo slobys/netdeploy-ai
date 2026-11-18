@@ -117,7 +117,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.48';
+let runtimeVersion='0.3.49';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -343,6 +343,8 @@ function fingerprintFor(label) {
     'Compact layout must not remove any deployment or guide action');
   assert(made.get('#projects-section').classList.contains('hidden'));
   assert(made.get('#jobs-section').classList.contains('hidden'));
+  assert(html.indexOf('id="hero"') < html.indexOf('id="overview-section"'));
+  assert(!made.get('#hero').classList.contains('hidden'));
   assert(html.indexOf('id="overview-section"') < html.indexOf('id="hosts-section"'));
   assert(typographyCss.includes('repeat(auto-fit,minmax(min(100%,246px),1fr))'),
     'Five cards should flow into one row on wide screens and wrap naturally');
@@ -387,12 +389,18 @@ function fingerprintFor(label) {
   fill();
 
   evaluate(`state.section='jobs';jobFilter='done';render();`);
+  assert(made.get('#hero').classList.contains('hidden'));
   assert(made.get('#job-list').innerHTML.includes('此状态下没有任务'));
   evaluate(`jobFilter='approval';renderJobs();`);
   assert(made.get('#job-list').innerHTML.includes('a1b2c3d4e5f6a7b8'));
   evaluate(`jobFilter='all';state.section='dashboard';renderSection();`);
   assert(evaluate("hostConnectionMarkup({status:'unreachable'}).includes('SSH 无法连接')"));
   assert(evaluate("hostUsageMarkup({status:'connected',cpu:87}).includes('data-level=\"high\"')"));
+  assert.equal(evaluate("hostUsageTone({status:'connected',cpu:0})"), 'normal');
+  assert.equal(evaluate("hostUsageTone({status:'connected',cpu:40,memory:70,disk:69.9})"), 'warn');
+  assert.equal(evaluate("hostUsageTone({status:'connected',cpu:40,memory:72,disk:85})"), 'high');
+  assert.equal(evaluate("hostUsageTone({status:'unreachable',cpu:85})"), 'unknown');
+  assert.equal(evaluate("hostUsageTone({status:'connected',cpu:null})"), 'unknown');
   const hostCards = made.get('#host-list').innerHTML;
   assert.match(hostCards, /class="host-title"[^\n]+class="host-connection-slot"/);
   assert.match(hostCards, /class="host-card-meta"[^\n]+class="host-resource-values"/);
@@ -423,9 +431,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.48';
+  runtimeVersion='0.3.49';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.48');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.49');
   returnedJobs=null;
   evaluate("state.token=''");
 
