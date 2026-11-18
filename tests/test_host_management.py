@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from app import main
 from app.executor import SSHConfig, SSHError, SSHExecutor
+from app.host_metrics import HostMetrics, SAMPLE
 from app.store import Store
 
 HEAD = {"X-Admin-Token": "test-only-" + "a" * 32}
@@ -42,6 +43,45 @@ def fresh_environment(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "executor", ssh)
     # No job execution is triggered; the API only uses the store for this flow.
     return store, ssh, TestClient(main.app)
+
+
+def test_host_metrics_require_auth_and_pinned_ssh(tmp_path, monkeypatch):
+    store, ssh, client = fresh_environment(tmp_path, monkeypatch)
+    monkeypatch.setattr(main, "host_metrics", HostMetrics())
+    host = store.add_host({"name": "Preview VPS", "hostname": "192.0.2.50",
+                           "port": 22, "username": "root"})
+    url = f"/api/hosts/{host['id']}/metrics"
+    calls = []
+
+    def collect(target, script, timeout):
+        calls.append((target["id"], script, timeout))
+        return ("ND_CPU_FIRST cpu 100 0 100 800 0 0 0 0 40 0\n"
+                "ND_CPU_LAST cpu 110 0 110 880 0 0 0 0 49 0\n"
+                "ND_MemTotal: 1000\nND_MemAvailable: 250\nND_DISK 93%\n")
+
+    monkeypatch.setattr(ssh, "run", collect)
+    assert client.get(url).status_code == 401
+    assert client.get(url, headers=HEAD).json() == {"status": "credentials"}
+    monkeypatch.setattr(ssh, "credential_ready", lambda _host: True)
+    assert client.get(url, headers=HEAD).json() == {"status": "trust"}
+    assert not calls
+
+    pin = [{"fingerprint": "first"}]
+    monkeypatch.setattr(ssh, "pinned_hostkeys", lambda _host: pin)
+    sample = client.get(url, headers=HEAD).json()
+    assert sample["status"] == "connected"
+    assert (sample["cpu"], sample["memory"], sample["disk"]) == (20, 75, 93)
+    assert client.get(url, headers=HEAD).json() == sample
+    assert calls == [(host["id"], SAMPLE, 9)]
+
+    def fail(*_args, **_kwargs):
+        raise SSHError("SSH_AUTH_FAILED：server output must not be exposed")
+
+    pin[0]["fingerprint"] = "changed"
+    monkeypatch.setattr(ssh, "run", fail)
+    failure = client.get(url, headers=HEAD).json()
+    assert failure["status"] == "auth_failed"
+    assert set(failure) == {"status", "checked_at"}
 
 
 def test_safe_host_reinstall_rotates_only_matching_endpoint_and_invalidates_plans(

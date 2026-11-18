@@ -117,7 +117,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.46';
+let runtimeVersion='0.3.47';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -323,8 +323,7 @@ function fingerprintFor(label) {
 
 (async()=>{
   fill();
-  // Dashboard and Project Center share a compact fluid grid. In Project
-  // Center, the redundant second heading and self-link are hidden.
+  // The dashboard shows VPS health. Project cards stay in Project Center.
   context.fixtures.featuredCatalog = {
     '3x-ui':{name:'3X-UI',subtitle:'Xray 可视化管理面板',category:'面板',deployment:'install'},
     's-ui':{name:'S-UI',subtitle:'sing-box 可视化管理面板',category:'面板',deployment:'install'},
@@ -339,34 +338,32 @@ function fingerprintFor(label) {
     'Sidebar count must match the five public catalog templates');
   const compactProjects = made.get('#project-grid').innerHTML;
   assert.equal((compactProjects.match(/class="project"/g)||[]).length,5,
-    'Five featured projects remain directly visible and actionable');
+    'Five projects remain available in Project Center');
   assert.equal((compactProjects.match(/data-action="plan"/g)||[]).length,5,
     'Compact layout must not remove any deployment or guide action');
-  assert(made.get('#projects-section').classList.contains('is-featured'),
-    'Dashboard should activate the compact featured presentation');
+  assert(made.get('#projects-section').classList.contains('hidden'));
+  assert(made.get('#jobs-section').classList.contains('hidden'));
+  assert(html.indexOf('id="overview-section"') < html.indexOf('id="hosts-section"'));
   assert(typographyCss.includes('repeat(auto-fit,minmax(min(100%,246px),1fr))'),
     'Five cards should flow into one row on wide screens and wrap naturally');
-  assert(typographyCss.includes('#projects-section:is(.is-featured,.is-catalog) .project')&&
+  assert(typographyCss.includes('#projects-section.is-catalog .project')&&
     typographyCss.includes('min-height:0'),
-    'Both project surfaces must override the old 240/267px minimum heights');
+    'Project Center must override the old 240/267px minimum heights');
   assert(typographyCss.includes('var(--ui-fs-meta)')&&
     typographyCss.includes('var(--theme-line)'),
     'Compact cards must preserve comfortable typography and the current theme');
   evaluate('state.section="projects";renderSection();');
   assert(made.get('#projects-section').classList.contains('is-catalog'),
     'Project Center should use the compact layout instead of tall cards');
-  assert(!made.get('#projects-section').classList.contains('is-featured'),
-    'The featured-only class must not remain on the catalog page');
-  assert(typographyCss.includes('#projects-section.is-catalog>.section-heading{display:none}'),
-    'Project Center must hide the duplicate 精选部署项目 heading and redundant self-link');
+  assert(!made.get('#projects-section').classList.contains('hidden'));
   assert(made.get('#section-title').textContent==='项目中心');
   assert(made.get('#section-subtitle').textContent.includes('共 5 个项目'));
   assert.equal((made.get('#project-grid').innerHTML.match(/data-action="plan"/g)||[]).length,5,
     'Catalog must retain every project action');
   evaluate('state.section="dashboard";renderSection();');
-  assert(made.get('#projects-section').classList.contains('is-featured'));
+  assert(made.get('#projects-section').classList.contains('hidden'));
   assert(!made.get('#projects-section').classList.contains('is-catalog'),
-    'Dashboard heading/link must be visible again after leaving Project Center');
+    'Dashboard does not show the project catalog');
   evaluate(`state.catalog={...fixtures.featuredCatalog,dockge:{name:'Dockge',subtitle:'Compose stacks',category:'容器',deployment:'install'}};render();`);
   assert.equal((made.get('#project-grid').innerHTML.match(/class="project"/g)||[]).length,6,
     'All six projects are available in the complete catalog');
@@ -375,8 +372,6 @@ function fingerprintFor(label) {
   assert(made.get('#project-grid').innerHTML.includes('data-project="dockge"'));
   assert.equal(made.get('#project-nav-count').textContent,'6',
     'Sidebar must update from 5 to 6 when Dockge appears');
-  assert(made.get('#stats').innerHTML.includes('<strong>6</strong>'),
-    'Dashboard project statistic must agree with the sidebar');
   // Hidden HTTPS upgrade recipes must not inflate the catalog count.
   evaluate(`state.catalog={...state.catalog,'3x-ui-https':{name:'Internal',internal:true,category:'HTTPS',deployment:'install'}};render();`);
   assert.equal(made.get('#project-nav-count').textContent,'6');
@@ -390,6 +385,14 @@ function fingerprintFor(label) {
 
 
   fill();
+
+  evaluate(`state.section='jobs';jobFilter='done';render();`);
+  assert(made.get('#job-list').innerHTML.includes('此状态下没有任务'));
+  evaluate(`jobFilter='approval';renderJobs();`);
+  assert(made.get('#job-list').innerHTML.includes('a1b2c3d4e5f6a7b8'));
+  evaluate(`jobFilter='all';state.section='dashboard';renderSection();`);
+  assert(evaluate("usageMarkup({status:'unreachable'}).includes('SSH 无法连接')"));
+  assert(evaluate("usageMarkup({status:'connected',cpu:87}).includes('data-level=\"high\"')"));
 
   evaluate('openHostConsole(1)');
   assert(modal.innerHTML.includes('继续审批部署'), 'Primary action must be visible');
@@ -416,9 +419,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.46';
+  runtimeVersion='0.3.47';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.46');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.47');
   returnedJobs=null;
   evaluate("state.token=''");
 
@@ -444,8 +447,11 @@ function fingerprintFor(label) {
   assert(modal.innerHTML.includes('data-action="regenerate-plan"'));
   evaluate("showJob('a1b2c3d4e5f6a7b8')");
   assert(modal.innerHTML.includes('这条 HTTPS 失败记录来自旧版本脚本'));
+  assert(modal.innerHTML.includes('id="job-log-details">'), 'Installation logs are collapsed on initial open');
+  evaluate("showJob('a1b2c3d4e5f6a7b8',true)");
+  assert(modal.innerHTML.includes('id="job-log-details" open>'), 'Refresh can preserve an expanded log');
   assert(!modal.innerHTML.includes('id="approve-form"'));
-  assert(modal.innerHTML.includes('原任务执行日志'));
+  assert(modal.innerHTML.includes('<summary>安装日志</summary>'));
 
   // A completed 3X-UI installer followed by a transient SSH handshake
   // failure is NOT proof of failed installation. Offer read-only recovery
@@ -1037,7 +1043,7 @@ function fingerprintFor(label) {
   evaluate('logout()');
   assert.equal(messages.children.length,0,'Remove conversation messages on panel logout');
 
-  // Keep the default selection until the user sorts. Then feature the top five.
+  // Keep the saved Project Center order even when the catalog is hidden.
   const grid=made.get('#project-grid');
   const defaults=['3x-ui','s-ui','sing-box','hysteria2','dockge','wg-easy','hiddify'];
   grid.children=defaults.map(project=>({...makeElement(),dataset:{project}}));
@@ -1050,17 +1056,17 @@ function fingerprintFor(label) {
   evaluate(`state.catalog=Object.fromEntries(${JSON.stringify(defaults)}.map(id=>[id,{name:id}]));
     state.section='dashboard';projectOrder=readProjectOrder();applyProjectOrder();`);
   const visibleCards=()=>grid.children.filter(card=>!card.classList.contains('hidden')).map(card=>card.dataset.project);
-  assert.deepEqual(visibleCards(),['3x-ui','s-ui','sing-box','hysteria2','wg-easy']);
+  assert.deepEqual(visibleCards(),defaults);
 
   saved=JSON.stringify(['removed','3x-ui','s-ui','hiddify','hiddify',42]);
   evaluate('projectOrder=readProjectOrder();applyProjectOrder()');
-  assert.deepEqual(visibleCards(),['3x-ui','s-ui','hiddify','sing-box','hysteria2']);
+  assert.deepEqual(visibleCards(),['3x-ui','s-ui','hiddify','sing-box','hysteria2','dockge','wg-easy']);
   evaluate("state.section='projects';applyProjectOrder();");
   assert.deepEqual(visibleCards(),['3x-ui','s-ui','hiddify','sing-box','hysteria2','dockge','wg-easy']);
   evaluate('moveProject(projectGrid.children[0],projectGrid.children[6])');
   assert.deepEqual(JSON.parse(saved),['s-ui','hiddify','sing-box','hysteria2','dockge','wg-easy','3x-ui']);
   evaluate("state.section='dashboard';applyProjectOrder();");
-  assert.deepEqual(visibleCards(),['s-ui','hiddify','sing-box','hysteria2','dockge']);
+  assert.deepEqual(visibleCards(),['s-ui','hiddify','sing-box','hysteria2','dockge','wg-easy','3x-ui']);
 
   console.log('UI smoke: pending approval, plan expiry, duplicate prevention, fingerprint states and responsive CSS OK');
 })().catch(err=>{console.error(err);process.exitCode=1;});

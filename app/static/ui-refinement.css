@@ -29,53 +29,6 @@
 }
 .brand-logo.large { display: block; margin: 0 auto 18px; }
 
-/* A normal desktop window should expose the daily workflow without shrinking text. */
-.is-dashboard .hero { min-height: 88px; height: auto; }
-.is-dashboard .hero-content { padding: 14px 22px; width: min(88%, 1040px); }
-.is-dashboard .hero p { margin-top: 4px; }
-.is-dashboard .section-heading,
-.is-dashboard .section-heading.smaller,
-.is-dashboard #hosts-section .section-heading { margin: 10px 0 6px; }
-.is-dashboard .section-heading > div {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px 12px;
-}
-.is-dashboard .section-heading p { margin-top: 0; }
-.is-dashboard #hosts-section .section-heading { margin: 18px 0 12px; }
-.is-dashboard #hosts-section .section-heading > div { display: block; }
-.is-dashboard #hosts-section .section-heading p { margin-top: 4px; }
-.is-dashboard .stat { padding: 11px 16px; gap: 0; }
-.is-dashboard .stat .icon { width: 28px; height: 28px; font-size: 17px; }
-.is-dashboard .stat strong { margin-top: 3px; }
-.is-dashboard .stat small { margin-top: 3px; }
-.is-dashboard #projects-section.is-featured .project-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
-}
-.is-dashboard #projects-section.is-featured .project { min-height: 174px; padding: 12px; gap: 5px; }
-.is-dashboard #projects-section.is-featured .project h3 { margin-top: 0; }
-.is-dashboard #projects-section.is-featured .project p { line-height: 1.5; }
-.is-dashboard #projects-section.is-featured .project-icon { width: 30px; height: 30px; font-size: 19px; }
-.is-dashboard #projects-section.is-featured .project-footer { padding-top: 6px; gap: 6px; }
-.is-dashboard #projects-section.is-featured .project-footer .btn { padding-inline: 9px; }
-.is-dashboard .job-item { padding: 10px 14px; gap: 10px; }
-.is-dashboard .empty { min-height: 96px; }
-.is-dashboard footer { margin-top: 16px; padding-top: 10px; }
-@media (max-width: 1000px) {
-  .is-dashboard .hero-content { width: 100%; }
-  .is-dashboard .section-heading > div { display: block; }
-}
-@media (max-width: 1320px) {
-  .is-dashboard #projects-section.is-featured .project-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@media (max-width: 1000px) {
-  .is-dashboard #projects-section.is-featured .project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 650px) {
-  .is-dashboard #projects-section.is-featured .project-grid { grid-template-columns: minmax(0, 1fr); }
-}
 .section-heading, .section-heading.smaller {
   column-gap: 18px;
   row-gap: 9px;
@@ -90,8 +43,7 @@
 .hero-art { opacity: .15; }
 .page-heading { margin: 4px 0 20px; }
 .section-heading > .btn { flex-shrink: 0; }
-.content[data-section="hosts"] #hosts-section > .section-heading,
-.content[data-section="jobs"] #jobs-section > .section-heading { display: none; }
+.content[data-section="hosts"] #hosts-section > .section-heading { display: none; }
 .stats { gap: 12px; }
 .stat, .host-item, .project, .job-item {
   border-radius: var(--nd-card-radius);
@@ -108,20 +60,31 @@
 .stat .top span { min-width: 0; }
 .stat strong { font-variant-numeric: tabular-nums; }
 .stat small { overflow-wrap: anywhere; }
+#overview-section .section-heading { margin: 4px 0 16px; }
+#overview-title { font-size: var(--ui-fs-hero); color: var(--theme-title); }
+.is-dashboard #hosts-section .section-heading { margin: 26px 0 14px; }
+.is-dashboard footer { margin-top: 24px; }
+.overview-stat { padding: 14px 16px; gap: 4px; box-shadow: none; }
+.overview-stat .top { justify-content: flex-start; }
+.overview-stat strong { margin-top: 0; }
+.overview-stat:hover { box-shadow: none; }
+.health-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.overview-stat[data-tone="success"] .health-dot { color: var(--theme-success); }
+.overview-stat[data-tone="warn"] .health-dot { color: var(--theme-warning); }
+.overview-stat[data-tone="error"] .health-dot { color: var(--theme-danger); }
 
-/* Six public projects form a balanced 3x2 catalog on desktop,
-   while the five featured cards retain their compact auto-fit layout. */
+/* The catalog uses three columns on wide windows. */
 #projects-section.is-catalog .project-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
-#projects-section:is(.is-featured,.is-catalog) .project {
+#projects-section.is-catalog .project {
   min-width: 0;
   border-color: var(--theme-line);
   background: var(--theme-panel);
   box-shadow: 0 1px 1px color-mix(in srgb, #000 8%, transparent);
 }
-#projects-section:is(.is-featured,.is-catalog) .project:is(:hover, :has(:focus-visible)) {
+#projects-section.is-catalog .project:is(:hover, :has(:focus-visible)) {
   transform: none;
   background: var(--nd-hover-tint);
   border-color: var(--theme-accent);
@@ -136,11 +99,11 @@
 }
 .btn:hover:not(:disabled), .btn:active:not(:disabled),
 .icon-button:active:not(:disabled) { transform: none; }
-#projects-section:is(.is-featured,.is-catalog) .project-footer {
+#projects-section.is-catalog .project-footer {
   margin-top: auto;
   padding-top: 11px;
 }
-#projects-section:is(.is-featured,.is-catalog) .project-footer .btn:not(:hover):not(:focus-visible) {
+#projects-section.is-catalog .project-footer .btn:not(:hover):not(:focus-visible) {
   min-height: 40px;
 }
 .project-sort-handle {
@@ -220,6 +183,73 @@
 .host-card-footer .host-card-delete { position: static; flex-shrink: 0; padding: 6px 10px; }
 .host-card-footer .host-card-hint { margin: 0; }
 .host-card-meta span:not(:last-child):after { content: none; }
+.host-live {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--theme-line);
+  border-radius: var(--nd-control-radius);
+  background: var(--theme-panel-2);
+}
+.host-live-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.host-live-head .chip { display: inline-flex; align-items: center; gap: 6px; }
+.host-live-head small { color: var(--theme-secondary); font-size: var(--ui-fs-small); font-variant-numeric: tabular-nums; }
+.host-meter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.host-meter {
+  --meter-color: var(--theme-accent);
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--theme-secondary);
+  font-size: var(--ui-fs-small);
+}
+.host-meter[data-level="warn"] { --meter-color: var(--theme-warning); }
+.host-meter[data-level="high"] { --meter-color: var(--theme-danger); }
+.host-meter > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 6px; }
+.host-meter strong { color: var(--meter-color); font-variant-numeric: tabular-nums; }
+.host-meter[data-level="unknown"] strong { color: var(--theme-secondary); }
+.host-meter meter, .meter-empty {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 5px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--theme-line);
+}
+.host-meter meter::-webkit-meter-bar { background: var(--theme-line); border: 0; border-radius: 4px; }
+.host-meter meter::-webkit-meter-optimum-value { background: var(--meter-color); border-radius: 4px; }
+.host-meter meter::-moz-meter-bar { background: var(--meter-color); border-radius: 4px; }
+.job-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.job-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  min-height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--theme-line-strong);
+  color: var(--theme-title);
+  background: var(--theme-panel);
+  font-size: var(--ui-fs-meta);
+  font-weight: 700;
+}
+.job-filter:hover { border-color: var(--theme-accent); background: var(--nd-hover-tint); }
+.job-filter[aria-pressed="true"] { color: var(--theme-on-action); border-color: var(--theme-action-deep); background: var(--theme-action-deep); }
+.job-filter span { padding-inline: 6px; border: 1px solid currentColor; border-radius: 999px; font-variant-numeric: tabular-nums; }
+#job-list { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 14px; }
+#job-list > .empty { grid-column: 1 / -1; }
+.job-card { display: grid; grid-template-rows: auto 1fr auto; gap: 12px; padding: 16px; align-items: start; }
+.job-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.job-card-head .chip { max-width: 80%; white-space: normal; text-align: right; }
+.job-card-head .job-icon { width: 32px; height: 32px; flex: none; }
+.job-card .job-main { display: grid; gap: 6px; min-width: 0; }
+.job-main h3 { color: var(--theme-title); font-size: var(--ui-fs-body); }
+.job-host { justify-self: start; max-width: 100%; white-space: normal; }
+.job-card .job-main small { margin: 0; }
+.job-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--theme-line); }
+.job-card-actions .btn { padding-inline: 10px; }
 .host-list > .empty { grid-column: 1 / -1; }
 .host-add-card {
   display: flex;
@@ -270,6 +300,13 @@
   outline: 2px solid var(--theme-accent);
   outline-offset: 3px;
 }
+.server-history-item:is(:hover, :focus-visible) .server-task-next {
+  color: var(--theme-accent);
+  text-decoration: underline;
+  text-underline-offset: .2em;
+}
+.server-history-item:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: 2px; }
+.server-history-item .server-task-next { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .host-card-address, .host-card-meta,
 .server-kpi strong, .job-main, .job-item,
 .xui-info-row, .modal-tip {
@@ -482,6 +519,16 @@ label.check:has(input:checked) {
   overflow-wrap: anywhere;
 }
 #delete-host-form .modal-actions { margin-top: 0; }
+.job-log {
+  margin-top: 16px;
+  border: 1px solid var(--theme-line-strong);
+  border-radius: var(--nd-control-radius);
+  background: var(--theme-panel-2);
+}
+.job-log > summary { padding: 11px 14px; color: var(--theme-accent); cursor: pointer; font-weight: 700; }
+.job-log > summary:hover { text-decoration: underline; text-underline-offset: .18em; }
+.job-log > summary:focus-visible, .job-log .pre:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: 2px; }
+.job-log .pre { margin: 0 10px 10px; max-height: min(38vh, 330px); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Long approval/review dialogs: keep title and close control reachable. */
 .modal-wrap { padding: clamp(8px, 2vw, 20px); }

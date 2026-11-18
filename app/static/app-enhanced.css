@@ -317,7 +317,6 @@ details>summary:hover{color:#d2e6ff}
 .server-history-item .server-task-title strong{color:#e3f0ff;font-size:13px}
 .server-history-item .server-task-title small{color:#91a9c7;font-size:11px;line-height:1.5}
 .server-history-item .server-task-next{color:#a8d0ff;font-size:12px;font-weight:750;white-space:nowrap}
-.server-history-item:hover .server-task-next{color:#e6f2ff}
 .server-advanced-actions{border-top:1px solid #27405d;padding-top:13px;margin-top:19px}
 .server-advanced-actions summary{font-size:12px;color:#99b8e4;cursor:pointer}
 .server-advanced-actions .server-action-grid{margin-top:12px}

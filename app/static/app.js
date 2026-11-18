@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.46 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.47 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.46';
+const CLIENT_VERSION = '0.3.47';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -71,10 +71,11 @@ async function loadAll(silent=false){
         if(before!==active.status&&['completed','partial','failed','interrupted','invalidated'].includes(active.status)){
           // Replace the open task panel once on state transition; completed
           // install/HTTPS actions become visible without reopening the modal.
-          showJob(active.id);
+          showJob(active.id, !!el('#job-log-details')?.open);
           toast(active.status==='completed'?'任务已完成，可以直接查看面板信息':'任务状态已更新，请查看错误或后续操作',active.status==='failed');
         }else{
-          logbox.textContent=active.logs||'还没有执行日志';
+          const logs=active.logs||'暂无执行日志';
+          if(logbox.textContent!==logs)logbox.textContent=logs;
           statusNode.textContent=jobStatusText(active);
           statusNode.dataset.currentStatus=active.status;
         }
@@ -89,13 +90,16 @@ function jobStatusText(job){
  if(isExistingHiddifyPlan(job))return '检测到已有安装';
  return hiddifyPlanBlocked(job)?'预检未通过':stateText(job.status);
 }
-function chip(job){const {status}=job;const cls=status==='completed'?'success':status==='failed'||status==='interrupted'||status==='invalidated'?'error':'warn';return `<span class="chip ${cls}">${escapeHtml(jobStatusText(job))}</span>`;}
+function chip(job){
+ const cls=job.status==='completed'||isExistingXuiPlan(job)||isExistingHiddifyPlan(job)?'success':
+   ['failed','interrupted','invalidated'].includes(job.status)?'error':'warn';
+ return `<span class="chip ${cls}">${escapeHtml(jobLabel(job))}</span>`;
+}
 const symbol={"3x-ui":"▣","3x-ui-https":"🔒","sing-box":"⬡","hysteria2":"ϟ","wg-easy":"◈","s-ui":"⬡","s-ui-https":"🔒","dockge":"▣","hiddify":"▣"};
 // Single source of truth: public projects, excluding internal upgrade recipes.
 function catalogProjects(catalog){return Object.entries(catalog||{}).filter(([,project])=>project&&!project.internal);}
 const projectGrid=el('#project-grid');
 const PROJECT_ORDER_KEY='nd_project_order';
-const FEATURED_PROJECT_LIMIT=5;
 let projectOrder=readProjectOrder();
 let projectDrag=null;
 let projectMarkup='';
@@ -113,11 +117,6 @@ function applyProjectOrder(){
  const customized=projectOrder.some(id=>byId.has(id));
  const ids=customized?[...new Set([...projectOrder,...defaults])]:defaults;
  const ordered=ids.map(id=>byId.get(id)).filter(Boolean);
- const featured=ordered.filter(card=>customized||!['dockge','hiddify'].includes(card.dataset.project))
-   .slice(0,FEATURED_PROJECT_LIMIT);
- for(const card of cards){
-   card.classList.toggle('hidden',state.section==='dashboard'&&!featured.includes(card));
- }
  if(ordered.some((card,index)=>card!==cards[index]))projectGrid.append(...ordered);
 }
 function moveProject(card,target){
@@ -210,18 +209,141 @@ projectGrid.addEventListener('keydown',event=>{
  moveProject(card,target);
  handle.focus();
 });
+const metricFields=[['cpu','CPU'],['memory','内存'],['disk','根磁盘']];
+const hostSamples=new Map();
+let metricsRefreshAt=0;
+let metricsLoading=false;
+
+function sampleKey(host){
+ return JSON.stringify([host.id,host.hostname,host.port,host.username,host.auth_mode,host.trust_epoch,host.credential_ready]);
+}
+function sampleFor(host){
+ const sample=hostSamples.get(sampleKey(host));
+ if(sample&&Date.now()-sample.receivedAt<60000)return sample;
+ return {status:host.credential_ready?'sampling':'credentials'};
+}
+function usageTone(value){
+ return value>=85?'high':value>=70?'warn':'normal';
+}
+function usageMarkup(sample){
+ const [message,tone]=({
+   connected:['SSH 可连接','success'],unreachable:['SSH 无法连接','error'],
+   trust:['待核验 SSH 指纹','warn'],auth_failed:['SSH 认证失败','error'],
+   credentials:['缺少 SSH 凭据','warn'],sampling:['等待采集',''],unavailable:['采集服务暂不可用','warn']
+ })[sample.status]||['等待采集',''];
+ const date=new Date(sample.checked_at);
+ const time=Number.isFinite(date.getTime())?date.toLocaleTimeString('zh-CN',{hour12:false}):'';
+ return `<div class="host-live-head"><span class="chip ${tone}"><span class="health-dot" aria-hidden="true"></span>${message}</span>
+   ${time?`<small>${sample.status==='connected'?'采样':'检查'} ${escapeHtml(time)}</small>`:''}</div>
+   <div class="host-meter-grid">${metricFields.map(([key,label])=>{
+     const value=sample.status==='connected'&&Number.isFinite(sample[key])?Math.max(0,Math.min(100,sample[key])):null;
+     return `<div class="host-meter" data-level="${value===null?'unknown':usageTone(value)}">
+       <div><span>${label}</span><strong>${value===null?'—':escapeHtml(value)+'%'}</strong></div>
+       ${value===null?'<span class="meter-empty" aria-hidden="true"></span>':`<meter min="0" max="100" value="${value}" aria-label="${label}占用"></meter>`}
+     </div>`;
+   }).join('')}</div>`;
+}
+function renderOverview(){
+ const samples=state.hosts.map(sampleFor);
+ const online=samples.filter(sample=>sample.status==='connected').length;
+ const review=samples.filter(sample=>!['connected','sampling'].includes(sample.status)).length;
+ const high=samples.filter(sample=>sample.status==='connected'&&metricFields.some(([key])=>sample[key]>=85)).length;
+ el('#stats').innerHTML=[
+   ['服务器',samples.length,'neutral','已添加的 VPS'],
+   ['可连接',online,'success','通过 SSH 核验'],
+   ['连接待检查',review,'warn',samples.some(sample=>sample.status==='sampling')?'另有服务器等待采集':'凭据、指纹或连接异常'],
+   ['高占用',high,'error','任一资源达到 85%'],
+ ].map(([label,value,tone,description])=>`<div class="stat overview-stat" data-tone="${tone}">
+   <div class="top"><span class="health-dot" aria-hidden="true"></span><span>${label}</span></div>
+   <strong>${value}</strong><small>${description}</small></div>`).join('');
+}
+function paintHostSamples(){
+ renderOverview();
+ for(const host of state.hosts){
+   const target=el(`[data-host-live="${host.id}"]`);
+   if(target)target.innerHTML=usageMarkup(sampleFor(host));
+ }
+}
+function showMetricsHere(){
+ return state.token&&!document.hidden&&['dashboard','hosts'].includes(state.section);
+}
+async function refreshHostMetrics(force=false){
+ if(metricsLoading||!showMetricsHere()||!state.hosts.length)return;
+ if(!force&&Date.now()<metricsRefreshAt)return;
+ metricsLoading=true;
+ const token=state.token;
+ const hosts=state.hosts.slice();
+ const currentKeys=new Set(hosts.map(sampleKey));
+ for(const key of hostSamples.keys())if(!currentKeys.has(key))hostSamples.delete(key);
+ try{
+   for(let i=0;i<hosts.length&&showMetricsHere()&&state.token===token;i+=3){
+     await Promise.all(hosts.slice(i,i+3).map(async host=>{
+       if(!host.credential_ready)return;
+       const key=sampleKey(host);
+       let sample;
+       try{sample=await api(`/hosts/${host.id}/metrics`);}
+       catch{sample={status:'unavailable'};}
+       if(state.token===token&&sample?.status&&sample.status!=='sampling'){
+         hostSamples.set(key,{...sample,receivedAt:Date.now()});
+       }
+     }));
+     if(state.token===token)paintHostSamples();
+   }
+ }finally{
+   metricsLoading=false;
+   metricsRefreshAt=Date.now()+25000;
+ }
+}
+
+const jobFilters=[
+ ['all','全部',()=>true],
+ ['approval','待审批',job=>job.status==='planned'&&job.plan?.executable&&!planNeedsUpdate(job)],
+ ['active','进行中',job=>['queued','running'].includes(job.status)],
+ ['done','已完成',job=>job.status==='completed'||isExistingXuiPlan(job)||isExistingHiddifyPlan(job)],
+ ['review','需处理',job=>['failed','partial','interrupted','invalidated'].includes(job.status)||
+   (job.status==='planned'&&(!job.plan?.executable||planNeedsUpdate(job))&&!isExistingXuiPlan(job)&&!isExistingHiddifyPlan(job))],
+];
+let jobFilter='all';
+let jobFilterMarkup='';
+let jobCardsMarkup='';
+function renderJobs(){
+ const {jobs,hosts,catalog}=state;
+ const filters=jobFilters.map(([key,label,includes])=>`<button type="button" class="job-filter" data-action="job-filter" data-filter="${key}"
+   aria-pressed="${key===jobFilter}">${label}<span>${jobs.filter(includes).length}</span></button>`).join('');
+ if(filters!==jobFilterMarkup){
+   const active=document.activeElement?.dataset?.filter;
+   el('#job-filters').innerHTML=filters;
+   if(active)el(`#job-filters [data-filter="${active}"]`)?.focus?.({preventScroll:true});
+   jobFilterMarkup=filters;
+ }
+ const visible=jobs.filter(jobFilters.find(([key])=>key===jobFilter)[2]);
+ const cards=visible.length?visible.map(job=>{
+   const host=hosts.find(h=>h.id===job.host_id);
+   const project=catalog[job.project]?.name||job.plan?.name||job.project;
+   const existing=isExistingXuiPlan(job);
+   const action=existing?'installed-xui':historicalHttpsFailure(job)||planNeedsUpdate(job)&&job.plan?.executable?'regenerate-plan':'job';
+   return `<article class="job-item job-card">
+     <div class="job-card-head"><span class="job-icon" aria-hidden="true">${symbol[job.project]||'⋄'}</span>
+       ${chip(job)}</div>
+     <div class="job-main"><h3>${escapeHtml(project)}</h3><span class="chip job-host">${escapeHtml(host?.name||job.plan?.hostname||'服务器记录已移除')}</span>
+       <small><time datetime="${escapeHtml(job.created_at)}">${escapeHtml(job.created_at.replace('T',' ').slice(0,19))} UTC</time> · #${escapeHtml(job.id)}</small></div>
+     <div class="job-card-actions"><button class="btn ${job.status==='planned'?'primary':'subtle'}" data-action="${action}" data-id="${escapeHtml(existing?job.host_id:job.id)}">${escapeHtml(jobNextAction(job))} →</button>
+       ${['queued','running'].includes(job.status)?'':`<button class="btn danger" data-action="delete-job" data-id="${escapeHtml(job.id)}" aria-label="删除任务 ${escapeHtml(job.id)}">删除</button>`}</div>
+   </article>`;
+ }).join(''):`<div class="empty"><span>${jobs.length?'此状态下没有任务。':'还没有部署任务。'}</span>${jobs.length?'':'<button class="btn subtle" data-nav="projects">前往项目中心 →</button>'}</div>`;
+ if(cards!==jobCardsMarkup){
+   el('#job-list').innerHTML=cards;
+   jobCardsMarkup=cards;
+ }
+}
+
 function render(){
  const {hosts,jobs,catalog}=state;
  const projects=catalogProjects(catalog);
  const loneInstalledXui=hosts.length===1&&hosts[0].facts?.XUI_PRESENT==='yes';
  const loneInstalledSui=hosts.length===1&&hosts[0].facts?.SUI_PRESENT==='yes';
  const loneInstalledDockge=hosts.length===1&&hosts[0].facts?.DOCKGE_PRESENT==='yes';
- el('#stats').innerHTML = [
-  ['已添加服务器',hosts.length,'▤','已通过 SSH 扫描 '+hosts.filter(h=>!!h.facts).length+' 台'],
-  ['项目模板',projects.length,'⬡','固定、可审核的部署计划'],
-  ['完成任务',jobs.filter(j=>j.status==='completed').length,'✓','安装完成仍需业务配置'],
-  ['待处理任务',jobs.filter(j=>['failed','interrupted','partial'].includes(j.status)||(j.status==='planned'&&j.plan?.executable)).length,'⌁','需确认或排障的任务']
- ].map(([label,val,ico,desc])=>`<div class="stat"><div class="top"><span>${label}</span><span class="icon">${ico}</span></div><strong>${val}</strong><small>${desc}</small></div>`).join('');
+ renderOverview();
  const markup=projects.map(([key,p])=>`
  <div class="project" data-project="${escapeHtml(key)}"><div class="project-head"><div class="project-icon">${symbol[key]}</div><span class="project-kind">${escapeHtml(p.category)}</span>
  <button type="button" class="project-sort-handle" title="拖动或用方向键调整顺序" aria-label="调整 ${escapeHtml(p.name)} 的顺序" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01"/></svg></button></div>
@@ -235,30 +357,29 @@ function render(){
  }
  el('#host-list').innerHTML=hosts.length?hosts.map(h=>{
    const duplicate=hosts.filter(x=>x.hostname.toLowerCase()===h.hostname.toLowerCase()&&x.port===h.port).length;
-   const status=!h.credential_ready?'需要登录凭据':h.facts?'最近检测成功':'待连接检测';
-   const statusClass=!h.credential_ready?'error':h.facts?'success':'warn';
    return `<article class="host-item interactive-card" role="button" tabindex="0" data-action="host-console" data-id="${h.id}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台">
-      <div class="host-card-top"><div class="host-icon">▤</div><div class="host-title"><b>${escapeHtml(h.name)}</b><span class="chip ${statusClass}">${status}</span></div><span class="host-card-open">管理服务器 →</span></div>
+      <div class="host-card-top"><div class="host-icon">▤</div><div class="host-title"><b>${escapeHtml(h.name)}</b></div><span class="host-card-open">管理服务器 →</span></div>
       <div class="host-card-address">${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port}</div>
       <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span></div>
+      <div class="host-live" data-host-live="${h.id}">${usageMarkup(sampleFor(h))}</div>
       <div class="host-card-footer"><div class="host-card-details"><span class="host-cert-detail">${h.tls_domain?'域名证书 '+escapeHtml(h.tls_domain):'IP 证书（未填域名）'}</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}${h.facts?.SUI_PRESENT==='yes'?'<span class="host-installed-xui">S-UI 已安装</span>':''}${h.facts?.DOCKGE_PRESENT==='yes'?'<span class="host-installed-xui">Dockge / Apps 已安装</span>':''}${duplicate>1?`<span class="host-card-hint">${duplicate} 条记录共用此 SSH 地址</span>`:''}</div>
       <button class="host-card-delete" type="button" data-action="delete-host" data-id="${h.id}" aria-label="删除 ${escapeHtml(h.name)} 的本地服务器记录">删除服务器</button></div>
     </article>`;
  }).join('')+`<button class="host-add-card" type="button" data-action="add-host" aria-label="添加 VPS"><svg class="host-add-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 4v16M4 12h16"/></svg><strong>添加 VPS</strong></button>`:
  `<div class="empty"><span class="empty-icon">▤</span><span>还没有 VPS。添加后点击卡片，即可在同一个控制台管理连接、部署与端口。</span><button class="btn primary" data-action="add-host">＋ 添加第一台 VPS</button></div>`;
- el('#job-list').innerHTML=jobs.length?jobs.map(j=>{const p=catalog[j.project]||{};const host=hosts.find(h=>h.id===j.host_id);return `<div class="job-item"><div class="job-icon">${symbol[j.project]||'⋄'}</div><div class="job-main"><b>${escapeHtml(p.name||j.project)} · ${escapeHtml(host?.name||j.plan.hostname)}</b><small>${escapeHtml(j.created_at.replace('T',' ').slice(0,19))} UTC · 任务 #${escapeHtml(j.id)}</small></div>${isExistingXuiPlan(j)?'<span class="chip success">已安装 · 无需审批</span>':chip(j)}<button class="btn ${j.status==='planned'?'primary':'subtle'}" data-action="${isExistingXuiPlan(j)?'installed-xui':historicalHttpsFailure(j)?'regenerate-plan':planNeedsUpdate(j)&&j.plan?.executable?'regenerate-plan':'job'}" data-id="${escapeHtml(isExistingXuiPlan(j)?j.host_id:j.id)}">${escapeHtml(jobNextAction(j))} →</button>${["queued","running"].includes(j.status)?"":`<button class="btn subtle" data-action="delete-job" data-id="${escapeHtml(j.id)}">删除</button>`}</div>`;}).join(''):`<div class="empty"><span class="empty-icon">≡</span><span>还没有部署任务。选择项目即可生成审批计划。</span></div>`;
+ renderJobs();
  renderSection();
 }
 function renderSection(){
  el('.content').classList.toggle('is-dashboard',state.section==='dashboard');
  el('.content').dataset.section=state.section;
  el('#page-heading').classList.toggle('hidden',state.section==='dashboard');
- el('#stats-heading').classList.toggle('hidden',state.section!=='dashboard');
+ el('#overview-section').classList.toggle('hidden',state.section!=='dashboard');
  el('#page-add-host').classList.toggle('hidden',state.section!=='hosts');
  const visibleProjects=catalogProjects(state.catalog).length;
  const navBadge=el('#project-nav-count');
  if(navBadge){navBadge.textContent=String(visibleProjects);navBadge.setAttribute('aria-label',`共 ${visibleProjects} 个项目`);}
- const navName={dashboard:['总览面板','运行概览','集中管理服务器与自动化部署任务'],projects:['项目中心','项目中心',`共 ${visibleProjects} 个项目 · 拖动卡片右上角排序，首页显示排序后的前 ${FEATURED_PROJECT_LIMIT} 个`],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','所有任务状态、审批和执行日志']};
+ const navName={dashboard:['总览面板','运行概览','查看服务器状态'],projects:['项目中心','项目中心',`共 ${visibleProjects} 个项目 · 拖动卡片右上角调整顺序`],hosts:['服务器管理','服务器管理','通过 SSH 连接可信的 Linux VPS'],jobs:['部署任务','部署任务','按状态查看审批、进度和结果']};
  const [title,heading,sub]=navName[state.section];el('#crumb-current').textContent=title;el('#section-title').textContent=heading;el('#section-subtitle').textContent=sub;
  document.querySelectorAll('[data-nav]').forEach(b=>{
    const navItem=b.classList.contains('nav-item');
@@ -266,16 +387,12 @@ function renderSection(){
    b.classList.toggle('active',active);
    if(navItem){if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}
  });
- el('#hero').classList.toggle('hidden',state.section!=='dashboard');el('#stats').classList.toggle('hidden',state.section!=='dashboard');
- el('#projects-section').classList.toggle('hidden',!['dashboard','projects'].includes(state.section));
- // Both project surfaces share the readable compact cards. The Project Center
- // hides its redundant second heading; dashboard keeps the curated heading/link.
- el('#projects-section').classList.toggle('is-featured',state.section==='dashboard');
+ el('#projects-section').classList.toggle('hidden',state.section!=='projects');
  el('#projects-section').classList.toggle('is-catalog',state.section==='projects');
  if(state.section!=='projects')cancelProjectDrag();
  applyProjectOrder();
  el('#hosts-section').classList.toggle('hidden',!['dashboard','hosts'].includes(state.section));
- el('#jobs-section').classList.toggle('hidden',!['dashboard','jobs'].includes(state.section));
+ el('#jobs-section').classList.toggle('hidden',state.section!=='jobs');
 }
 function isPlanExpired(job){
  if(job.status!=='planned')return false;
@@ -295,6 +412,7 @@ function jobLabel(job){
  if(isExistingXuiPlan(job))return '已安装 · 无需审批';
  if(hiddifyPlanBlocked(job))return jobStatusText(job);
  if(job.status==='planned'&&!job.plan?.executable)return '当前不能自动部署';
+ if(planNeedsUpdate(job))return '方案待更新';
  return stateText(job.status);
 }
 function historicalHttpsFailure(job){
@@ -1328,7 +1446,7 @@ function chooseHost(project,selectedHostId=null){
   finally{if(submit?.isConnected){submit.disabled=false;submit.classList.remove('is-loading');}}
  });
 }
-function showJob(id){
+function showJob(id, keepLogOpen=false){
  const job=state.jobs.find(j=>j.id===id);if(!job){toast('任务不存在，请刷新',true);return;}
  state.activeJob=id;
  const p=job.plan,host=state.hosts.find(h=>h.id===job.host_id);
@@ -1341,6 +1459,10 @@ function showJob(id){
  const postInstallSshIssue=job.project==='3x-ui'&&!stale&&['failed','partial'].includes(job.status)&&
    String(job.logs||'').includes('通过：Official installer finished; sensitive credentials kept on VPS only')&&
    /SSH_(HANDSHAKE_FAILED|CONNECT_TIMEOUT|CONNECTION_REFUSED|NETWORK_ERROR|AUTH_FAILED)/.test(String(job.error||job.logs||''));
+ const logSection=`<details class="job-log" id="job-log-details"${keepLogOpen?' open':''}>
+   <summary>安装日志</summary>
+   <pre id="task-log" class="pre" tabindex="0">${escapeHtml(job.logs||'暂无执行日志')}</pre>
+ </details>`;
  let html=modalHead(`${p.name} · 部署任务`)+`<div class="toolbar">${chip(job)}<span class="chip">${escapeHtml(host?.name||p.hostname)}</span><span class="chip">${escapeHtml(p.options?.panel_port||'')}${p.options?.panel_port?' / TCP':''}</span></div>`;
  if(stale)html+='<div class="modal-tip warning">此任务属于服务器重装前的系统。旧登录信息和审批计划已失效，必须重新检测并创建新的部署方案。</div>';
  if(p.issues.length&&!isExistingXuiPlan(job)&&!existingHiddify)html+=`<div class="modal-tip warning">${p.issues.map(escapeHtml).join('；')}</div>`;
@@ -1393,18 +1515,16 @@ function showJob(id){
      <p>历史任务的固定命令与当前 NetDeploy AI 代码不一致，不能据此认定新版仍然失败。3X-UI 和现有证书保持不变，点击只会重新生成当前版本的 HTTPS 配置方案，不会直接重装或执行。</p>
      <button class="btn primary" data-action="regenerate-plan" data-id="${escapeHtml(job.id)}">生成最新版 HTTPS 修复方案 →</button>
    </section>`;
-   html+=`<h3>原任务执行日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(stateText(job.status))}</div>
-     <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
+   html+=`<div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(stateText(job.status))}</div>
      <div class="modal-actions"><button class="btn subtle" data-action="installed-xui" data-id="${job.host_id}">查看已安装 3X-UI</button>
-       <button class="btn subtle" data-action="close-modal">关闭</button></div>`;
+       <button class="btn subtle" data-action="close-modal">关闭</button></div>${logSection}`;
  }else{
    if(postInstallSshIssue)html+=`<section class="server-next-action pending"><span class="server-next-kicker">安装器已返回成功 · SSH 验收中断</span>
      <h3>先检查已安装的 3X-UI，不要重复部署</h3>
      <p>前四步已完成，但最终 SSH 握手异常，尚不能确定面板监听和防火墙是否验收通过。新版本会在执行远端命令前有限重连。恢复可信 SSH 后可点击下方按钮只读核查现有服务，不会执行安装器或改动密码。</p>
      <button class="btn primary" data-action="installed-xui" data-id="${job.host_id}">只读检查现有 3X-UI（不重装） →</button></section>`;
-   html+=`<h3>部署状态及日志</h3><div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(jobStatusText(job))}</div>
+   html+=`<div id="job-state" class="log-status" data-current-status="${escapeHtml(job.status)}">${escapeHtml(jobStatusText(job))}</div>
       ${openInstalledHiddify?'<div class="modal-tip">首次打开时，Hiddify 会引导你完成官方快速设置。</div>':''}
-      <pre id="task-log" class="pre">${escapeHtml(job.logs||'暂无执行日志')}</pre>
       <div class="modal-actions modal-action-wrap">
        ${openInstalledHiddify?hiddifyAdminLink(job.id):''}
        ${inspectHiddify?`<button type="button" class="btn ${openInstalledHiddify?'subtle':'primary'}" data-action="hiddify-job-status" data-id="${escapeHtml(job.id)}">检查 Hiddify 运行状态</button>`:''}
@@ -1420,7 +1540,7 @@ function showJob(id){
        <button class="btn subtle" data-action="diagnose" data-id="${escapeHtml(job.id)}">AI 只读排障</button>
        ${['queued','running'].includes(job.status)?'':`<button class="btn danger" data-action="delete-job" data-id="${escapeHtml(job.id)}">删除记录</button>`}
        <button class="btn subtle" data-action="close-modal">关闭</button>
-     </div><div id="ai-response"></div>`;
+     </div><div id="ai-response"></div>${logSection}`;
  }
  if(p.npm_proxy&&['completed','partial'].includes(job.status)){
    const n=p.npm_proxy;
@@ -1554,6 +1674,8 @@ async function toggleCodexChat(opener){
 function logout(){
  sessionStorage.removeItem('nd_token');
  state.token='';
+ hostSamples.clear();
+ metricsRefreshAt=0;
  closeCodexChat(false);
  el('#codex-launcher').classList.add('hidden');
  el('#codex-messages').replaceChildren();
@@ -1764,7 +1886,7 @@ async function xuiAccess(id){
    <div class="modal-actions"><button class="btn subtle" data-action="toggle-xui-password">显示 / 隐藏密码</button><button class="btn subtle" data-action="copy-xui-password">复制密码</button><button class="btn primary" data-action="close-modal">关闭</button></div>`);
  }catch(err){dialog(modalHead('无法安全读取登录信息')+`<div class="modal-tip warning">${escapeHtml(err.message)}</div><div class="modal-actions"><button class="btn primary" data-action="close-modal">关闭</button></div>`);}
 }
-function go(section){state.section=section;renderSection();const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;window.scrollTo({top:0,behavior:reduced?'auto':'smooth'});}
+function go(section){state.section=section;renderSection();refreshHostMetrics();const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;window.scrollTo({top:0,behavior:reduced?'auto':'smooth'});}
 async function tryLocalLogin(){
  try {
    const response=await fetch('/api/local-session',{cache:'no-store',headers:{'X-NetDeploy-Local':'1'}});
@@ -1790,6 +1912,7 @@ async function showAuthenticatedPanel(){
  el('#login').classList.add('hidden');
  el('#codex-launcher').classList.remove('hidden');
  await loadAll(true);
+ refreshHostMetrics();
 }
 el('#login-form').addEventListener('submit',async e=>{e.preventDefault();state.token=el('#admin-token').value;try{await api('/auth');sessionStorage.setItem('nd_token',state.token);el('#admin-token').value='';await showAuthenticatedPanel();}catch(err){toast(err.message,true);}});
 document.addEventListener('click',async e=>{
@@ -1834,6 +1957,10 @@ document.addEventListener('click',async e=>{
   else if(act==='add-host')addHost();
   else if(act==='edit-host')editHost(Number(id));
   else if(act==='delete-host')deleteHost(Number(id));
+  else if(act==='job-filter'&&jobFilters.some(([key])=>key===t.dataset.filter)){
+    jobFilter=t.dataset.filter;
+    renderJobs();
+  }
   else if(act==='fingerprint')await fingerprint(Number(id));
   else if(act==='prepare-rekey')prepareRekey(Number(id));
   else if(act==='credentials')credentials(Number(id));
@@ -1891,7 +2018,7 @@ document.addEventListener('keydown',e=>{
      e.preventDefault();closeDialog();return;
    }
    if(e.key==='Tab'){
-     const nodes=Array.from(contentNode?.querySelectorAll?.('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')||[])
+     const nodes=Array.from(contentNode?.querySelectorAll?.('a[href],summary,button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')||[])
        .filter(node=>node.getClientRects?.().length!==0);
      if(!nodes.length){e.preventDefault();contentNode.focus?.();return;}
      const first=nodes[0],last=nodes[nodes.length-1];
@@ -1908,7 +2035,7 @@ document.addEventListener('keydown',e=>{
    e.preventDefault();closeCodexChat();
  }
 });
-el('#refresh').addEventListener('click',async e=>{const button=e.currentTarget;button.classList.add('is-loading');button.disabled=true;try{await loadAll();}finally{button.classList.remove('is-loading');button.disabled=false;}});
+el('#refresh').addEventListener('click',async e=>{const button=e.currentTarget;button.classList.add('is-loading');button.disabled=true;try{await loadAll();refreshHostMetrics(true);}finally{button.classList.remove('is-loading');button.disabled=false;}});
 el('#logout').addEventListener('click',logout);
 el('#codex-command-form').addEventListener('submit',submitCodexCommand);
 el('#codex-prompt').addEventListener('keydown',e=>{
@@ -1918,4 +2045,5 @@ el('#codex-prompt').addEventListener('keydown',e=>{
  }
 });
 setInterval(()=>{if(state.token){loadAll(true);if(codexChatVisible()||el('#codex-account-state'))refreshCodexSettings();}},5000);
+setInterval(refreshHostMetrics,5000);
 start();

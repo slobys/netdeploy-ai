@@ -22,6 +22,7 @@ from .three_x_ui import ACCESS_SCRIPT, DEFAULT_PORT, parse_access_result
 
 from .catalog import CATALOG, build_plan
 from .executor import SSHConfig, SSHError, SSHExecutor, validate_host
+from .host_metrics import HostMetrics
 from .store import Store
 from .tasks import JobRunner
 from .ai import (diagnose, codex_status, codex_connect, codex_cancel, codex_logout,
@@ -56,6 +57,7 @@ executor = SSHExecutor(SSHConfig(
     known_hosts=str(DATA_DIR / "known_hosts"),
 ))
 runner = JobRunner(store, executor)
+host_metrics = HostMetrics()
 @asynccontextmanager
 async def native_codex_lifespan(_application: FastAPI):
     start_native_codex()
@@ -65,7 +67,7 @@ async def native_codex_lifespan(_application: FastAPI):
         stop_native_codex()
 
 
-app = FastAPI(title="NetDeploy AI", version="0.3.46",
+app = FastAPI(title="NetDeploy AI", version="0.3.47",
               lifespan=native_codex_lifespan)
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
@@ -258,7 +260,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.46", "security": "local-only"}
+    return {"ok": True, "version": "0.3.47", "security": "local-only"}
 
 
 @app.get("/api/local-session")
@@ -303,6 +305,11 @@ def capabilities():
 @app.get("/api/hosts", dependencies=[Depends(authorized)])
 def list_hosts():
     return [public_host(host) for host in store.hosts()]
+
+
+@app.get("/api/hosts/{id}/metrics", dependencies=[Depends(authorized)])
+def server_metrics(id: int):
+    return host_metrics.read(find_host(id), executor)
 
 
 @app.post("/api/hosts", dependencies=[Depends(authorized)])
