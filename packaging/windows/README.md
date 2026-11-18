@@ -4,7 +4,7 @@
 
 输出位于 `release/`，包括安装 EXE、免安装 ZIP、SHA-256 和构建清单。构建时不会读取本机 `.env`、数据库、SSH 文件或 ChatGPT 授权。安装包中的依赖各自保留其许可证。
 
-执行 `python tests/smoke_windows_installer.py release/NetDeployAI-0.3.44-Setup-x64.exe` 可验证首次安装、独立 Codex SDK、重复打开、覆盖升级及卸载保留数据。测试使用临时中文目录与独立端口 18787、18789。
+执行 `python tests/smoke_windows_installer.py release/NetDeployAI-0.3.45-Setup-x64.exe` 可验证首次安装、独立 Codex SDK、重复打开、覆盖升级及卸载保留数据。测试使用临时中文目录与独立端口 18787、18789。
 
 客户端使用 .NET Framework 4.8、Windows 10 兼容清单和 WinForms 的 PerMonitorV2 配置，避免系统位图拉伸导致 WebView2 内容发虚。构建必须同时分发 `NetDeployAI.exe.config`。安装验证会检查主窗口的 DPI 感知、WebView2 像素比例和实际内容尺寸；应在标准 DPI 与高 DPI 环境分别运行。
 

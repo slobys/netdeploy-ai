@@ -422,13 +422,24 @@ internal sealed partial class ClientWindow : Form
                     const opensForm=!!document.querySelector('#add-host-form input[name=name]');
                     closeDialog();
                     if(!opensForm) return false;
+                    const deleteButton=cards[0].querySelector('.host-card-delete');
+                    deleteButton.click();
+                    const form=document.querySelector('#delete-host-form');
+                    const confirmation=form?.querySelector('input[name=delete_local_history]');
+                    const fields=form ? [...form.children] : [];
+                    const separated=fields.every((field,i)=>i===0 ||
+                        field.getBoundingClientRect().top>=fields[i-1].getBoundingClientRect().bottom);
+                    const deleteDialogFits=confirmation?.required && !confirmation.checked &&
+                        fields.length===3 && separated && form.scrollWidth<=form.clientWidth+1;
+                    closeDialog();
+                    if(!deleteDialogFits) return false;
                     return cards.every(card=>{
                         const r=card.getBoundingClientRect(),button=card.querySelector('.host-card-delete').getBoundingClientRect();
                         return button.right<=r.right && button.bottom<=r.bottom && card.scrollWidth<=card.clientWidth+1;
                     }) && document.documentElement.scrollWidth<=innerWidth;
                 } finally { state.hosts=previousHosts;state.section=previousSection;render(); }
             })()");
-        if (valid != "true") throw new Exception("Server cards or footer actions do not align or fit the window.");
+        if (valid != "true") throw new Exception("Server card grid, add form or delete confirmation does not fit or work.");
     }
 
     private void Fail(string text)

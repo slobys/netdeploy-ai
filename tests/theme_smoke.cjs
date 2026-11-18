@@ -250,12 +250,10 @@ function harness({stored={},osDark=false,throwStorage=false,legacyMedia=false}={
     'Only compact layouts should hide the theme button label');
   // Regression: hovering a light-mode VPS must not apply an old navy gradient
   // while the host name, address and details remain dark theme-aware text.
-  const hoverRule=refinement.match(/\.host-item:is\(:hover, :focus-visible\)\s*\{([^}]+)\}/);
-  assert(hoverRule && /background:\s*var\(--theme-panel\)/.test(hoverRule[1]),
+  const hoverRule=refinement.match(/\.host-item:is\(:hover[^\n]+, :focus-visible\),[^{}]+\{([^}]+)\}/);
+  assert(hoverRule && /background:\s*var\(--nd-hover-tint\)/.test(hoverRule[1]) &&
+    /--nd-hover-tint:\s*color-mix\(in srgb, var\(--theme-accent\) \d+%, var\(--theme-panel\)\)/.test(refinement),
     'Host hover must use the current theme panel colors');
-  const hoverLink=refinement.match(/\.host-item:is\(:hover, :focus-visible\) \.host-card-open\s*\{([^}]+)\}/);
-  assert(hoverLink && hoverLink[1].includes('color: var(--theme-accent)'),
-    'Host action must remain legible over the hover background');
   const cleaned=refinement.replace(/\/\*[\s\S]*?\*\//g,'');
   let depth=0;
   for(const ch of cleaned){

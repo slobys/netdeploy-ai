@@ -5,7 +5,9 @@
 :root {
   --nd-card-radius: 14px;
   --nd-control-radius: 10px;
-  --nd-hover-tint: color-mix(in srgb, var(--theme-action) 6%, var(--theme-panel));
+  --nd-hover-tint: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-panel));
+  --nd-press-tint: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-panel));
+  --nd-hover-edge: inset 0 0 0 1px var(--theme-accent);
   --nd-focus-ring: color-mix(in srgb, var(--theme-action) 26%, transparent);
 }
 
@@ -119,10 +121,11 @@
   background: var(--theme-panel);
   box-shadow: 0 1px 1px color-mix(in srgb, #000 8%, transparent);
 }
-#projects-section:is(.is-featured,.is-catalog) .project:hover {
+#projects-section:is(.is-featured,.is-catalog) .project:is(:hover, :has(:focus-visible)) {
   transform: none;
-  border-color: var(--theme-line-strong);
-  box-shadow: var(--theme-shadow);
+  background: var(--nd-hover-tint);
+  border-color: var(--theme-accent);
+  box-shadow: var(--nd-hover-edge);
 }
 .project:hover .project-icon, .host-item:hover .host-icon { transform: none; }
 /* Keep surface changes immediate when switching appearance; cross-fading a
@@ -137,7 +140,7 @@
   margin-top: auto;
   padding-top: 11px;
 }
-#projects-section:is(.is-featured,.is-catalog) .project-footer .btn {
+#projects-section:is(.is-featured,.is-catalog) .project-footer .btn:not(:hover):not(:focus-visible) {
   min-height: 40px;
 }
 .project-sort-handle {
@@ -234,19 +237,39 @@
   cursor: pointer;
 }
 .host-add-icon { width: 36px; height: 36px; }
-.host-add-card:is(:hover, :focus-visible) {
-  border-color: var(--theme-accent);
-  background: var(--theme-panel-3);
-}
-/* The older hover rule uses a hard-coded navy background. On a light theme
-   that hid the dark host name and IP, so keep hover/focus in the active palette. */
-.host-item:is(:hover, :focus-visible) {
-  background: var(--theme-panel);
-  border-color: var(--theme-action);
+.host-item:hover {
+  transform: none;
+  border-color: var(--theme-line);
   box-shadow: var(--theme-shadow);
 }
-.host-item:is(:hover, :focus-visible) .host-card-open {
-  color: var(--theme-accent);
+/* The delete control has a separate action and its own hover and focus state. */
+.host-item:is(:hover:not(:has(.host-card-delete:hover)), :focus-visible),
+.host-add-card:is(:hover, :focus-visible),
+.job-item:has(.btn:is(:hover, :focus-visible)),
+.server-history-item:is(:hover, :focus-visible) {
+  background: var(--nd-hover-tint);
+  border-color: var(--theme-accent);
+  box-shadow: var(--nd-hover-edge);
+}
+.host-add-card:is(:hover, :focus-visible) { border-style: solid; }
+.host-item:is(:hover:not(:has(.host-card-delete:hover)), :focus-visible) .host-card-open {
+  text-decoration: underline;
+  text-underline-offset: .2em;
+}
+.host-item:active:not(:has(.host-card-delete:active)), .host-add-card:active {
+  background: var(--nd-press-tint);
+}
+.job-item:hover, .server-tab:hover:not(.active), .host-card-delete:hover {
+  transform: none;
+}
+.job-item:hover:not(:has(.btn:is(:hover, :focus-visible))) {
+  border-color: var(--theme-line);
+  box-shadow: var(--theme-shadow);
+}
+.stat:hover {
+  transform: none;
+  border-color: var(--theme-line);
+  box-shadow: var(--theme-shadow);
 }
 .host-item:focus-visible {
   outline: 2px solid var(--theme-accent);
@@ -265,10 +288,11 @@
   padding: 17px;
   gap: 9px;
 }
-.server-project-choice:hover {
-  border-color: var(--theme-line-strong);
+.server-project-choice:is(:hover, :focus-visible) {
+  border-color: var(--theme-accent);
   background: var(--nd-hover-tint);
-  transform: translateY(-1px);
+  box-shadow: var(--nd-hover-edge);
+  transform: none;
 }
 .server-project-choice strong { line-height: 1.4; }
 
@@ -281,10 +305,6 @@
   min-height: 64px;
   gap: 2px 8px;
   padding: 8px 12px;
-}
-.setup-project-grid .server-project-choice:hover {
-  transform: none;
-  box-shadow: none;
 }
 .setup-project-grid .server-project-choice:focus-visible {
   outline: 2px solid var(--theme-accent);
@@ -330,7 +350,9 @@
   box-shadow: 0 2px 5px color-mix(in srgb, #000 12%, transparent);
 }
 .btn.primary:hover:not(:disabled) {
-  filter: brightness(1.05);
+  background: var(--theme-action-deep);
+  border-color: var(--theme-action-deep);
+  filter: none;
   box-shadow: 0 3px 8px color-mix(in srgb, #000 14%, transparent);
 }
 .btn.subtle, .modal .btn.ghost {
@@ -338,10 +360,21 @@
   background: var(--theme-panel-2);
   border-color: var(--theme-line-strong);
 }
-.btn.subtle:hover:not(:disabled), .modal .btn.ghost:hover:not(:disabled) {
+.btn.subtle:hover:not(:disabled), .btn.ghost:hover:not(:disabled),
+.modal .btn.ghost:hover:not(:disabled), .topbar .icon-button:hover:not(:disabled),
+.topbar .topbar-doc-link:hover, .topbar .topbar-theme-button:hover,
+.topbar #desktop-version:hover, .server-tab:hover:not(.active) {
   color: var(--theme-title);
   background: var(--nd-hover-tint);
-  border-color: var(--theme-action);
+  border-color: var(--theme-accent);
+  box-shadow: var(--nd-hover-edge);
+}
+.btn:is(.subtle, .ghost):active:not(:disabled), .modal .btn.ghost:active:not(:disabled) {
+  background: var(--nd-press-tint);
+}
+.btn.danger:hover:not(:disabled), .host-card-delete:hover:not(:disabled) {
+  border-color: var(--theme-danger);
+  box-shadow: inset 0 0 0 1px var(--theme-danger);
 }
 .btn.danger {
   color: var(--theme-danger);
@@ -365,8 +398,18 @@
   line-height: 1.4;
   text-align: left;
 }
+.text-action:hover, .server-back:hover {
+  color: var(--theme-accent);
+  text-decoration: underline;
+  text-underline-offset: .2em;
+}
 .text-action:hover { background: var(--nd-hover-tint); }
 .nav-item:hover { transform: none; }
+.nav-item:hover:not(.active) {
+  color: var(--theme-title);
+  background: var(--nd-hover-tint);
+  box-shadow: var(--nd-hover-edge);
+}
 .nav-item.active { font-weight: 750; }
 .nav-count {
   display: inline-flex;
@@ -406,6 +449,44 @@
   width: auto;
   padding: 0;
 }
+label.check {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--theme-panel-2);
+  border: 1px solid var(--theme-line-strong);
+  border-radius: var(--nd-control-radius);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+label.check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: .25em 0 0;
+  accent-color: var(--theme-action);
+}
+label.check:is(:hover, :has(input:focus-visible)) {
+  border-color: var(--theme-accent);
+  box-shadow: var(--nd-hover-edge);
+}
+label.check:has(input:checked) {
+  color: var(--theme-title);
+  background: var(--nd-hover-tint);
+  border-color: var(--theme-accent);
+}
+#delete-host-form {
+  display: grid;
+  gap: 14px;
+}
+.delete-host-summary {
+  display: grid;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+#delete-host-form .modal-actions { margin-top: 0; }
 
 /* Long approval/review dialogs: keep title and close control reachable. */
 .modal-wrap { padding: clamp(8px, 2vw, 20px); }
@@ -530,6 +611,9 @@
   #projects-section.is-catalog .project-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .topbar { height: auto; padding: 8px 16px; }
+  .topbar .crumb { overflow: hidden; text-overflow: ellipsis; }
+  .top-actions { flex-wrap: wrap; }
 }
 /* Preserve primary actions without forcing the desktop controls to collide. */
 @media (max-width: 1050px) {

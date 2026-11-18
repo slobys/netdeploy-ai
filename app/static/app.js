@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.44 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.45 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.44';
+const CLIENT_VERSION = '0.3.45';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -813,7 +813,7 @@ async function continueExistingXuiHttps(id){
 function authSelect(current='password',remembered=false) {
  const native=state.capabilities.secure_password_storage;
  const rememberUI=native
-   ? `<label class="check"><input type="checkbox" name="remember_password" ${remembered?'checked':''}/> 保存到 Windows 系统凭据库（以后更新、重启免输密码）</label>`
+   ? `<label class="check"><input type="checkbox" name="remember_password" ${remembered?'checked':''}/><span>保存到 Windows 系统凭据库（以后更新、重启免输密码）</span></label>`
    : '<div class="modal-tip">此设备没有可用的 Windows 凭据保管库，密码仅保存在当前进程内存；建议使用 SSH 密钥登录。</div>';
  return `<div class="form-group"><label>SSH 登录方式</label><select name="auth_mode" id="auth-mode"><option value="password" ${current==='password'?'selected':''}>SSH 密码登录</option><option value="key" ${current==='key'?'selected':''}>SSH 私钥登录</option></select></div>
  <div class="form-group" id="password-field" ${current==='key'?'hidden':''}><label>SSH 登录密码</label><input id="ssh-password" type="password" name="password" maxlength="1024" autocomplete="new-password" placeholder="输入 VPS SSH 登录密码" ${current==='password'?'required':''}/>${rememberUI}</div>`;
@@ -1141,9 +1141,12 @@ function editHost(id){
 function deleteHost(id){
  const host=state.hosts.find(h=>h.id===id);if(!host)return;
  dialog(modalHead('删除 VPS 记录')+`<div class="modal-tip warning"><b>只删除 NetDeploy AI 的本地记录，不卸载 VPS 软件。</b> SSH 指纹若被其他服务器条目共用，会继续保留。关联部署任务、日志和面板快捷入口将在明确确认后删除，无法从面板恢复。</div>
- <p class="helptext">${escapeHtml(host.name)} · ${escapeHtml(host.hostname)}:${host.port} · ${host.job_count||0} 条部署历史</p>
- <form id="delete-host-form"><p class="helptext">点击下方删除按钮即可确认，不需要手动输入英文确认语句。</p>
- ${host.job_count?`<label class="check"><input type="checkbox" name="delete_local_history" required/> 我确认同步删除该 VPS 的 ${host.job_count} 条本地任务历史及日志（不会删除远端软件）</label>`:''}
+ <form id="delete-host-form">
+ <div class="delete-host-summary">
+   <strong>${escapeHtml(host.name)}</strong>
+   <p class="helptext"><bdi>${escapeHtml(host.hostname)}:${host.port}</bdi> · ${host.job_count||0} 条部署历史</p>
+ </div>
+ ${host.job_count?`<label class="check"><input type="checkbox" name="delete_local_history" required/><span>我确认同步删除这台 VPS 的 ${host.job_count} 条本地任务历史及日志</span></label>`:''}
  <div class="modal-actions"><button class="btn ghost" type="button" data-action="close-modal">取消</button><button class="btn danger" type="submit">删除本地服务器记录</button></div></form>`);
  el('#delete-host-form').addEventListener('submit',async e=>{
    e.preventDefault();const form=e.currentTarget;const fd=new FormData(form);
