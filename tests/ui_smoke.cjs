@@ -117,7 +117,7 @@ let fingerprintRequests = 0;
 let planCreations = 0;
 let xuiStatus = {installed:false,service:'absent',managed:false,port:null,access_mode:'unavailable'};
 let returnedJobs=null;
-let runtimeVersion='0.3.47';
+let runtimeVersion='0.3.48';
 let xuiReadRequests=0;
 let suiReadRequests=0;
 let suiStatus={installed:false,service:'absent',managed:false,access_mode:'unavailable'};
@@ -391,8 +391,12 @@ function fingerprintFor(label) {
   evaluate(`jobFilter='approval';renderJobs();`);
   assert(made.get('#job-list').innerHTML.includes('a1b2c3d4e5f6a7b8'));
   evaluate(`jobFilter='all';state.section='dashboard';renderSection();`);
-  assert(evaluate("usageMarkup({status:'unreachable'}).includes('SSH 无法连接')"));
-  assert(evaluate("usageMarkup({status:'connected',cpu:87}).includes('data-level=\"high\"')"));
+  assert(evaluate("hostConnectionMarkup({status:'unreachable'}).includes('SSH 无法连接')"));
+  assert(evaluate("hostUsageMarkup({status:'connected',cpu:87}).includes('data-level=\"high\"')"));
+  const hostCards = made.get('#host-list').innerHTML;
+  assert.match(hostCards, /class="host-title"[^\n]+class="host-connection-slot"/);
+  assert.match(hostCards, /class="host-card-meta"[^\n]+class="host-resource-values"/);
+  assert(!hostCards.includes('host-live'), 'Resources should not add a separate host panel');
 
   evaluate('openHostConsole(1)');
   assert(modal.innerHTML.includes('继续审批部署'), 'Primary action must be visible');
@@ -419,9 +423,9 @@ function fingerprintFor(label) {
   await evaluate('loadAll(true)');
   assert(made.get('.tag.alpha').textContent.includes('版本不一致'));
   assert(made.get('.tag.alpha').textContent.includes('0.3.8'));
-  runtimeVersion='0.3.47';
+  runtimeVersion='0.3.48';
   await evaluate('loadAll(true)');
-  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.47');
+  assert(made.get('.tag.alpha').textContent==='ALPHA v0.3.48');
   returnedJobs=null;
   evaluate("state.token=''");
 

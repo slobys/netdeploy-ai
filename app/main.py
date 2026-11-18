@@ -67,7 +67,7 @@ async def native_codex_lifespan(_application: FastAPI):
         stop_native_codex()
 
 
-app = FastAPI(title="NetDeploy AI", version="0.3.47",
+app = FastAPI(title="NetDeploy AI", version="0.3.48",
               lifespan=native_codex_lifespan)
 LOCAL_AUTO_LOGIN = os.getenv("NETDEPLOY_LOCAL_AUTO_LOGIN", "0") == "1"
 
@@ -260,7 +260,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "version": "0.3.47", "security": "local-only"}
+    return {"ok": True, "version": "0.3.48", "security": "local-only"}
 
 
 @app.get("/api/local-session")

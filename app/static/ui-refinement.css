@@ -167,9 +167,9 @@
 .host-card-top .host-icon { width: 32px; height: 32px; align-self: start; }
 .host-card-open { align-self: start; padding-top: 6px; }
 .host-title { min-width: 0; }
-.host-title b { overflow-wrap: anywhere; }
+.host-title b { min-width: 0; overflow-wrap: anywhere; }
 .host-card-address { line-height: 1.6; }
-.host-card-meta { gap: 6px 12px; }
+.host-card-meta { align-items: center; gap: 6px 12px; }
 .host-card-footer {
   display: flex;
   align-items: flex-end;
@@ -183,73 +183,60 @@
 .host-card-footer .host-card-delete { position: static; flex-shrink: 0; padding: 6px 10px; }
 .host-card-footer .host-card-hint { margin: 0; }
 .host-card-meta span:not(:last-child):after { content: none; }
-.host-live {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid var(--theme-line);
-  border-radius: var(--nd-control-radius);
-  background: var(--theme-panel-2);
-}
-.host-live-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
-.host-live-head .chip { display: inline-flex; align-items: center; gap: 6px; }
-.host-live-head small { color: var(--theme-secondary); font-size: var(--ui-fs-small); font-variant-numeric: tabular-nums; }
-.host-meter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.host-meter {
-  --meter-color: var(--theme-accent);
-  display: grid;
+.host-title .host-connection {
+  display: inline-flex;
+  align-items: center;
   gap: 5px;
-  min-width: 0;
-  color: var(--theme-secondary);
-  font-size: var(--ui-fs-small);
+  padding: 3px 6px;
+  font-size: var(--ui-fs-caption);
 }
-.host-meter[data-level="warn"] { --meter-color: var(--theme-warning); }
-.host-meter[data-level="high"] { --meter-color: var(--theme-danger); }
-.host-meter > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 6px; }
-.host-meter strong { color: var(--meter-color); font-variant-numeric: tabular-nums; }
-.host-meter[data-level="unknown"] strong { color: var(--theme-secondary); }
-.host-meter meter, .meter-empty {
-  appearance: none;
-  display: block;
-  width: 100%;
-  height: 5px;
-  border: 0;
+.host-connection .health-dot { width: 6px; height: 6px; }
+.host-resource-values { display: inline-flex; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
+.host-usage {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
   border-radius: 4px;
-  background: var(--theme-line);
+  padding-inline: 4px;
+  white-space: nowrap;
+  font-size: var(--ui-fs-caption);
+  font-variant-numeric: tabular-nums;
 }
-.host-meter meter::-webkit-meter-bar { background: var(--theme-line); border: 0; border-radius: 4px; }
-.host-meter meter::-webkit-meter-optimum-value { background: var(--meter-color); border-radius: 4px; }
-.host-meter meter::-moz-meter-bar { background: var(--meter-color); border-radius: 4px; }
-.job-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.host-usage[data-level="normal"] strong { color: var(--theme-accent); }
+.host-usage[data-level="warn"] { color: var(--theme-warning); background: var(--theme-warning-bg); }
+.host-usage[data-level="high"] { color: var(--theme-danger); background: var(--theme-danger-bg); }
+.job-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .job-filter {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
-  min-height: 40px;
+  gap: 6px;
+  min-height: 32px;
+  padding: 3px 10px;
   border-radius: 999px;
   border: 1px solid var(--theme-line-strong);
   color: var(--theme-title);
   background: var(--theme-panel);
-  font-size: var(--ui-fs-meta);
+  font-size: var(--ui-fs-caption);
   font-weight: 700;
 }
 .job-filter:hover { border-color: var(--theme-accent); background: var(--nd-hover-tint); }
 .job-filter[aria-pressed="true"] { color: var(--theme-on-action); border-color: var(--theme-action-deep); background: var(--theme-action-deep); }
-.job-filter span { padding-inline: 6px; border: 1px solid currentColor; border-radius: 999px; font-variant-numeric: tabular-nums; }
-#job-list { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 14px; }
+.job-filter span { min-width: 1.35em; text-align: center; font-variant-numeric: tabular-nums; }
+#job-list { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 330px)); gap: 12px; }
 #job-list > .empty { grid-column: 1 / -1; }
-.job-card { display: grid; grid-template-rows: auto 1fr auto; gap: 12px; padding: 16px; align-items: start; }
-.job-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.job-card-head .chip { max-width: 80%; white-space: normal; text-align: right; }
-.job-card-head .job-icon { width: 32px; height: 32px; flex: none; }
-.job-card .job-main { display: grid; gap: 6px; min-width: 0; }
-.job-main h3 { color: var(--theme-title); font-size: var(--ui-fs-body); }
-.job-host { justify-self: start; max-width: 100%; white-space: normal; }
-.job-card .job-main small { margin: 0; }
-.job-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--theme-line); }
-.job-card-actions .btn { padding-inline: 10px; }
+.job-card { display: grid; grid-template-rows: auto 1fr auto; gap: 7px; padding: 12px; align-items: start; }
+.job-card-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 8px; }
+.job-card-head .job-icon { width: 28px; height: 28px; border-radius: 8px; font-size: 16px; }
+.job-card-title { display: flex; flex-wrap: wrap; align-items: center; align-self: center; gap: 4px 6px; min-width: 0; }
+.job-card-title h3 { min-width: 0; overflow-wrap: anywhere; color: var(--theme-title); font-size: var(--ui-fs-body); }
+.job-card-head .chip { padding: 3px 6px; white-space: normal; overflow-wrap: anywhere; }
+.job-card-head > .chip { align-self: center; max-width: 9em; }
+.job-card .job-main small { margin: 0; white-space: normal; font-size: var(--ui-fs-caption); }
+.job-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.job-card-actions .btn { min-height: 32px; padding: 4px 9px; font-size: var(--ui-fs-small); }
+@media (pointer: coarse) {
+  .job-filter, .job-card-actions .btn { min-height: 44px; }
+}
 .host-list > .empty { grid-column: 1 / -1; }
 .host-add-card {
   display: flex;

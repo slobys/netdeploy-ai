@@ -1,6 +1,6 @@
-/* NetDeploy AI v0.3.47 – no external JavaScript, no generated remote shell. */
+/* NetDeploy AI v0.3.48 – no external JavaScript, no generated remote shell. */
 const el = (s) => document.querySelector(s);
-const CLIENT_VERSION = '0.3.47';
+const CLIENT_VERSION = '0.3.48';
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const state = {token:sessionStorage.getItem('nd_token')||'', hosts:[], jobs:[], catalog:{}, capabilities:{secure_password_storage:false}, section:'dashboard', activeJob:null, hostPanel:null, pendingFingerprint:null, loading:false, lastSnapshot:null,versionMismatchShown:false,setupFlowId:null,setupFirewallStatus:'unknown',setupFirewallBusy:false,setupFailedFirewallRules:[]};
 
@@ -225,23 +225,21 @@ function sampleFor(host){
 function usageTone(value){
  return value>=85?'high':value>=70?'warn':'normal';
 }
-function usageMarkup(sample){
+function hostConnectionMarkup(sample){
  const [message,tone]=({
    connected:['SSH 可连接','success'],unreachable:['SSH 无法连接','error'],
    trust:['待核验 SSH 指纹','warn'],auth_failed:['SSH 认证失败','error'],
    credentials:['缺少 SSH 凭据','warn'],sampling:['等待采集',''],unavailable:['采集服务暂不可用','warn']
  })[sample.status]||['等待采集',''];
  const date=new Date(sample.checked_at);
- const time=Number.isFinite(date.getTime())?date.toLocaleTimeString('zh-CN',{hour12:false}):'';
- return `<div class="host-live-head"><span class="chip ${tone}"><span class="health-dot" aria-hidden="true"></span>${message}</span>
-   ${time?`<small>${sample.status==='connected'?'采样':'检查'} ${escapeHtml(time)}</small>`:''}</div>
-   <div class="host-meter-grid">${metricFields.map(([key,label])=>{
-     const value=sample.status==='connected'&&Number.isFinite(sample[key])?Math.max(0,Math.min(100,sample[key])):null;
-     return `<div class="host-meter" data-level="${value===null?'unknown':usageTone(value)}">
-       <div><span>${label}</span><strong>${value===null?'—':escapeHtml(value)+'%'}</strong></div>
-       ${value===null?'<span class="meter-empty" aria-hidden="true"></span>':`<meter min="0" max="100" value="${value}" aria-label="${label}占用"></meter>`}
-     </div>`;
-   }).join('')}</div>`;
+ const detail=Number.isFinite(date.getTime())?`上次${sample.status==='connected'?'采样':'检查'} ${date.toLocaleTimeString('zh-CN',{hour12:false})}`:'';
+ return `<span class="chip host-connection ${tone}"${detail?` title="${escapeHtml(detail)}"`:''}><span class="health-dot" aria-hidden="true"></span>${message}</span>`;
+}
+function hostUsageMarkup(sample){
+ return metricFields.map(([key,label])=>{
+   const value=sample.status==='connected'&&Number.isFinite(sample[key])?Math.max(0,Math.min(100,sample[key])):null;
+   return `<span class="host-usage" data-level="${value===null?'unknown':usageTone(value)}">${label} <strong>${value===null?'—':value+'%'}</strong></span>`;
+ }).join('');
 }
 function renderOverview(){
  const samples=state.hosts.map(sampleFor);
@@ -260,8 +258,11 @@ function renderOverview(){
 function paintHostSamples(){
  renderOverview();
  for(const host of state.hosts){
-   const target=el(`[data-host-live="${host.id}"]`);
-   if(target)target.innerHTML=usageMarkup(sampleFor(host));
+   const card=el(`.host-item[data-id="${host.id}"]`);
+   if(!card)continue;
+   const sample=sampleFor(host);
+   card.querySelector('.host-connection-slot').innerHTML=hostConnectionMarkup(sample);
+   card.querySelector('.host-resource-values').innerHTML=hostUsageMarkup(sample);
  }
 }
 function showMetricsHere(){
@@ -323,10 +324,12 @@ function renderJobs(){
    const existing=isExistingXuiPlan(job);
    const action=existing?'installed-xui':historicalHttpsFailure(job)||planNeedsUpdate(job)&&job.plan?.executable?'regenerate-plan':'job';
    return `<article class="job-item job-card">
-     <div class="job-card-head"><span class="job-icon" aria-hidden="true">${symbol[job.project]||'⋄'}</span>
-       ${chip(job)}</div>
-     <div class="job-main"><h3>${escapeHtml(project)}</h3><span class="chip job-host">${escapeHtml(host?.name||job.plan?.hostname||'服务器记录已移除')}</span>
-       <small><time datetime="${escapeHtml(job.created_at)}">${escapeHtml(job.created_at.replace('T',' ').slice(0,19))} UTC</time> · #${escapeHtml(job.id)}</small></div>
+     <div class="job-card-head">
+       <span class="job-icon" aria-hidden="true">${symbol[job.project]||'⋄'}</span>
+       <div class="job-card-title"><h3>${escapeHtml(project)}</h3><span class="chip job-host">${escapeHtml(host?.name||job.plan?.hostname||'服务器记录已移除')}</span></div>
+       ${chip(job)}
+     </div>
+     <div class="job-main"><small><time datetime="${escapeHtml(job.created_at)}">${escapeHtml(job.created_at.replace('T',' ').slice(0,19))} UTC</time> · #${escapeHtml(job.id)}</small></div>
      <div class="job-card-actions"><button class="btn ${job.status==='planned'?'primary':'subtle'}" data-action="${action}" data-id="${escapeHtml(existing?job.host_id:job.id)}">${escapeHtml(jobNextAction(job))} →</button>
        ${['queued','running'].includes(job.status)?'':`<button class="btn danger" data-action="delete-job" data-id="${escapeHtml(job.id)}" aria-label="删除任务 ${escapeHtml(job.id)}">删除</button>`}</div>
    </article>`;
@@ -357,11 +360,11 @@ function render(){
  }
  el('#host-list').innerHTML=hosts.length?hosts.map(h=>{
    const duplicate=hosts.filter(x=>x.hostname.toLowerCase()===h.hostname.toLowerCase()&&x.port===h.port).length;
-   return `<article class="host-item interactive-card" role="button" tabindex="0" data-action="host-console" data-id="${h.id}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台">
-      <div class="host-card-top"><div class="host-icon">▤</div><div class="host-title"><b>${escapeHtml(h.name)}</b></div><span class="host-card-open">管理服务器 →</span></div>
+   const sample=sampleFor(h);
+   return `<article class="host-item interactive-card" role="button" tabindex="0" data-action="host-console" data-id="${h.id}" aria-label="打开 ${escapeHtml(h.name)} 的服务器控制台" aria-describedby="host-connection-${h.id} host-usage-${h.id}">
+      <div class="host-card-top"><div class="host-icon">▤</div><div class="host-title"><b>${escapeHtml(h.name)}</b><span class="host-connection-slot" id="host-connection-${h.id}">${hostConnectionMarkup(sample)}</span></div><span class="host-card-open">管理服务器 →</span></div>
       <div class="host-card-address">${escapeHtml(h.username)}@${escapeHtml(h.hostname)}:${h.port}</div>
-      <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span></div>
-      <div class="host-live" data-host-live="${h.id}">${usageMarkup(sampleFor(h))}</div>
+      <div class="host-card-meta"><span>${h.facts?escapeHtml(h.facts.OS_ID)+' / '+escapeHtml(h.facts.ARCH):'等待系统识别'}</span><span>${h.auth_mode==='password'?(h.password_remembered?'密码已安全保存':'密码登录'):'密钥登录'}</span><span>${h.job_count||0} 条任务</span><span class="host-resource-values" id="host-usage-${h.id}">${hostUsageMarkup(sample)}</span></div>
       <div class="host-card-footer"><div class="host-card-details"><span class="host-cert-detail">${h.tls_domain?'域名证书 '+escapeHtml(h.tls_domain):'IP 证书（未填域名）'}</span>${h.facts?.XUI_PRESENT==='yes'?'<span class="host-installed-xui">3X-UI 已安装</span>':''}${h.facts?.SUI_PRESENT==='yes'?'<span class="host-installed-xui">S-UI 已安装</span>':''}${h.facts?.DOCKGE_PRESENT==='yes'?'<span class="host-installed-xui">Dockge / Apps 已安装</span>':''}${duplicate>1?`<span class="host-card-hint">${duplicate} 条记录共用此 SSH 地址</span>`:''}</div>
       <button class="host-card-delete" type="button" data-action="delete-host" data-id="${h.id}" aria-label="删除 ${escapeHtml(h.name)} 的本地服务器记录">删除服务器</button></div>
     </article>`;
